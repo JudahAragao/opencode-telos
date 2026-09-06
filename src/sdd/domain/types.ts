@@ -310,7 +310,7 @@ export interface FileNode extends Node {
 export interface SymbolNode extends Node {
   type: "symbol"
   metadata: {
-    symbol_type: "function" | "class" | "interface" | "type" | "method" | "variable"
+    symbol_type: "function" | "class" | "interface" | "type" | "method" | "variable" | "module" | "enum" | "field"
     file_path: string
     line_start?: number
     line_end?: number

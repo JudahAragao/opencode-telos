@@ -16,11 +16,6 @@ function symbolRange(node: ts.Node, source: ts.SourceFile) {
   return rangeFromOffsets(source.text, node.getStart(source), node.getEnd())
 }
 
-function nodeName(node: ts.NamedDeclaration, source: ts.SourceFile): string | undefined {
-  if (!node.name) return undefined
-  return ts.isIdentifier(node.name) || ts.isStringLiteral(node.name) ? node.name.text : textOf(node.name, source)
-}
-
 export class TypeScriptParser implements LanguageParser {
   readonly name = "typescript-compiler-api"
   readonly version = ts.version
@@ -128,10 +123,11 @@ export class TypeScriptParser implements LanguageParser {
     }
 
     for (const statement of source.statements) visit(statement)
-    const hasParseError = source.parseDiagnostics.length > 0
+    const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics || []
+    const hasParseError = parseDiagnostics.length > 0
     if (hasParseError) {
       result.confidence = 0.8
-      for (const diagnostic of source.parseDiagnostics) {
+      for (const diagnostic of parseDiagnostics) {
         const start = diagnostic.start || 0
         result.diagnostics.push({ message: ts.flattenDiagnosticMessageText(diagnostic.messageText, " "), severity: "warning", range: rangeFromOffsets(content, start, start + (diagnostic.length || 1)) })
       }

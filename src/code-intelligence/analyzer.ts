@@ -1,4 +1,4 @@
-import type { KnowledgeGraph } from "../sdd/domain/types.js"
+import type { FileNode, KnowledgeGraph, SymbolNode, TestNode } from "../sdd/domain/types.js"
 import { addNode, addRelationship } from "../sdd/graph/engine.js"
 import { readFileSync, existsSync, readdirSync } from "fs"
 import { join, relative, extname, dirname, resolve } from "path"
@@ -109,10 +109,10 @@ export function analyzeCodebase(
           analysis_source: analysis.analysis_source,
           confidence: analysis.confidence,
           diagnostics: analysis.diagnostics,
-        },
+        } as FileNode["metadata"],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      })
+      } as FileNode)
 
       const symbolIds = new Map<string, string>()
       for (const symbol of analysis.symbols) {
@@ -136,10 +136,10 @@ export function analyzeCodebase(
             source_range: symbol.range,
             analysis_source: analysis.analysis_source,
             confidence: analysis.confidence,
-          },
+          } as SymbolNode["metadata"],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        })
+        } as SymbolNode)
         addRelationship(graph, fileId, symId, "contains")
         symbolsFound++
       }
@@ -167,10 +167,10 @@ export function analyzeCodebase(
               parser: analysis.parser,
               analysis_source: analysis.analysis_source,
               confidence: analysis.confidence,
-            },
+            } as TestNode["metadata"],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          })
+          } as TestNode)
           addRelationship(graph, fileId, testNodeId, "contains")
         } catch {
           // Node might already exist

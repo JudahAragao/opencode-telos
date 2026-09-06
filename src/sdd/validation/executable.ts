@@ -1,5 +1,5 @@
 import { createHash } from "crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs"
 import { join } from "path"
 
 export interface ExecutableCheck {
@@ -36,8 +36,8 @@ export function computeProjectFingerprint(projectDir: string): string {
   const files: string[] = []
 
   const visit = (directory: string): void => {
-    let entries: ReturnType<typeof readdirSync>
-    try { entries = readdirSync(directory, { withFileTypes: true }) } catch { return }
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>
+    try { entries = readdirSync(directory, { withFileTypes: true, encoding: "utf8" }) } catch { return }
     for (const entry of entries) {
       if (entry.name.startsWith(".") && entry.name !== ".env.example") continue
       if (entry.isDirectory()) {

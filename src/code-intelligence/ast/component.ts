@@ -13,7 +13,7 @@ export class ComponentParser implements LanguageParser {
 
   parse(filePath: string, content: string): ParsedFile {
     const language = filePath.toLowerCase().endsWith(".vue") ? "vue" : "svelte"
-    const masked = Array.from(content, (character) => character === "\n" || character === "\r" ? character : " ")
+    const masked: string[] = Array.from(content, (character) => character === "\n" || character === "\r" ? character : " ")
     const blocks = [...content.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)]
     for (const match of blocks) {
       const start = (match.index || 0) + match[0].indexOf(">") + 1
