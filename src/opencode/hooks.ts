@@ -171,18 +171,18 @@ export function detectShellFileWrites(command: string): string[] {
   return [...new Set(files)]
 }
 
-export function createSddHooks(): Hooks {
+export function createSddHooks(projectDir: string): Hooks {
   let systemInjected = false
 
   return {
     "experimental.chat.system.transform": async (_input, output) => {
       if (systemInjected) return
-      if (!isSddEnabled(process.cwd())) return
+      if (!isSddEnabled(projectDir)) return
 
       // Run pending migrations on first load
-      if (hasPendingMigrations(process.cwd())) {
+      if (hasPendingMigrations(projectDir)) {
         try {
-          const migrationResults = runMigrations(process.cwd())
+          const migrationResults = runMigrations(projectDir)
           const successful = migrationResults.filter(r => r.success)
           if (successful.length > 0) {
             output.system.push(`## 🔄 opencode-telos Migrations: ${successful.length} fix(es) applied`)  
@@ -193,10 +193,10 @@ export function createSddHooks(): Hooks {
         }
       }
 
-      const repo = createRepository(process.cwd())
+      const repo = createRepository(projectDir)
       if (repo.isInitialized()) {
         // Restore persistent cache from disk (cross-session)
-        const cacheMgr = getCacheManager(process.cwd())
+        const cacheMgr = getCacheManager(projectDir)
         cacheMgr.restoreFromPersistentCache()
 
         output.system.push(SDD_CORE_SYSTEM_PROMPT)
@@ -204,7 +204,7 @@ export function createSddHooks(): Hooks {
         // Tool Registry: injeta tools relevantes para o estado atual do grafo
         try {
           const { getGraphSnapshot } = await import("./router/graph-state-snapshot.js")
-          const snapshot = getGraphSnapshot(process.cwd())
+          const snapshot = getGraphSnapshot(projectDir)
           const { formatGraphState } = await import("./router/graph-state-snapshot.js")
           output.system.push(formatGraphState(snapshot))
         } catch {}
@@ -235,7 +235,7 @@ export function createSddHooks(): Hooks {
 
           // G: Save graph snapshot to disk for fast cross-session restore
           try {
-            const cacheMgrForSnapshot = getCacheManager(process.cwd())
+            const cacheMgrForSnapshot = getCacheManager(projectDir)
             cacheMgrForSnapshot.saveGraphSnapshot(graph)
           } catch {}
         } catch {
@@ -243,7 +243,7 @@ export function createSddHooks(): Hooks {
         }
         // Persist cache to disk for cross-session reuse
         try {
-          const cacheMgr = getCacheManager(process.cwd())
+          const cacheMgr = getCacheManager(projectDir)
           cacheMgr.persistToDisk()
         } catch {}
         systemInjected = true
@@ -260,14 +260,14 @@ export function createSddHooks(): Hooks {
 
         // Detect /sdd commands
         if (text === "/sdd on") {
-          const state = setToggleState(process.cwd(), true)
+          const state = setToggleState(projectDir, true)
           systemInjected = false
           part.text = `✅ SDD enforcement **enabled** at ${state.changed_at}.\n\nSpec-Driven Development is now active. All code changes will go through the SDD workflow.`
           return
         }
 
         if (text === "/sdd off") {
-          const state = setToggleState(process.cwd(), false)
+          const state = setToggleState(projectDir, false)
           systemInjected = false
           resetWorkflowState()
           part.text = `⏸️ SDD enforcement **disabled** at ${state.changed_at}.\n\nYou can now make code changes freely without SDD workflow. Use \`/sdd on\` to re-enable.`
@@ -275,7 +275,7 @@ export function createSddHooks(): Hooks {
         }
 
         if (text === "/sdd status") {
-          const state = getToggleState(process.cwd())
+          const state = getToggleState(projectDir)
           const status = state.enabled ? "🟢 ON" : "🔴 OFF"
           part.text = `SDD Status: ${status}\nLast changed: ${state.changed_at}\n\nCommands: \`/sdd on\`, \`/sdd off\`, \`/sdd status\`, \`/sdd cache reset\``
           return
@@ -283,7 +283,7 @@ export function createSddHooks(): Hooks {
 
         // H: /sdd cache reset — full cache reset without killing the process
         if (text === "/sdd cache reset") {
-          const cacheMgr = getCacheManager(process.cwd())
+          const cacheMgr = getCacheManager(projectDir)
           const result = cacheMgr.fullReset()
           const lines = ["## 🧹 Cache Reset Complete"]
           lines.push(`- Memory cache: ${result.cleared.memory ? "✅ cleared" : "⏭️ skipped"}`)
@@ -297,7 +297,7 @@ export function createSddHooks(): Hooks {
         }
 
         // Semantic nudge — replaces regex-based pattern detection
-        if (isSddEnabled(process.cwd())) {
+        if (isSddEnabled(projectDir)) {
           const nudge = formatNudgeInput(text)
           if (nudge) {
             part.text += `\n\n${nudge}`
@@ -308,14 +308,14 @@ export function createSddHooks(): Hooks {
 
     "tool.execute.before": async (input, output) => {
       // Skip enforcement if SDD is disabled
-      if (!isSddEnabled(process.cwd())) return
+      if (!isSddEnabled(projectDir)) return
 
       // Enforce workflow context for SDD graph mutation tools
       if (input.tool.startsWith("sdd.")) {
         const access = checkToolAccess(input.tool)
         if (!access.allowed) {
           addAuditEntry(
-            process.cwd(),
+            projectDir,
             process.env.USER || "current",
             input.tool,
             "graph",
@@ -333,7 +333,7 @@ export function createSddHooks(): Hooks {
           // ENFORCEMENT: Block shell writes to .sdd/ directory
           if (command.includes(".sdd/") && (/[>]|writeFile|open\(['"].*['"],\s*['"]w/.test(command))) {
             addAuditEntry(
-              process.cwd(),
+              projectDir,
               process.env.USER || "current",
               "shell_command",
               ".sdd/",
@@ -353,7 +353,7 @@ export function createSddHooks(): Hooks {
 
           const detectedFiles = detectShellFileWrites(command)
           if (detectedFiles.length > 0) {
-            const repo = createRepository(process.cwd())
+            const repo = createRepository(projectDir)
             if (!repo.isInitialized()) return
 
             const graph = repo.loadGraph()
@@ -364,7 +364,7 @@ export function createSddHooks(): Hooks {
 
             if (!hasSpecNodes && graph.nodes.length > 0) {
               addAuditEntry(
-                process.cwd(),
+                projectDir,
                 process.env.USER || "current",
                 "shell_command",
                 detectedFiles.join(", "),
@@ -399,7 +399,7 @@ export function createSddHooks(): Hooks {
 
             if (approvedChanges.length === 0) {
               addAuditEntry(
-                process.cwd(),
+                projectDir,
                 process.env.USER || "current",
                 "shell_command",
                 detectedFiles.join(", "),
@@ -429,7 +429,7 @@ export function createSddHooks(): Hooks {
             const shellWorkflow = getWorkflowState()
             if (shellWorkflow.enforced && !shellWorkflow.specUpdated) {
               addAuditEntry(
-                process.cwd(),
+                projectDir,
                 process.env.USER || "current",
                 "shell_command",
                 detectedFiles.join(", "),
@@ -456,10 +456,10 @@ export function createSddHooks(): Hooks {
 
             // Approved — create snapshots
             for (const change of approvedChanges) {
-              createSnapshot(graph, change.id, process.cwd())
+              createSnapshot(graph, change.id, projectDir)
             }
             addAuditEntry(
-              process.cwd(),
+              projectDir,
               process.env.USER || "current",
               "shell_command",
               detectedFiles.join(", "),
@@ -479,7 +479,7 @@ export function createSddHooks(): Hooks {
         // The SDD graph can ONLY be modified through sdd.* tools
         if (filePath.includes(".sdd/")) {
           addAuditEntry(
-            process.cwd(),
+            projectDir,
             process.env.USER || "current",
             input.tool,
             filePath,
@@ -508,7 +508,7 @@ export function createSddHooks(): Hooks {
         if (!isSourceFile) return
 
         // Check if SDD is initialized
-        const repo = createRepository(process.cwd())
+        const repo = createRepository(projectDir)
         if (!repo.isInitialized()) return
 
         const graph = repo.loadGraph()
@@ -519,7 +519,7 @@ export function createSddHooks(): Hooks {
         
         if (!hasSpecNodes && graph.nodes.length > 0) {
           addAuditEntry(
-            process.cwd(),
+            projectDir,
             process.env.USER || "current",
             "write_file",
             filePath,
@@ -543,12 +543,12 @@ export function createSddHooks(): Hooks {
         }
 
         // Check permissions before allowing changes
-        const userRole = getUserRoleWithAuth(process.cwd(), process.env.USER || "current")
-        const hasPermission = checkPermission(userRole, "create_change", process.cwd())
+        const userRole = getUserRoleWithAuth(projectDir, process.env.USER || "current")
+        const hasPermission = checkPermission(userRole, "create_change", projectDir)
 
         if (!hasPermission) {
           addAuditEntry(
-            process.cwd(),
+            projectDir,
             process.env.USER || "current",
             "write_file",
             filePath,
@@ -577,7 +577,7 @@ export function createSddHooks(): Hooks {
           const workflow = getWorkflowState()
           if (workflow.enforced && !workflow.specUpdated) {
             addAuditEntry(
-              process.cwd(),
+              projectDir,
               process.env.USER || "current",
               "write_file",
               filePath,
@@ -604,10 +604,10 @@ export function createSddHooks(): Hooks {
 
           // Create snapshot before approving change
           for (const change of approvedChanges) {
-            createSnapshot(graph, change.id, process.cwd())
+            createSnapshot(graph, change.id, projectDir)
           }
           addAuditEntry(
-            process.cwd(),
+            projectDir,
             process.env.USER || "current",
             "write_file",
             filePath,
@@ -619,7 +619,7 @@ export function createSddHooks(): Hooks {
 
         // File not covered by any approved Change → BLOCK the write
         addAuditEntry(
-          process.cwd(),
+          projectDir,
           process.env.USER || "current",
           "write_file",
           filePath,
@@ -689,7 +689,7 @@ export function createSddHooks(): Hooks {
     },
 
     "tool.definition": async (input, output) => {
-      if (!isSddEnabled(process.cwd())) return
+      if (!isSddEnabled(projectDir)) return
 
       // Inject SDD enforcement warning into run_terminal_command description
       if (input.toolID === "run_terminal_command") {
@@ -719,7 +719,7 @@ export function createSddHooks(): Hooks {
     dispose: async () => {
       // E: Persist cache and release resources on session end
       try {
-        const cacheMgr = getCacheManager(process.cwd())
+        const cacheMgr = getCacheManager(projectDir)
         cacheMgr.persistToDisk()
         cacheMgr.releaseWriteLock()
       } catch {}

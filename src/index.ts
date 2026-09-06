@@ -4,7 +4,10 @@ import { createSddHooks } from "./opencode/hooks.js"
 
 const SddPlugin: Plugin = async (_ctx) => {
   const tools = createSddTools()
-  const hooks = createSddHooks()
+  // OpenCode can load npm plugins while its process cwd is unrelated to the
+  // active workspace. Always bind hook state to the project directory supplied
+  // by the plugin runtime so .sdd stays inside the project.
+  const hooks = createSddHooks(_ctx.directory)
 
   return {
     tool: tools,
