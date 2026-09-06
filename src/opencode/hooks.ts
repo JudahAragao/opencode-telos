@@ -233,11 +233,6 @@ export function createSddHooks(projectDir: string): Hooks {
             output.system.push(`## Pending Changes: ${pending.length} change(s) awaiting action`)
           }
 
-          // G: Save graph snapshot to disk for fast cross-session restore
-          try {
-            const cacheMgrForSnapshot = getCacheManager(projectDir)
-            cacheMgrForSnapshot.saveGraphSnapshot(graph)
-          } catch {}
         } catch {
           // Handoff is optional, don't fail if it can't be generated
         }

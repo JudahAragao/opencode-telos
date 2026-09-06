@@ -71,6 +71,7 @@ import {
   createDriftWhitelistTool,
 } from "./router/tools-composite.js"
 import { createWorkflowTools } from "./workflows/tools-workflow.js"
+import { graphFingerprint } from "../sdd/cache/fingerprint.js"
 
 // ── Validation Coverage Index (singleton per session) ──────────────
 const validationIndex = new ValidationIndex()
@@ -95,7 +96,7 @@ function getCachedToolResponse(directory: string, toolName: string, args: Record
     const repo = getRepo(directory)
     if (!repo.isInitialized()) return null
     const graph = repo.loadGraph()
-    return cacheMgr.getToolResponse(toolName, args, graph.metadata.updated_at)
+    return cacheMgr.getToolResponse(toolName, args, graphFingerprint(graph))
   } catch {
     return null
   }
@@ -110,7 +111,7 @@ function setCachedToolResponse(directory: string, toolName: string, args: Record
     const repo = getRepo(directory)
     if (!repo.isInitialized()) return
     const graph = repo.loadGraph()
-    cacheMgr.setToolResponse(toolName, args, response, graph.metadata.updated_at)
+    cacheMgr.setToolResponse(toolName, args, response, graphFingerprint(graph))
   } catch {}
 }
 
@@ -698,7 +699,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
 
         // Check analysis cache
         const cacheMgr = getCacheManager(ctx.directory)
-        const cached = cacheMgr.getAnalysisResult("validate", graph.metadata.updated_at ? new Date(graph.metadata.updated_at).getTime() : 0, graph.nodes.length)
+          const cached = cacheMgr.getAnalysisResult("validate", graphFingerprint(graph))
         if (cached) {
           recordTelemetry(ctx.directory, {
             name: "graph_validation",
@@ -727,7 +728,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         }
 
         // Cache the result
-        cacheMgr.setAnalysisResult("validate", formatted, graph.metadata.updated_at ? new Date(graph.metadata.updated_at).getTime() : 0, graph.nodes.length)
+          cacheMgr.setAnalysisResult("validate", formatted, graphFingerprint(graph))
         recordTelemetry(ctx.directory, {
           name: "graph_validation",
           duration_ms: Date.now() - startedAt,
@@ -751,14 +752,14 @@ export function createSddTools(): Record<string, ToolDefinition> {
 
         // Check analysis cache
         const cacheMgr = getCacheManager(ctx.directory)
-        const cached = cacheMgr.getAnalysisResult("drift", graph.metadata.updated_at ? new Date(graph.metadata.updated_at).getTime() : 0, graph.nodes.length)
+          const cached = cacheMgr.getAnalysisResult("drift", graphFingerprint(graph))
         if (cached) return cached as string
 
         const result = detectDrift(graph, ctx.directory)
         const formatted = formatDriftReport(result)
 
         // Cache the result
-        cacheMgr.setAnalysisResult("drift", formatted, graph.metadata.updated_at ? new Date(graph.metadata.updated_at).getTime() : 0, graph.nodes.length)
+          cacheMgr.setAnalysisResult("drift", formatted, graphFingerprint(graph))
 
         return formatted
       },
@@ -1867,14 +1868,14 @@ export function createSddTools(): Record<string, ToolDefinition> {
 
         // Check analysis cache
         const cacheMgr = getCacheManager(ctx.directory)
-        const cached = cacheMgr.getAnalysisResult("quality", graph.metadata.updated_at ? new Date(graph.metadata.updated_at).getTime() : 0, graph.nodes.length)
+          const cached = cacheMgr.getAnalysisResult("quality", graphFingerprint(graph))
         if (cached) return cached as string
 
         const report = calculateQualityScore(graph, ctx.directory)
         const formatted = formatQualityReport(report)
 
         // Cache the result
-        cacheMgr.setAnalysisResult("quality", formatted, graph.metadata.updated_at ? new Date(graph.metadata.updated_at).getTime() : 0, graph.nodes.length)
+          cacheMgr.setAnalysisResult("quality", formatted, graphFingerprint(graph))
 
         return formatted
       },

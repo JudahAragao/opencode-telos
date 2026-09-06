@@ -1,10 +1,12 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs"
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, statSync, openSync, fsyncSync, closeSync } from "fs"
 import { join, dirname } from "path"
 import { createHash } from "crypto"
 import { PerTypeGraphCache, IncrementalGraphHash } from "../graph/index.js"
 import type { AnyNode, NodeType, Relationship } from "../domain/types.js"
 import { getGraphSnapshotStore } from "./snapshot-store.js"
 import type { KnowledgeGraph } from "../domain/types.js"
+import { atomicWriteFile } from "./atomic.js"
+import { configFingerprint, graphFingerprint, sourceFingerprint } from "./fingerprint.js"
 
 // ── Cache Entry Types ────────────────────────────────────────────────
 
@@ -22,15 +24,18 @@ interface ToolCacheEntry {
   lastAccess: number
   toolName: string
   argsHash: string
-  graphVersion: string
+  graphFingerprint: string
+  configFingerprint: string
+  sourceFingerprint?: string
 }
 
 interface AnalysisCacheEntry {
   result: unknown
   timestamp: number
   lastAccess: number
-  graphVersion: number
-  nodeCount: number
+  graphFingerprint: string
+  configFingerprint: string
+  sourceFingerprint?: string
   type: string
 }
 
@@ -38,13 +43,23 @@ interface PersistentCacheData {
   version: number
   toolResponses: Record<string, ToolCacheEntry>
   analysisResults: Record<string, AnalysisCacheEntry>
-  graphSnapshot: {
+  graphSnapshot?: {
     nodeCount: number
     relationshipCount: number
     version: string
     lastModified: number
   } | null
-  graphHash: string
+  graphHash?: string
+  configFingerprint?: string
+}
+
+interface InvalidationEvent {
+  id: string
+  timestamp: number
+  pid: number
+  nodeTypes: string[]
+  relTypes: string[]
+  full: boolean
 }
 
 // ── Granular Invalidation Tracking ───────────────────────────────────
@@ -63,6 +78,8 @@ const TOOL_RESPONSE_TTL = 5 * 60 * 1000      // 5 minutes
 const ANALYSIS_TTL = 3 * 60 * 1000            // 3 minutes
 const PERSISTENT_CACHE_FILE = ".sdd/cache.json"
 const INVALIDATION_FILE = ".sdd/cache-invalidated.json"
+const INVALIDATION_JOURNAL_FILE = ".sdd/cache-events.jsonl"
+const INVALIDATION_JOURNAL_MAX_BYTES = 1024 * 1024
 
 export class CacheManager {
   private projectDir: string
@@ -88,6 +105,9 @@ export class CacheManager {
 
   // Incremental graph hash
   private graphHash = new IncrementalGraphHash()
+  private sourceFingerprintCache: { signature: string; fingerprint: string } | null = null
+  private invalidationJournalOffset = 0
+  private invalidationEventCounter = 0
 
   // Statistics
   private stats = {
@@ -102,6 +122,7 @@ export class CacheManager {
     this.projectDir = projectDir
     this.loadInvalidationTracker()
     this.invalidationVersionOnWrite = this.invalidation.version
+    try { this.invalidationJournalOffset = statSync(join(projectDir, INVALIDATION_JOURNAL_FILE)).size } catch {}
   }
 
   // ── Tool Response Cache ───────────────────────────────────────────
@@ -111,7 +132,8 @@ export class CacheManager {
    * Checks: TTL (using lastAccess for freshness), graph version, invalidation status.
    * F: Uses lazy revalidation — checks version before clearing.
    */
-  getToolResponse(toolName: string, args: Record<string, unknown>, graphVersion: string): string | null {
+  getToolResponse(toolName: string, args: Record<string, unknown>, currentGraphFingerprint: string): string | null {
+    this.refreshExternalInvalidation()
     const key = this.toolCacheKey(toolName, args)
     const entry = this.toolResponses.get(key)
 
@@ -128,6 +150,7 @@ export class CacheManager {
         this.stats.toolMisses++
         return null
       }
+      this.invalidationVersionOnWrite = this.invalidation.version
     }
 
     // B: Check TTL using lastAccess (not timestamp) — entries accessed recently survive restore
@@ -139,7 +162,14 @@ export class CacheManager {
     }
 
     // Check graph version consistency
-    if (entry.graphVersion !== graphVersion) {
+    const currentConfigFingerprint = configFingerprint(this.projectDir)
+    if (entry.graphFingerprint !== currentGraphFingerprint || entry.configFingerprint !== currentConfigFingerprint) {
+      this.toolResponses.delete(key)
+      this.stats.toolMisses++
+      return null
+    }
+
+    if (this.toolNeedsSource(toolName) && entry.sourceFingerprint !== this.getSourceFingerprint()) {
       this.toolResponses.delete(key)
       this.stats.toolMisses++
       return null
@@ -154,7 +184,7 @@ export class CacheManager {
   /**
    * Cache a tool response.
    */
-  setToolResponse(toolName: string, args: Record<string, unknown>, response: string, graphVersion: string): void {
+  setToolResponse(toolName: string, args: Record<string, unknown>, response: string, currentGraphFingerprint: string): void {
     const key = this.toolCacheKey(toolName, args)
     const now = Date.now()
     this.toolResponses.set(key, {
@@ -163,7 +193,9 @@ export class CacheManager {
       lastAccess: now,
       toolName,
       argsHash: this.toolCacheKey(toolName, args).split(':')[1] || '',
-      graphVersion,
+      graphFingerprint: currentGraphFingerprint,
+      configFingerprint: configFingerprint(this.projectDir),
+      sourceFingerprint: this.toolNeedsSource(toolName) ? this.getSourceFingerprint() : undefined,
     })
 
     // Evict old entries if cache is too large
@@ -179,7 +211,8 @@ export class CacheManager {
    * Revalidates based on graph state.
    * F: Uses lazy revalidation.
    */
-  getAnalysisResult(type: string, graphVersion: number, nodeCount: number): unknown | null {
+  getAnalysisResult(type: string, currentGraphFingerprint: string): unknown | null {
+    this.refreshExternalInvalidation()
     const key = `analysis:${type}`
     const entry = this.analysisResults.get(key)
 
@@ -196,6 +229,7 @@ export class CacheManager {
         this.stats.analysisMisses++
         return null
       }
+      this.invalidationVersionOnWrite = this.invalidation.version
     }
 
     // B: Check TTL using lastAccess
@@ -206,8 +240,14 @@ export class CacheManager {
       return null
     }
 
-    // Revalidation: if graph changed since analysis, invalidate
-    if (entry.graphVersion !== graphVersion || entry.nodeCount !== nodeCount) {
+    // Revalidation: graph and configuration content must match exactly.
+    if (entry.graphFingerprint !== currentGraphFingerprint || entry.configFingerprint !== configFingerprint(this.projectDir)) {
+      this.analysisResults.delete(key)
+      this.stats.analysisMisses++
+      return null
+    }
+
+    if (this.analysisNeedsSource(type) && entry.sourceFingerprint !== this.getSourceFingerprint()) {
       this.analysisResults.delete(key)
       this.stats.analysisMisses++
       return null
@@ -222,15 +262,16 @@ export class CacheManager {
   /**
    * Cache an analysis result.
    */
-  setAnalysisResult(type: string, result: unknown, graphVersion: number, nodeCount: number): void {
+  setAnalysisResult(type: string, result: unknown, currentGraphFingerprint: string): void {
     const key = `analysis:${type}`
     const now = Date.now()
     this.analysisResults.set(key, {
       result,
       timestamp: now,
       lastAccess: now,
-      graphVersion,
-      nodeCount,
+      graphFingerprint: currentGraphFingerprint,
+      configFingerprint: configFingerprint(this.projectDir),
+      sourceFingerprint: this.analysisNeedsSource(type) ? this.getSourceFingerprint() : undefined,
       type,
     })
   }
@@ -246,6 +287,7 @@ export class CacheManager {
     }
     this.invalidation.version++
     this.saveInvalidationTracker()
+    this.appendInvalidationEvent({ nodeTypes: [], relTypes: [], full: false })
   }
 
   /**
@@ -257,6 +299,7 @@ export class CacheManager {
     }
     this.invalidation.version++
     this.saveInvalidationTracker()
+    this.appendInvalidationEvent({ nodeTypes: [], relTypes: types, full: false })
   }
 
   /**
@@ -274,6 +317,7 @@ export class CacheManager {
     this.invalidation.version++
     this.stats.invalidations++
     this.saveInvalidationTracker()
+    this.appendInvalidationEvent({ nodeTypes: [], relTypes: [], full: true })
   }
 
   /**
@@ -322,6 +366,7 @@ export class CacheManager {
     this.invalidation.dirtyTypes.add(nodeType)
     this.invalidation.version++
     this.saveInvalidationTracker()
+    this.appendInvalidationEvent({ nodeTypes: [nodeType], relTypes: [], full: false })
   }
 
   // ── Persistent Cache (Cross-Session) ──────────────────────────────
@@ -338,6 +383,10 @@ export class CacheManager {
       if (Date.now() - (data.timestamp || 0) > 60 * 60 * 1000) {
         return null
       }
+      if (data.version !== 2 || !data.toolResponses || !data.analysisResults ||
+        typeof data.toolResponses !== "object" || typeof data.analysisResults !== "object") {
+        return null
+      }
       return data
     } catch {
       return null
@@ -351,7 +400,7 @@ export class CacheManager {
     const path = join(this.projectDir, PERSISTENT_CACHE_FILE)
     const dir = dirname(path)
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    writeFileSync(path, JSON.stringify({ ...data, timestamp: Date.now() }, null, 2))
+    atomicWriteFile(path, JSON.stringify({ ...data, timestamp: Date.now() }, null, 2))
   }
 
   /**
@@ -373,7 +422,9 @@ export class CacheManager {
           lastAccess: entry.lastAccess || entry.timestamp,
           toolName: entry.toolName,
           argsHash: entry.argsHash,
-          graphVersion: entry.graphVersion,
+          graphFingerprint: entry.graphFingerprint,
+          configFingerprint: entry.configFingerprint || "",
+          sourceFingerprint: entry.sourceFingerprint,
         })
         restored++
       }
@@ -386,8 +437,9 @@ export class CacheManager {
           result: entry.result,
           timestamp: entry.timestamp,
           lastAccess: entry.lastAccess || entry.timestamp,
-          graphVersion: entry.graphVersion,
-          nodeCount: entry.nodeCount,
+          graphFingerprint: entry.graphFingerprint,
+          configFingerprint: entry.configFingerprint || "",
+          sourceFingerprint: entry.sourceFingerprint,
           type: key.replace("analysis:", ""),
         })
         restored++
@@ -409,7 +461,9 @@ export class CacheManager {
         lastAccess: entry.lastAccess,
         toolName: entry.toolName,
         argsHash: entry.argsHash,
-        graphVersion: entry.graphVersion,
+        graphFingerprint: entry.graphFingerprint,
+        configFingerprint: entry.configFingerprint,
+        sourceFingerprint: entry.sourceFingerprint,
       }
     }
 
@@ -419,8 +473,9 @@ export class CacheManager {
         result: entry.result,
         timestamp: entry.timestamp,
         lastAccess: entry.lastAccess,
-        graphVersion: entry.graphVersion,
-        nodeCount: entry.nodeCount,
+        graphFingerprint: entry.graphFingerprint,
+        configFingerprint: entry.configFingerprint,
+        sourceFingerprint: entry.sourceFingerprint,
         type: key.replace("analysis:", ""),
       }
     }
@@ -429,8 +484,7 @@ export class CacheManager {
       version: 2,
       toolResponses,
       analysisResults,
-      graphSnapshot: null,
-      graphHash: this.graphHash.getHash(),
+      configFingerprint: configFingerprint(this.projectDir),
     })
   }
 
@@ -438,10 +492,10 @@ export class CacheManager {
    * Save graph snapshot to disk (G).
    * Called after graph mutations and on dispose.
    */
-  saveGraphSnapshot(graph: KnowledgeGraph): void {
+  saveGraphSnapshot(graph: KnowledgeGraph, sourceSignature = ""): void {
     try {
       const store = getGraphSnapshotStore(this.projectDir)
-      store.save(graph, this.graphHash.getHash())
+      store.save(graph, graphFingerprint(graph), sourceSignature)
     } catch {}
   }
 
@@ -449,7 +503,7 @@ export class CacheManager {
    * Load graph snapshot from disk (G).
    * Returns null if no valid snapshot exists.
    */
-  loadGraphSnapshot(): { graph: KnowledgeGraph; graphHash: string } | null {
+  loadGraphSnapshot(): { graph: KnowledgeGraph; graphHash: string; sourceSignature: string } | null {
     try {
       const store = getGraphSnapshotStore(this.projectDir)
       return store.load()
@@ -475,6 +529,7 @@ export class CacheManager {
    * Uses file-based locking + PID liveness check for robust cross-process coordination.
    */
   checkCrossProcessInvalidation(graphPath: string): boolean {
+    if (this.refreshExternalInvalidation()) return true
     const lockPath = join(this.projectDir, ".sdd", ".cache-lock")
     try {
       if (existsSync(lockPath)) {
@@ -516,21 +571,26 @@ export class CacheManager {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
     try {
-      // Try to create lock file
       if (existsSync(lockPath)) {
         const existing = JSON.parse(readFileSync(lockPath, "utf-8"))
-        // If lock is stale (>30s), override it
-        if (Date.now() - existing.timestamp > 30000) {
-          // Stale lock, ok to override
-        } else if (existing.pid !== process.pid) {
-          return false // Another process holds the lock
+        if (existing.pid === process.pid) return true
+        if (Date.now() - existing.timestamp <= 30000) return false
+        try {
+          if (existing.pid) process.kill(existing.pid, 0)
+          return false
+        } catch {
+          try { unlinkSync(lockPath) } catch { return false }
         }
       }
 
-      writeFileSync(lockPath, JSON.stringify({
-        pid: process.pid,
-        timestamp: Date.now(),
-      }))
+      // wx/O_EXCL makes acquisition atomic when two OpenCode processes write together.
+      const descriptor = openSync(lockPath, "wx", 0o600)
+      try {
+        writeFileSync(descriptor, JSON.stringify({ pid: process.pid, timestamp: Date.now() }), "utf-8")
+        fsyncSync(descriptor)
+      } finally {
+        closeSync(descriptor)
+      }
       return true
     } catch {
       return false
@@ -572,6 +632,7 @@ export class CacheManager {
     this.invalidation.version++
     this.stats.invalidations++
     this.saveInvalidationTracker()
+    this.appendInvalidationEvent({ nodeTypes: [], relTypes: [], full: true })
 
     // Clear persistent cache on disk
     let disk = false
@@ -620,6 +681,47 @@ export class CacheManager {
     this.invalidationVersionOnWrite = this.invalidation.version
   }
 
+  /** Refresh cache state from durable invalidation events written by another process. */
+  refreshExternalInvalidation(): boolean {
+    const journalPath = join(this.projectDir, INVALIDATION_JOURNAL_FILE)
+    if (!existsSync(journalPath)) return false
+
+    try {
+      const size = statSync(journalPath).size
+      if (size < this.invalidationJournalOffset) this.invalidationJournalOffset = 0
+      if (size === this.invalidationJournalOffset) return false
+
+      const content = readFileSync(journalPath)
+      const start = Math.min(this.invalidationJournalOffset, content.byteLength)
+      const recent = content.subarray(start).toString("utf-8")
+      const lastCompleteLine = recent.lastIndexOf("\n")
+      if (lastCompleteLine < 0) return false
+      this.invalidationJournalOffset = start + Buffer.byteLength(recent.slice(0, lastCompleteLine + 1))
+      let invalidated = false
+      for (const line of recent.slice(0, lastCompleteLine).split("\n")) {
+        if (!line.trim()) continue
+        let event: InvalidationEvent
+        try { event = JSON.parse(line) as InvalidationEvent } catch { invalidated = true; continue }
+        if (event.pid === process.pid) continue
+        invalidated = true
+      }
+      if (!invalidated) return false
+
+      this.toolResponses.clear()
+      this.analysisResults.clear()
+      this.graphCache.invalidateAll()
+      this.invalidation.version++
+      this.invalidationVersionOnWrite = this.invalidation.version
+      return true
+    } catch {
+      // A corrupt journal must never make the plugin unusable; force safe misses.
+      this.toolResponses.clear()
+      this.analysisResults.clear()
+      this.graphCache.invalidateAll()
+      return true
+    }
+  }
+
   // ── Per-Type Graph Cache ──────────────────────────────────────────
 
   /**
@@ -656,6 +758,7 @@ export class CacheManager {
     }
     this.invalidation.version++
     this.saveInvalidationTracker()
+    this.appendInvalidationEvent({ nodeTypes: types, relTypes: [], full: false })
   }
 
   /**
@@ -875,13 +978,53 @@ export class CacheManager {
     const path = join(this.projectDir, INVALIDATION_FILE)
     const dir = dirname(path)
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    writeFileSync(path, JSON.stringify({
+    atomicWriteFile(path, JSON.stringify({
       lastFullInvalidation: this.invalidation.lastFullInvalidation,
       version: this.invalidation.version,
       dirtyTypes: [...this.invalidation.dirtyTypes],
       dirtyNodeIds: [...this.invalidation.dirtyNodeIds],
       dirtyRelTypes: [...this.invalidation.dirtyRelTypes],
     }))
+  }
+
+  private appendInvalidationEvent(change: { nodeTypes: string[]; relTypes: string[]; full: boolean }): void {
+    const path = join(this.projectDir, INVALIDATION_JOURNAL_FILE)
+    const event: InvalidationEvent = {
+      id: `${Date.now()}-${process.pid}-${++this.invalidationEventCounter}`,
+      timestamp: Date.now(),
+      pid: process.pid,
+      ...change,
+    }
+    try {
+      const directory = dirname(path)
+      if (!existsSync(directory)) mkdirSync(directory, { recursive: true })
+      if (existsSync(path) && statSync(path).size > INVALIDATION_JOURNAL_MAX_BYTES) {
+        atomicWriteFile(path, `${JSON.stringify(event)}\n`)
+      } else {
+        const descriptor = openSync(path, "a", 0o600)
+        try {
+          writeFileSync(descriptor, `${JSON.stringify(event)}\n`, "utf-8")
+          fsyncSync(descriptor)
+        } finally {
+          closeSync(descriptor)
+        }
+      }
+      this.invalidationJournalOffset = statSync(path).size
+    } catch {}
+  }
+
+  private toolNeedsSource(toolName: string): boolean {
+    return toolName === "sdd.detect_drift" || toolName === "sdd.quality" || toolName === "sdd.coverage"
+  }
+
+  private analysisNeedsSource(type: string): boolean {
+    return type === "drift" || type === "quality" || type === "coverage"
+  }
+
+  private getSourceFingerprint(): string {
+    const current = sourceFingerprint(this.projectDir, this.sourceFingerprintCache)
+    this.sourceFingerprintCache = current
+    return current.fingerprint
   }
 }
 

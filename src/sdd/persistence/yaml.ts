@@ -1,10 +1,12 @@
 import * as yaml from "js-yaml"
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "fs"
+import { readFileSync, existsSync, mkdirSync, readdirSync } from "fs"
 import { join, dirname } from "path"
 import type { KnowledgeGraph, AnyNode, NodeType, NodeStatus, Relationship } from "../domain/types.js"
 import { GraphIndices } from "../graph/index.js"
 import type { GraphRepository } from "./repository.js"
 import { getCacheManager } from "../cache/manager.js"
+import { atomicWriteFile } from "../cache/atomic.js"
+import { fileSignature } from "../cache/fingerprint.js"
 import { recordLegitimateSave, validateGraphIntegrity, isGraphTampered } from "../graph/integrity-guard.js"
 
 export function readYaml<T>(filePath: string): T {
@@ -21,7 +23,7 @@ export function writeYaml(filePath: string, data: unknown): void {
     quotingType: '"',
     forceQuotes: false,
   })
-  writeFileSync(filePath, content, "utf-8")
+  atomicWriteFile(filePath, content)
 }
 
 export function readJson<T>(filePath: string): T {
@@ -32,7 +34,7 @@ export function readJson<T>(filePath: string): T {
 export function writeJson(filePath: string, data: unknown): void {
   const dir = dirname(filePath)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8")
+  atomicWriteFile(filePath, JSON.stringify(data, null, 2))
 }
 
 export function ensureDir(dirPath: string): void {
@@ -73,6 +75,7 @@ interface GraphCache {
   graph: KnowledgeGraph
   indices: GraphIndices
   lastModified: number
+  sourceSignature: string
 }
 
 // ── Repository ───────────────────────────────────────────────────────
@@ -110,29 +113,36 @@ export class YamlGraphRepository implements GraphRepository {
       throw new Error("SDD not initialized. Run sdd.initialize first.")
     }
 
+    const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
+    const currentSourceSignature = fileSignature([this.graphPath])
+    const externallyInvalidated = cacheMgr.checkCrossProcessInvalidation(this.graphPath)
+
     // Check cache with revalidation
     const cached = YamlGraphRepository.cache.get(this.graphPath)
     if (cached) {
-      // Revalidation: check if file was modified externally
-      const currentMtime = (() => { try { return require("fs").statSync(this.graphPath).mtimeMs } catch { return 0 } })()
-      if (currentMtime <= cached.lastModified) {
-        // Cache is valid — also check incremental hash
-        const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
-        if (cacheMgr.isGraphHashValid(cached.indices.totalNodes + ":" + cached.indices.totalRelationships)) {
-          // Never expose the cached snapshot itself: callers intentionally
-          // mutate the graph before saveGraph(), and leaking this reference
-          // makes old/new comparisons impossible.
-          return structuredClone(cached.graph)
-        }
+      if (!externallyInvalidated && cached.sourceSignature === currentSourceSignature) {
+        // Never expose the cached snapshot itself: callers intentionally
+        // mutate the graph before saveGraph(), and leaking this reference
+        // makes old/new comparisons impossible.
+        return structuredClone(cached.graph)
       }
       // File was modified externally or hash mismatch, invalidate cache
       YamlGraphRepository.cache.delete(this.graphPath)
     }
+    if (externallyInvalidated) YamlGraphRepository.cache.delete(this.graphPath)
 
-    // Cross-process check
-    const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
-    if (cacheMgr.checkCrossProcessInvalidation(this.graphPath)) {
-      YamlGraphRepository.cache.delete(this.graphPath)
+    const snapshot = cacheMgr.loadGraphSnapshot()
+    if (snapshot?.sourceSignature === currentSourceSignature) {
+      const graph = snapshot.graph
+      const indices = GraphIndices.from(graph)
+      YamlGraphRepository.cache.set(this.graphPath, {
+        graph: structuredClone(graph),
+        indices,
+        lastModified: Date.now(),
+        sourceSignature: currentSourceSignature,
+      })
+      cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
+      return structuredClone(graph)
     }
 
     const graph = readYaml<KnowledgeGraph>(this.graphPath)
@@ -143,9 +153,10 @@ export class YamlGraphRepository implements GraphRepository {
       graph,
       indices,
       lastModified: stat,
+      sourceSignature: currentSourceSignature,
     })
 
-    // Initialize incremental hash
+    // Initialize the legacy mutation counter used by compatibility APIs.
     cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
 
     // Anti-bypass: check for out-of-band modifications
@@ -174,7 +185,9 @@ export class YamlGraphRepository implements GraphRepository {
 
     // Acquire cross-process lock
     const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
-    cacheMgr.acquireWriteLock()
+    if (!cacheMgr.acquireWriteLock()) {
+      throw new Error("Another process is writing the SDD graph; retry the mutation")
+    }
 
     try {
       writeYaml(this.graphPath, graph)
@@ -199,11 +212,12 @@ export class YamlGraphRepository implements GraphRepository {
     // readonly totals/search entries after additions and removals. YAML is
     // limited to small graphs; large graphs migrate to SQLite.
     const indices = GraphIndices.from(snapshot)
-    YamlGraphRepository.cache.set(this.graphPath, {
-      graph: snapshot,
-      indices,
-      lastModified: Date.now(),
-    })
+      YamlGraphRepository.cache.set(this.graphPath, {
+        graph: snapshot,
+        indices,
+        lastModified: Date.now(),
+        sourceSignature: fileSignature([this.graphPath]),
+      })
     /*
     if (cached) {
       // Compute dirty nodes incrementally
@@ -273,7 +287,7 @@ export class YamlGraphRepository implements GraphRepository {
     }
 
     // G: Save graph snapshot to disk for cross-session restore
-    cacheMgr.saveGraphSnapshot(graph)
+    cacheMgr.saveGraphSnapshot(graph, fileSignature([this.graphPath]))
   }
 
   getStorageType(): "yaml" {

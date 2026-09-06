@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, readFileSync } from "fs"
 import { join, relative } from "path"
 import { contentHash } from "./common.js"
 import { getLanguageParser } from "./registry.js"
 import type { ParsedFile } from "./ir.js"
+import { atomicWriteFile } from "../../sdd/cache/atomic.js"
 
 interface CacheEntry {
   content_hash: string
@@ -12,7 +13,7 @@ interface CacheEntry {
 }
 
 interface CacheDocument {
-  version: 1
+  version: 2
   entries: Record<string, CacheEntry>
 }
 
@@ -30,7 +31,13 @@ export function loadAstCache(projectDir: string): AstCache {
   if (!existsSync(path)) return { entries: new Map(), dirty: false }
   try {
     const document = JSON.parse(readFileSync(path, "utf-8")) as CacheDocument
-    return { entries: new Map(Object.entries(document.entries || {})), dirty: false }
+    if (document.version !== 2 || !document.entries || typeof document.entries !== "object") {
+      return { entries: new Map(), dirty: false }
+    }
+    const entries = Object.entries(document.entries).filter(([, entry]) =>
+      Boolean(entry && entry.content_hash && entry.parser && entry.parser_version && entry.parsed),
+    )
+    return { entries: new Map(entries), dirty: false }
   } catch {
     return { entries: new Map(), dirty: false }
   }
@@ -55,7 +62,5 @@ export function saveAstCache(projectDir: string, cache: AstCache): void {
   const directory = join(projectDir, ".sdd")
   if (!existsSync(directory)) mkdirSync(directory, { recursive: true })
   const entries = Object.fromEntries(cache.entries)
-  const temporary = `${cachePath(projectDir)}.tmp`
-  writeFileSync(temporary, JSON.stringify({ version: 1, entries } satisfies CacheDocument), "utf-8")
-  renameSync(temporary, cachePath(projectDir))
+  atomicWriteFile(cachePath(projectDir), JSON.stringify({ version: 2, entries } satisfies CacheDocument))
 }

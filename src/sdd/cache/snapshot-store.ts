@@ -7,9 +7,11 @@
  * Solução G: Snapshot persistente do grafo.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, readFileSync, mkdirSync } from "fs"
 import { join, dirname } from "path"
 import type { KnowledgeGraph, AnyNode, Relationship } from "../domain/types.js"
+import { atomicWriteFile } from "./atomic.js"
+import { graphFingerprint } from "./fingerprint.js"
 
 const SNAPSHOT_FILE = ".sdd/graph-cache.json"
 const SNAPSHOT_MAX_AGE_MS = 60 * 60 * 1000 // 1 hour
@@ -31,6 +33,7 @@ interface SerializedSnapshot {
   graph: KnowledgeGraph
   indices: SerializedIndices
   graphHash: string
+  sourceSignature: string
 }
 
 export class GraphSnapshotStore {
@@ -43,27 +46,28 @@ export class GraphSnapshotStore {
   /**
    * Save full graph + indices to disk.
    */
-  save(graph: KnowledgeGraph, graphHash: string): void {
+  save(graph: KnowledgeGraph, graphHash: string, sourceSignature: string): void {
     const snapshot: SerializedSnapshot = {
-      version: 2,
+      version: 3,
       timestamp: Date.now(),
       graph,
       indices: this.serializeIndices(graph),
       graphHash,
+      sourceSignature,
     }
 
     const path = join(this.projectDir, SNAPSHOT_FILE)
     const dir = dirname(path)
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
-    writeFileSync(path, JSON.stringify(snapshot), "utf-8")
+    atomicWriteFile(path, JSON.stringify(snapshot))
   }
 
   /**
    * Load graph from snapshot if valid.
    * Returns null if snapshot is missing, stale, or corrupted.
    */
-  load(): { graph: KnowledgeGraph; graphHash: string } | null {
+  load(): { graph: KnowledgeGraph; graphHash: string; sourceSignature: string } | null {
     const path = join(this.projectDir, SNAPSHOT_FILE)
     if (!existsSync(path)) return null
 
@@ -72,17 +76,19 @@ export class GraphSnapshotStore {
       const snapshot: SerializedSnapshot = JSON.parse(raw)
 
       // Validate version
-      if (snapshot.version !== 2) return null
+      if (snapshot.version !== 3) return null
 
       // Validate age
       if (Date.now() - snapshot.timestamp > SNAPSHOT_MAX_AGE_MS) return null
 
       // Validate graph structure
       if (!snapshot.graph || !Array.isArray(snapshot.graph.nodes)) return null
+      if (!snapshot.sourceSignature || snapshot.graphHash !== graphFingerprint(snapshot.graph)) return null
 
       return {
         graph: snapshot.graph,
         graphHash: snapshot.graphHash || "",
+        sourceSignature: snapshot.sourceSignature,
       }
     } catch {
       return null
@@ -99,7 +105,8 @@ export class GraphSnapshotStore {
     try {
       const raw = readFileSync(path, "utf-8")
       const snapshot: SerializedSnapshot = JSON.parse(raw)
-      return snapshot.version === 2 && (Date.now() - snapshot.timestamp) < SNAPSHOT_MAX_AGE_MS
+      return snapshot.version === 3 && Boolean(snapshot.sourceSignature) &&
+        (Date.now() - snapshot.timestamp) < SNAPSHOT_MAX_AGE_MS
     } catch {
       return false
     }

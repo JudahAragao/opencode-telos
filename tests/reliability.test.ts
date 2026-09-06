@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { appendFileSync, mkdtempSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { createGraph, addNode } from "../src/sdd/graph/engine.js"
@@ -9,6 +9,9 @@ import { writeGeneratedFiles } from "../src/sdd/codegen/generator.js"
 import { validateExecutableProject, saveExecutableValidation, loadExecutableValidation, isExecutableValidationCurrent } from "../src/sdd/validation/executable.js"
 import { rankSimilarity } from "../src/opencode/router/embeddings.js"
 import { analyzeCodebase } from "../src/code-intelligence/analyzer.js"
+import { CacheManager } from "../src/sdd/cache/manager.js"
+import { getGraphSnapshotStore } from "../src/sdd/cache/snapshot-store.js"
+import { graphFingerprint } from "../src/sdd/cache/fingerprint.js"
 
 describe("Reliability safeguards", () => {
   test("empty dirty set performs an authoritative full validation", () => {
@@ -114,6 +117,105 @@ describe("Reliability safeguards", () => {
       analyzeCodebase(secondGraph, directory)
       const secondIds = secondGraph.nodes.filter((node) => node.type === "file" || node.type === "symbol").map((node) => node.id).sort()
       expect(secondIds).toEqual(firstIds)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("graph fingerprints detect content changes with identical counts", () => {
+    const first = createGraph("fingerprint")
+    addNode(first, {
+      id: "REQ-1", type: "requirement", name: "Same count", description: "before", status: "DRAFT",
+      version: 1, metadata: {}, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+    })
+    const second = structuredClone(first)
+        second.nodes[0].description = "after"
+    expect(graphFingerprint(first)).not.toBe(graphFingerprint(second))
+  })
+
+  test("cache entries revalidate after config and source changes", () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-telos-cache-"))
+    try {
+      mkdirSync(join(directory, ".sdd"), { recursive: true })
+      mkdirSync(join(directory, "src"), { recursive: true })
+      writeFileSync(join(directory, ".sdd", "config.json"), "{}")
+      writeFileSync(join(directory, "src", "app.ts"), "export const value = 1\n")
+      const manager = new CacheManager(directory)
+      const graph = createGraph("cache")
+      const fingerprint = graphFingerprint(graph)
+
+      manager.setToolResponse("sdd.query_graph", {}, "graph-result", fingerprint)
+      expect(manager.getToolResponse("sdd.query_graph", {}, fingerprint)).toBe("graph-result")
+      writeFileSync(join(directory, ".sdd", "config.json"), JSON.stringify({ validation: { strict: true } }))
+      expect(manager.getToolResponse("sdd.query_graph", {}, fingerprint)).toBeNull()
+
+      manager.setToolResponse("sdd.detect_drift", {}, "drift-result", fingerprint)
+      expect(manager.getToolResponse("sdd.detect_drift", {}, fingerprint)).toBe("drift-result")
+      writeFileSync(join(directory, "src", "app.ts"), "export const value = 2\n")
+      expect(manager.getToolResponse("sdd.detect_drift", {}, fingerprint)).toBeNull()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("persistent cache survives a new manager and rejects corrupted data", () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-telos-cache-restart-"))
+    try {
+      mkdirSync(join(directory, ".sdd"), { recursive: true })
+      writeFileSync(join(directory, ".sdd", "config.json"), "{}")
+      const graph = createGraph("restart")
+      const fingerprint = graphFingerprint(graph)
+      const first = new CacheManager(directory)
+      first.setToolResponse("sdd.query_graph", { page: 1 }, "persisted", fingerprint)
+      first.persistToDisk()
+
+      const second = new CacheManager(directory)
+      expect(second.restoreFromPersistentCache()).toBe(1)
+      expect(second.getToolResponse("sdd.query_graph", { page: 1 }, fingerprint)).toBe("persisted")
+
+      writeFileSync(join(directory, ".sdd", "cache.json"), "{broken")
+      const third = new CacheManager(directory)
+      expect(third.restoreFromPersistentCache()).toBe(0)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("snapshot validates source identity and graph integrity", () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-telos-snapshot-"))
+    try {
+      mkdirSync(join(directory, ".sdd"), { recursive: true })
+      const graph = createGraph("snapshot")
+      const store = getGraphSnapshotStore(directory)
+      store.save(graph, graphFingerprint(graph), "source-v1")
+      expect(store.load()?.graph.project_id).toBe("snapshot")
+
+      writeFileSync(join(directory, ".sdd", "graph-cache.json"), "{broken")
+      expect(store.load()).toBeNull()
+
+      store.save(graph, "wrong-fingerprint", "source-v2")
+      expect(store.load()).toBeNull()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("persistent invalidation journal clears a cache changed by another process", () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-telos-cache-process-"))
+    try {
+      mkdirSync(join(directory, ".sdd"), { recursive: true })
+      const graph = createGraph("process")
+      const fingerprint = graphFingerprint(graph)
+      const manager = new CacheManager(directory)
+      manager.setToolResponse("sdd.query_graph", {}, "stale", fingerprint)
+      manager.persistToDisk()
+
+      const restarted = new CacheManager(directory)
+      restarted.restoreFromPersistentCache()
+      appendFileSync(join(directory, ".sdd", "cache-events.jsonl"), `${JSON.stringify({
+        id: "external-event", timestamp: Date.now(), pid: process.pid + 1, nodeTypes: ["requirement"], relTypes: [], full: true,
+      })}\n`)
+      expect(restarted.getToolResponse("sdd.query_graph", {}, fingerprint)).toBeNull()
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

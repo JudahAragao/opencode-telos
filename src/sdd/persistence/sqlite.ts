@@ -10,6 +10,7 @@ import { GraphIndices } from "../graph/index.js"
 import { ensureDir } from "./yaml.js"
 import { join } from "path"
 import { getCacheManager } from "../cache/manager.js"
+import { fileSignature } from "../cache/fingerprint.js"
 import type { GraphRepository } from "./repository.js"
 import { recordLegitimateSave, validateGraphIntegrity } from "../graph/integrity-guard.js"
 
@@ -30,7 +31,7 @@ export class SqliteGraphRepository {
   private baseDir: string
   private dbPath: string
   private db: any
-  private static cache: Map<string, { graph: KnowledgeGraph; indices: GraphIndices }> = new Map()
+  private static cache: Map<string, { graph: KnowledgeGraph; indices: GraphIndices; sourceSignature: string }> = new Map()
 
   constructor(projectDir: string) {
     this.baseDir = join(projectDir, ".sdd")
@@ -106,16 +107,32 @@ export class SqliteGraphRepository {
   }
 
   loadGraph(): KnowledgeGraph {
+    const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
+    const sourcePaths = [this.dbPath, `${this.dbPath}-wal`, `${this.dbPath}-shm`]
+    const currentSourceSignature = fileSignature(sourcePaths)
+
     // Check cache with revalidation
     const cached = SqliteGraphRepository.cache.get(this.dbPath)
     if (cached) {
-      // Revalidation: check if db was modified externally
-      const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
-      if (!cacheMgr.checkCrossProcessInvalidation(this.dbPath)) {
+      // Revalidation: check content signature and durable invalidation events.
+      if (cached.sourceSignature === currentSourceSignature && !cacheMgr.checkCrossProcessInvalidation(this.dbPath)) {
         return structuredClone(cached.graph)
       }
       // DB was modified externally, invalidate cache
       SqliteGraphRepository.cache.delete(this.dbPath)
+    }
+
+    const snapshot = cacheMgr.loadGraphSnapshot()
+    if (snapshot?.sourceSignature === currentSourceSignature) {
+      const graph = snapshot.graph
+      const indices = GraphIndices.from(graph)
+      SqliteGraphRepository.cache.set(this.dbPath, {
+        graph: structuredClone(graph),
+        indices,
+        sourceSignature: currentSourceSignature,
+      })
+      cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
+      return structuredClone(graph)
     }
 
     const db = this.getDb()
@@ -168,7 +185,7 @@ export class SqliteGraphRepository {
 
     // Build indices and cache
     const indices = GraphIndices.from(graph)
-    SqliteGraphRepository.cache.set(this.dbPath, { graph, indices })
+    SqliteGraphRepository.cache.set(this.dbPath, { graph, indices, sourceSignature: currentSourceSignature })
 
     // Anti-bypass: check for out-of-band modifications
     const projectDir = require("path").dirname(this.baseDir)
@@ -184,21 +201,26 @@ export class SqliteGraphRepository {
 
   saveGraph(graph: KnowledgeGraph): void {
     const db = this.getDb()
+    const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
+    if (!cacheMgr.acquireWriteLock()) {
+      throw new Error("Another process is writing the SDD graph; retry the mutation")
+    }
 
     // Use transaction for atomicity
-    db.exec("BEGIN TRANSACTION")
-
     try {
-      // Differential persistence: update only changed rows and delete only
-      // rows that disappeared. This keeps SQLite useful for large graphs.
-      const upsertMeta = db.prepare(
-        "INSERT INTO graph_metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      )
-      upsertMeta.run("project_id", graph.project_id)
-      upsertMeta.run("version", graph.version)
-      upsertMeta.run("created_at", graph.metadata.created_at)
-      upsertMeta.run("updated_at", graph.metadata.updated_at)
-      upsertMeta.run("sdd_version", graph.metadata.sdd_version)
+      db.exec("BEGIN TRANSACTION")
+
+      try {
+        // Differential persistence: update only changed rows and delete only
+        // rows that disappeared. This keeps SQLite useful for large graphs.
+        const upsertMeta = db.prepare(
+          "INSERT INTO graph_metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        upsertMeta.run("project_id", graph.project_id)
+        upsertMeta.run("version", graph.version)
+        upsertMeta.run("created_at", graph.metadata.created_at)
+        upsertMeta.run("updated_at", graph.metadata.updated_at)
+        upsertMeta.run("sdd_version", graph.metadata.sdd_version)
 
       // Save nodes in batches for performance
       const upsertNode = db.prepare(`
@@ -258,10 +280,13 @@ export class SqliteGraphRepository {
       const deleteRelationship = db.prepare("DELETE FROM relationships WHERE id = ?")
       for (const row of existingRelationshipIds) if (!relationshipIds.has(row.id)) deleteRelationship.run(row.id)
 
-      db.exec("COMMIT")
-    } catch (e) {
-      db.exec("ROLLBACK")
-      throw e
+        db.exec("COMMIT")
+      } catch (e) {
+        db.exec("ROLLBACK")
+        throw e
+      }
+    } finally {
+      cacheMgr.releaseWriteLock()
     }
 
     // Compare against the immutable cached snapshot before replacing it.
@@ -270,7 +295,9 @@ export class SqliteGraphRepository {
     const snapshot = structuredClone(graph) as KnowledgeGraph
     const dirty = computeDirtyState(cached?.graph || null, snapshot)
     const indices = GraphIndices.from(snapshot)
-    SqliteGraphRepository.cache.set(this.dbPath, { graph: snapshot, indices })
+    const sourcePaths = [this.dbPath, `${this.dbPath}-wal`, `${this.dbPath}-shm`]
+    const sourceSignature = fileSignature(sourcePaths)
+    SqliteGraphRepository.cache.set(this.dbPath, { graph: snapshot, indices, sourceSignature })
     /*
     if (cached) {
       const oldGraph = cached.graph
@@ -313,7 +340,6 @@ export class SqliteGraphRepository {
     */
 
     // Update incremental hash
-    const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
     cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
 
     // A: Granular invalidation — only invalidate caches for changed types
@@ -326,7 +352,7 @@ export class SqliteGraphRepository {
     }
 
     // G: Save graph snapshot to disk for cross-session restore
-    cacheMgr.saveGraphSnapshot(graph)
+    cacheMgr.saveGraphSnapshot(graph, sourceSignature)
 
     // Anti-bypass: record legitimate save for integrity tracking
     const projectDir = require("path").dirname(this.baseDir)
