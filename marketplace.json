@@ -1,0 +1,39 @@
+{
+  "name": "opencode-telos",
+  "version": "2.0.0",
+  "description": "OpenCode Telos - Spec-Driven Development plugin",
+  "author": "OpenCode Telos Team",
+  "license": "MIT",
+  "keywords": [
+    "sdd",
+    "spec-driven-development",
+    "knowledge-graph",
+    "drift-detection",
+    "enforcement"
+  ],
+  "features": [
+    "Knowledge Graph as source of truth",
+    "Conversational discovery with structured questions",
+    "Hard SDD-first enforcement",
+    "Multi-stack code generation",
+    "Drift detection with mutant duplicate analysis",
+    "3D visualization dashboard",
+    "Quality scoring with trend analysis",
+    "Specification promise tracking",
+    "Anti-pattern detection",
+    "AST clone detection",
+    "Contradiction detection",
+    "Test coverage tracking",
+    "Config drift detection",
+    "Session handoff",
+    "Workflow export",
+    "Shell hooks",
+    "Brownfield project scanning",
+    "Constitution-based principles",
+    "MCP server integration"
+  ],
+  "requirements": {
+    "opencode": ">=1.0.0",
+    "node": ">=18.0.0"
+  }
+}

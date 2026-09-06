@@ -1,0 +1,192 @@
+/**
+ * Categories — Mapeamento de tools para categorias de intenção.
+ *
+ * Cada tool é classificada em uma ou mais categorias.
+ * O intent classifier usa isso para filtrar tools por categoria.
+ *
+ * Consumido por: intent-classifier.ts, tool-registry.ts
+ * Dependências: tool-taxonomy.ts
+ */
+
+import { STANDALONE_TOOLS, TOOL_TAXONOMY, type ToolCategory } from "./tool-taxonomy.js"
+
+/**
+ * Categorias de intenção do usuário.
+ */
+export type IntentCategory =
+  | "mutation"      // Criar, modificar, remover nós/relações
+  | "query"         // Buscar, consultar, inspecionar o grafo
+  | "workflow"      // Gerenciar changes, aprovações, ciclo de vida
+  | "analysis"      // Análise de impacto, drift, validação
+  | "quality"       // Qualidade de código, métricas, smells
+  | "enterprise"    // Workflows empresariais (migration, security, etc.)
+  | "admin"         // Administração: permissões, sync, cache, snapshots
+  | "discovery"     // Descoberta de requisitos, briefing, perguntas
+  | "implementation" // Geração de código, planejamento, implementação
+  | "info"          // Informação: status, histórico, help
+
+/**
+ * Mapeamento de tools standalone para categorias de intenção.
+ */
+const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
+  // Mutation
+  "sdd.initialize": ["mutation"],
+  "sdd.build_graph": ["mutation", "discovery"],
+  "sdd.update_from_answers": ["mutation", "discovery"],
+  "sdd.discover": ["discovery"],
+
+  // Query
+  "sdd.inspect": ["query"],
+  "sdd.query_graph": ["query"],
+  "sdd.get_context": ["query"],
+
+  // Workflow
+  "sdd.enforce": ["workflow"],
+  "sdd.enforce_rules": ["workflow"],
+  "sdd.full_cycle": ["workflow"],
+  "sdd.create_change": ["workflow"],
+  "sdd.approve_change": ["workflow"],
+  "sdd.complete_change": ["workflow"],
+  "sdd.fail_change": ["workflow"],
+  "sdd.pending_changes": ["workflow", "info"],
+  "sdd.change_history": ["info"],
+  "sdd.impact_report": ["analysis"],
+  "sdd.toggle": ["admin"],
+  "sdd.toggle_status": ["admin"],
+
+  // Analysis
+  "sdd.analyze_impact": ["analysis"],
+  "sdd.validate": ["analysis"],
+  "sdd.detect_drift": ["analysis"],
+  "sdd.drift_signals": ["analysis"],
+  "sdd.anti_patterns": ["analysis"],
+  "sdd.clone_detection": ["analysis"],
+  "sdd.contradictions": ["analysis"],
+  "sdd.coverage": ["analysis"],
+  "sdd.promises": ["analysis"],
+
+  // Implementation
+  "sdd.generate_code": ["implementation"],
+  "sdd.auto_link_tests": ["implementation"],
+
+  // Quality (individual tools, não composits)
+  "sdd.quality": ["quality"],
+  "sdd.constitution": ["analysis"],
+
+  // Enterprise
+  "sdd.bug_fix": ["workflow", "implementation"],
+  "sdd.hotfix": ["workflow", "implementation"],
+  "sdd.refactoring": ["workflow", "implementation"],
+  "sdd.deprecate": ["workflow"],
+  "sdd.install_hooks": ["implementation"],
+  "sdd.brownfield_scan": ["analysis"],
+  "sdd.generate_cicd": ["implementation"],
+  "sdd.session_handoff": ["info"],
+  "sdd.migrate_storage": ["admin"],
+
+  // Info
+  "sdd.start_dashboard": ["admin"],
+  "sdd.mcp_server_info": ["info"],
+  "sdd.handle_mcp_tool": ["info"],
+}
+
+/**
+ * Mapeamento de tools composits para categorias de intenção.
+ */
+const COMPOSITE_CATEGORIES: Record<string, IntentCategory[]> = {
+  "sdd.graph_mutation": ["mutation"],
+  "sdd.graph_query": ["query"],
+  "sdd.traverse": ["query"],
+  "sdd.permissions": ["admin"],
+  "sdd.snapshot": ["admin"],
+  "sdd.sync": ["admin"],
+  "sdd.graph_admin": ["admin", "analysis"],
+  "sdd.code_quality": ["quality"],
+  "sdd.enterprise": ["enterprise"],
+  "sdd.drift_whitelist": ["analysis"],
+}
+
+/**
+ * Obtém as categorias de intenção para uma tool.
+ */
+export function getToolCategories(toolName: string): IntentCategory[] {
+  if (STANDALONE_CATEGORIES[toolName]) return STANDALONE_CATEGORIES[toolName]
+  if (COMPOSITE_CATEGORIES[toolName]) return COMPOSITE_CATEGORIES[toolName]
+  return ["info"] // fallback
+}
+
+/**
+ * Obtém todas as tools de uma categoria de intenção.
+ */
+export function getToolsByCategory(category: IntentCategory): string[] {
+  const tools: string[] = []
+
+  for (const [name, categories] of Object.entries(STANDALONE_CATEGORIES)) {
+    if (categories.includes(category)) tools.push(name)
+  }
+  for (const [name, categories] of Object.entries(COMPOSITE_CATEGORIES)) {
+    if (categories.includes(category)) tools.push(name)
+  }
+
+  return tools
+}
+
+/**
+ * Obtém categorias representadas em um conjunto de tools.
+ */
+export function getCategoriesInToolSet(toolNames: Set<string>): IntentCategory[] {
+  const categories = new Set<IntentCategory>()
+  for (const name of toolNames) {
+    for (const cat of getToolCategories(name)) {
+      categories.add(cat)
+    }
+  }
+  return [...categories]
+}
+
+/**
+ * Keywords associadas a cada categoria de intenção.
+ * Usado como sinal auxiliar no intent classifier.
+ */
+export const CATEGORY_KEYWORDS: Record<IntentCategory, string[]> = {
+  mutation: [
+    "criar", "adicionar", "remover", "deletar", "modificar", "atualizar",
+    "create", "add", "remove", "delete", "modify", "update",
+  ],
+  query: [
+    "buscar", "consultar", "mostrar", "listar", "ver", "inspecionar",
+    "search", "query", "show", "list", "find", "inspect", "get",
+  ],
+  workflow: [
+    "aprovar", "rejeitar", "completar", "falhar", "mudar", "change",
+    "approve", "reject", "complete", "fail", "change", "enforce",
+  ],
+  analysis: [
+    "analisar", "validar", "verificar", "detectar", "drift", "impacto",
+    "analyze", "validate", "verify", "detect", "drift", "impact",
+  ],
+  quality: [
+    "qualidade", "métrica", "smell", "complexidade", "dependência",
+    "quality", "metric", "smell", "complexity", "dependency", "dead code",
+  ],
+  enterprise: [
+    "migration", "experimento", "flag", "tenant", "segurança", "compliance",
+    "security", "monitoring", "incident", "sla", "custo",
+  ],
+  admin: [
+    "permissão", "role", "audit", "sync", "snapshot", "rollback", "cache",
+    "permission", "role", "sync", "snapshot", "rollback",
+  ],
+  discovery: [
+    "briefing", "descobrir", "perguntar", "especificação", "requisito",
+    "discover", "briefing", "question", "specification", "requirement",
+  ],
+  implementation: [
+    "implementar", "gerar código", "code", "generate", "planejar",
+    "implement", "build", "write", "plan",
+  ],
+  info: [
+    "status", "histórico", "help", "informação", "info",
+    "status", "history", "help", "information", "info",
+  ],
+}

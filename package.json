@@ -1,0 +1,65 @@
+{
+  "name": "opencode-telos",
+  "version": "1.0.0",
+  "description": "OpenCode Telos - Spec-Driven Development plugin with Knowledge Graph enforcement",
+  "license": "MIT",
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "marketplace.json"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "sdd",
+    "spec-driven-development",
+    "knowledge-graph",
+    "code-generation",
+    "drift-detection",
+    "enforcement",
+    "ai-slop-prevention"
+  ],
+  "exports": {
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "^0.24.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/bun": "latest",
+    "typescript": "^5.5.0"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "latest"
+  },
+  "trustedDependencies": [
+    "tree-sitter-go",
+    "tree-sitter-java",
+    "tree-sitter-python",
+    "tree-sitter-ruby",
+    "tree-sitter-rust"
+  ]
+}

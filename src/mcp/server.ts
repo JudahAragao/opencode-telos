@@ -1,0 +1,77 @@
+import { createRepository } from "../sdd/persistence/repository.js"
+import { calculateQualityScore, formatQualityReport } from "../sdd/quality/scorer.js"
+import { detectDrift, formatDriftReport } from "../sdd/drift/detector.js"
+import { validateGraph, formatValidationResult } from "../sdd/validation/validator.js"
+import { generateHandoff, formatHandoffPack } from "../sdd/session/handoff.js"
+
+export interface McpServerConfig {
+  name: string
+  version: string
+  description: string
+}
+
+export function createMcpServer(projectDir: string) {
+  const config: McpServerConfig = {
+    name: "opencode-telos",
+    version: "2.0.0",
+    description: "OpenCode Telos MCP Server",
+  }
+
+  return {
+    config,
+    getTools() {
+      return [
+        {
+          name: "sdd_get_quality",
+          description: "Get current SDD quality score",
+          inputSchema: { type: "object" as const, properties: {} },
+        },
+        {
+          name: "sdd_get_drift",
+          description: "Detect specification drift",
+          inputSchema: { type: "object" as const, properties: {} },
+        },
+        {
+          name: "sdd_get_validation",
+          description: "Validate SDD graph",
+          inputSchema: { type: "object" as const, properties: {} },
+        },
+        {
+          name: "sdd_get_handoff",
+          description: "Get session handoff pack",
+          inputSchema: { type: "object" as const, properties: {} },
+        },
+      ]
+    },
+    async handleToolCall(toolName: string, _args: Record<string, unknown>) {
+      const repo = createRepository(projectDir)
+
+      if (!repo.isInitialized()) {
+        return { error: "SDD not initialized" }
+      }
+
+      const graph = repo.loadGraph()
+
+      switch (toolName) {
+        case "sdd_get_quality": {
+          const report = calculateQualityScore(graph, projectDir)
+          return { content: [{ type: "text", text: formatQualityReport(report) }] }
+        }
+        case "sdd_get_drift": {
+          const drift = detectDrift(graph, projectDir)
+          return { content: [{ type: "text", text: formatDriftReport(drift) }] }
+        }
+        case "sdd_get_validation": {
+          const result = validateGraph(graph)
+          return { content: [{ type: "text", text: formatValidationResult(result) }] }
+        }
+        case "sdd_get_handoff": {
+          const handoff = generateHandoff(graph, projectDir)
+          return { content: [{ type: "text", text: formatHandoffPack(handoff) }] }
+        }
+        default:
+          return { error: `Unknown tool: ${toolName}` }
+      }
+    },
+  }
+}
