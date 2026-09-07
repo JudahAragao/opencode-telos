@@ -14,7 +14,6 @@ export function filterAlreadyAnswered(
   const existingFeatures = getNodesByType(graph, "feature")
   const existingEntities = getNodesByType(graph, "entity")
   const existingEndpoints = getNodesByType(graph, "endpoint")
-  const existingApis = getNodesByType(graph, "api")
   const existingArch = getNodesByType(graph, "architecture_component")
   const existingDb = getNodesByType(graph, "database")
   const existingRules = getNodesByType(graph, "business_rule")
@@ -34,7 +33,6 @@ export function filterAlreadyAnswered(
   const existingFeatureNames = new Set(existingFeatures.map(f => f.name.toLowerCase()))
 
   return questions.filter(q => {
-    const qLower = q.question.toLowerCase()
     const headerLower = q.header.toLowerCase()
 
     // Skip framework questions if we already have architecture components

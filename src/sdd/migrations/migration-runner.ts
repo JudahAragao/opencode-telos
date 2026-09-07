@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, readdirSync } from "fs"
+import { existsSync, readFileSync } from "fs"
+import { atomicWriteFile } from "../cache/atomic.js"
 import { join, dirname } from "path"
 
 /**
@@ -69,7 +70,7 @@ export function saveMigrationHistory(projectDir: string, completed: string[]): v
     const { mkdirSync } = require("fs")
     mkdirSync(dir, { recursive: true })
   }
-  writeFileSync(path, JSON.stringify({ completed, last_run: new Date().toISOString() }, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify({ completed, last_run: new Date().toISOString() }, null, 2))
 }
 
 /**

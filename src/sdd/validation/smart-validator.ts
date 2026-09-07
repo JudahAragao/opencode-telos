@@ -1,4 +1,4 @@
-import type { KnowledgeGraph, AnyNode, NodeType, Relationship } from "../domain/types.js"
+import type { KnowledgeGraph, AnyNode, Relationship } from "../domain/types.js"
 import { GraphIndices } from "../graph/index.js"
 import {
   validateGraph,
@@ -54,26 +54,6 @@ type ValidationSubsystem =
   | "references"
 
 /**
- * Map each subsystem to the node types it needs to check.
- */
-const SUBSYSTEM_NODE_TYPES: Record<ValidationSubsystem, NodeType[]> = {
-  requirements: ["requirement", "task", "test"],
-  features: ["feature", "requirement", "change"],
-  entities: ["entity", "field"],
-  endpoints: ["endpoint"],
-  api: ["api", "endpoint"],
-  architecture: ["architecture_component"],
-  "cross-layer": ["file", "symbol", "architecture_component"],
-  persistence: ["entity", "table", "database"],
-  files: ["file", "symbol"],
-  semantic: ["requirement", "entity", "feature", "business_rule"],
-  constitution: ["constitution", "requirement", "business_rule"],
-  completeness: ["project", "feature", "requirement"],
-  structural: [], // Always runs - checks all nodes
-  references: [], // Always runs - checks all relationships
-}
-
-/**
  * Smart validation result with subsystem breakdown.
  */
 export interface SmartValidationResult extends ValidationResult {
@@ -88,6 +68,8 @@ export interface SmartValidationResult extends ValidationResult {
  * The AI can use these to request additional subsystems or exclude specific ones.
  */
 export interface SmartValidationOptions {
+  /** Project directory used to verify persisted graph integrity. */
+  projectDir?: string
   /** Additional subsystems to validate beyond what was automatically detected. */
   additionalSubsystems?: ValidationSubsystem[]
   /** Subsystems to skip even if they were automatically detected. */
@@ -163,7 +145,7 @@ export function validateSmart(
   // incremental run used to produce successful validations without inspecting
   // a single node.
   if (dirtyNodeIds.size === 0 && !options?.additionalSubsystems && !options?.excludeSubsystems) {
-    const fullResult = validateGraph(graph, options?.policy)
+    const fullResult = validateGraph(graph, options?.policy, options?.projectDir)
     const result: SmartValidationResult = {
       ...fullResult,
       subsystems_checked: [...allSubsystems],
@@ -215,7 +197,7 @@ export function validateSmart(
 
   // If >50% of subsystems affected, just do full validation (cheaper than smart)
   if (!options?.validateAll && subsystemsToCheck.size > allSubsystems.size * 0.5) {
-    const fullResult = validateGraph(graph, options?.policy)
+    const fullResult = validateGraph(graph, options?.policy, options?.projectDir)
     return {
       ...fullResult,
       subsystems_checked: [...allSubsystems],
@@ -247,7 +229,7 @@ export function validateSmart(
         validateRequirementsSmart(indices, relevantNodes, removed, deprecated, warnings)
         break
       case "entities":
-        validateEntitiesSmart(indices, relevantNodes, removed, deprecated, warnings)
+        validateEntitiesSmart(relevantNodes, removed, deprecated, warnings)
         break
       case "endpoints":
         validateEndpointsSmart(indices, relevantNodes, removed, deprecated, warnings)
@@ -259,7 +241,7 @@ export function validateSmart(
         validateStructuralSmart(relevantNodes, relevantRels, errors, warnings)
         break
       case "references":
-        validateReferencesSmart(relevantNodes, relevantRels, graph, errors)
+        validateReferencesSmart(relevantRels, graph, errors)
         break
     }
   }
@@ -327,7 +309,6 @@ function validateRequirementsSmart(
 }
 
 function validateEntitiesSmart(
-  indices: GraphIndices,
   nodes: AnyNode[],
   removed: Set<string>,
   deprecated: Set<string>,
@@ -450,12 +431,10 @@ function validateStructuralSmart(
 }
 
 function validateReferencesSmart(
-  nodes: AnyNode[],
   relationships: Relationship[],
   graph: KnowledgeGraph,
   errors: ValidationError[],
 ): void {
-  const nodeIds = new Set(nodes.map((n) => n.id))
   // Also include ALL node IDs for reference checking (a rel might reference outside the subset)
   const allNodeIds = new Set(graph.nodes.map((n) => n.id))
 

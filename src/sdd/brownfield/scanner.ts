@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, readdirSync } from "fs"
 import { join, relative, extname } from "path"
+import { projectPath } from "../security/paths.js"
 
 export interface ProjectStructure {
   directories: string[]
@@ -63,7 +64,7 @@ function analyzeStructure(projectDir: string, options?: ScanOptions): ProjectStr
 
   // If focusDirs specified, only walk those; otherwise walk from root
   const roots = options?.focusDirs?.length
-    ? options.focusDirs.map((d) => join(projectDir, d))
+    ? options.focusDirs.map((d) => projectPath(projectDir, d))
     : [projectDir]
 
   const walk = (dir: string, depth = 0) => {
@@ -178,7 +179,8 @@ function findTestFiles(projectDir: string): string[] {
       if (entry.isDirectory()) {
         walk(fullPath)
       } else {
-        if (/\.(test|spec)\.(ts|tsx|js|jsx)$/.test(entry.name) || entry.name.includes("__tests__")) {
+        const parent = relative(fullPath, projectDir).replaceAll("\\", "/").split("/").at(-2)?.toLowerCase() || ""
+        if (/(?:^|[._-])(test|spec|e2e|integ|integration)(?:[._-]|$)/i.test(entry.name) || ["test", "tests", "__tests__", "spec", "specs"].includes(parent)) {
           tests.push(relative(projectDir, fullPath))
         }
       }

@@ -3,7 +3,8 @@ import { getNodesByType } from "../graph/engine.js"
 import { getPendingChanges } from "../changes/manager.js"
 import { getPromiseReport } from "../promises/tracker.js"
 import { calculateQualityScore } from "../quality/scorer.js"
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
+import { readFileSync, existsSync, mkdirSync } from "fs"
+import { atomicWriteFile } from "../cache/atomic.js"
 import { join, dirname } from "path"
 
 export interface SessionHandoff {
@@ -350,5 +351,5 @@ export function saveSessionLog(projectDir: string, action: string): void {
   log.push({ timestamp: new Date().toISOString(), action })
   if (log.length > 100) log.splice(0, log.length - 100)
 
-  writeFileSync(path, JSON.stringify(log, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify(log, null, 2))
 }

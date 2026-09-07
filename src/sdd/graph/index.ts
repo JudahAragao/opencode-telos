@@ -5,27 +5,27 @@ import type { KnowledgeGraph, AnyNode, NodeType, NodeStatus, Relationship, Relat
  * Supports both full rebuild and incremental updates.
  */
 export class GraphIndices {
-  readonly byId: Map<string, AnyNode>
-  readonly byType: Map<NodeType, AnyNode[]>
-  readonly byStatus: Map<NodeStatus, AnyNode[]>
-  readonly outgoing: Map<string, Relationship[]>
-  readonly incoming: Map<string, Relationship[]>
-  readonly all: Map<string, Relationship[]>
-  readonly relByType: Map<RelationshipType, Relationship[]>
-  readonly neighbors: Map<string, Set<string>>
-  readonly searchIndex: InvertedIndex
+  private readonly mutableById: Map<string, AnyNode>
+  private readonly mutableByType: Map<NodeType, AnyNode[]>
+  private readonly mutableByStatus: Map<NodeStatus, AnyNode[]>
+  private readonly mutableOutgoing: Map<string, Relationship[]>
+  private readonly mutableIncoming: Map<string, Relationship[]>
+  private readonly mutableAll: Map<string, Relationship[]>
+  private readonly mutableRelByType: Map<RelationshipType, Relationship[]>
+  private readonly mutableNeighbors: Map<string, Set<string>>
+  private readonly searchIndex: InvertedIndex
   readonly totalNodes: number
   readonly totalRelationships: number
 
   private constructor(graph: KnowledgeGraph) {
-    this.byId = new Map()
-    this.byType = new Map()
-    this.byStatus = new Map()
-    this.outgoing = new Map()
-    this.incoming = new Map()
-    this.all = new Map()
-    this.relByType = new Map()
-    this.neighbors = new Map()
+    this.mutableById = new Map()
+    this.mutableByType = new Map()
+    this.mutableByStatus = new Map()
+    this.mutableOutgoing = new Map()
+    this.mutableIncoming = new Map()
+    this.mutableAll = new Map()
+    this.mutableRelByType = new Map()
+    this.mutableNeighbors = new Map()
     this.searchIndex = new InvertedIndex()
     this.totalNodes = graph.nodes.length
     this.totalRelationships = graph.relationships.length
@@ -35,6 +35,15 @@ export class GraphIndices {
     this.buildSearchIndex(graph)
   }
 
+  get byId(): ReadonlyMap<string, AnyNode> { return new Map([...this.mutableById].map(([key, value]) => [key, clone(value)])) }
+  get byType(): ReadonlyMap<NodeType, readonly AnyNode[]> { return new Map([...this.mutableByType].map(([key, value]) => [key, value.map(clone) as readonly AnyNode[]])) }
+  get byStatus(): ReadonlyMap<NodeStatus, readonly AnyNode[]> { return new Map([...this.mutableByStatus].map(([key, value]) => [key, value.map(clone) as readonly AnyNode[]])) }
+  get outgoing(): ReadonlyMap<string, readonly Relationship[]> { return new Map([...this.mutableOutgoing].map(([key, value]) => [key, value.map(clone) as readonly Relationship[]])) }
+  get incoming(): ReadonlyMap<string, readonly Relationship[]> { return new Map([...this.mutableIncoming].map(([key, value]) => [key, value.map(clone) as readonly Relationship[]])) }
+  get all(): ReadonlyMap<string, readonly Relationship[]> { return new Map([...this.mutableAll].map(([key, value]) => [key, value.map(clone) as readonly Relationship[]])) }
+  get relByType(): ReadonlyMap<RelationshipType, readonly Relationship[]> { return new Map([...this.mutableRelByType].map(([key, value]) => [key, value.map(clone) as readonly Relationship[]])) }
+  get neighbors(): ReadonlyMap<string, ReadonlySet<string>> { return new Map([...this.mutableNeighbors].map(([key, value]) => [key, new Set(value) as ReadonlySet<string>])) }
+
   static from(graph: KnowledgeGraph): GraphIndices {
     return new GraphIndices(graph)
   }
@@ -43,17 +52,17 @@ export class GraphIndices {
 
   private buildNodeIndices(graph: KnowledgeGraph): void {
     for (const node of graph.nodes) {
-      this.byId.set(node.id, node)
+      this.mutableById.set(node.id, node)
 
-      const typeList = this.byType.get(node.type)
+      const typeList = this.mutableByType.get(node.type)
       if (typeList) typeList.push(node)
-      else this.byType.set(node.type, [node])
+      else this.mutableByType.set(node.type, [node])
 
-      const statusList = this.byStatus.get(node.status)
+      const statusList = this.mutableByStatus.get(node.status)
       if (statusList) statusList.push(node)
-      else this.byStatus.set(node.status, [node])
+      else this.mutableByStatus.set(node.status, [node])
 
-      this.neighbors.set(node.id, new Set())
+      this.mutableNeighbors.set(node.id, new Set())
     }
   }
 
@@ -66,30 +75,30 @@ export class GraphIndices {
   }
 
   private addToRelIndices(rel: Relationship): void {
-    const outgoingList = this.outgoing.get(rel.from)
+    const outgoingList = this.mutableOutgoing.get(rel.from)
     if (outgoingList) outgoingList.push(rel)
-    else this.outgoing.set(rel.from, [rel])
+    else this.mutableOutgoing.set(rel.from, [rel])
 
-    const incomingList = this.incoming.get(rel.to)
+    const incomingList = this.mutableIncoming.get(rel.to)
     if (incomingList) incomingList.push(rel)
-    else this.incoming.set(rel.to, [rel])
+    else this.mutableIncoming.set(rel.to, [rel])
 
-    const allList = this.all.get(rel.from)
+    const allList = this.mutableAll.get(rel.from)
     if (allList) allList.push(rel)
-    else this.all.set(rel.from, [rel])
+    else this.mutableAll.set(rel.from, [rel])
 
     if (rel.from !== rel.to) {
-      const allListTo = this.all.get(rel.to)
+      const allListTo = this.mutableAll.get(rel.to)
       if (allListTo) allListTo.push(rel)
-      else this.all.set(rel.to, [rel])
+      else this.mutableAll.set(rel.to, [rel])
     }
 
-    const relTypeList = this.relByType.get(rel.type)
+    const relTypeList = this.mutableRelByType.get(rel.type)
     if (relTypeList) relTypeList.push(rel)
-    else this.relByType.set(rel.type, [rel])
+    else this.mutableRelByType.set(rel.type, [rel])
 
-    this.neighbors.get(rel.from)?.add(rel.to)
-    this.neighbors.get(rel.to)?.add(rel.from)
+    this.mutableNeighbors.get(rel.from)?.add(rel.to)
+    this.mutableNeighbors.get(rel.to)?.add(rel.from)
   }
 
   private removeFromRelIndices(rel: Relationship): void {
@@ -101,19 +110,19 @@ export class GraphIndices {
       }
     }
 
-    removeById(this.outgoing, rel.from, rel)
-    removeById(this.incoming, rel.to, rel)
-    removeById(this.all, rel.from, rel)
-    if (rel.from !== rel.to) removeById(this.all, rel.to, rel)
+    removeById(this.mutableOutgoing, rel.from, rel)
+    removeById(this.mutableIncoming, rel.to, rel)
+    removeById(this.mutableAll, rel.from, rel)
+    if (rel.from !== rel.to) removeById(this.mutableAll, rel.to, rel)
 
-    const relTypeList = this.relByType.get(rel.type)
+    const relTypeList = this.mutableRelByType.get(rel.type)
     if (relTypeList) {
       const idx = relTypeList.findIndex(r => r.id === rel.id)
       if (idx !== -1) relTypeList.splice(idx, 1)
     }
 
-    this.neighbors.get(rel.from)?.delete(rel.to)
-    this.neighbors.get(rel.to)?.delete(rel.from)
+    this.mutableNeighbors.get(rel.from)?.delete(rel.to)
+    this.mutableNeighbors.get(rel.to)?.delete(rel.from)
   }
 
   // ── Search index building ──────────────────────────────────────────
@@ -156,17 +165,17 @@ export class GraphIndices {
    * O(1) per index, no full scan.
    */
   addNode(node: AnyNode): void {
-    this.byId.set(node.id, node)
+    this.mutableById.set(node.id, node)
 
-    const typeList = this.byType.get(node.type)
+    const typeList = this.mutableByType.get(node.type)
     if (typeList) typeList.push(node)
-    else this.byType.set(node.type, [node])
+    else this.mutableByType.set(node.type, [node])
 
-    const statusList = this.byStatus.get(node.status)
+    const statusList = this.mutableByStatus.get(node.status)
     if (statusList) statusList.push(node)
-    else this.byStatus.set(node.status, [node])
+    else this.mutableByStatus.set(node.status, [node])
 
-    this.neighbors.set(node.id, new Set())
+    this.mutableNeighbors.set(node.id, new Set())
     this.indexNodeForSearch(node)
   }
 
@@ -176,30 +185,30 @@ export class GraphIndices {
    */
   updateNode(oldNode: AnyNode, newNode: AnyNode): void {
     // Update byId
-    this.byId.set(newNode.id, newNode)
+    this.mutableById.set(newNode.id, newNode)
 
     // Update byType if type changed
     if (oldNode.type !== newNode.type) {
-      const oldTypeList = this.byType.get(oldNode.type)
+      const oldTypeList = this.mutableByType.get(oldNode.type)
       if (oldTypeList) {
         const idx = oldTypeList.findIndex(n => n.id === oldNode.id)
         if (idx !== -1) oldTypeList.splice(idx, 1)
       }
-      const newTypeList = this.byType.get(newNode.type)
+      const newTypeList = this.mutableByType.get(newNode.type)
       if (newTypeList) newTypeList.push(newNode)
-      else this.byType.set(newNode.type, [newNode])
+      else this.mutableByType.set(newNode.type, [newNode])
     }
 
     // Update byStatus if status changed
     if (oldNode.status !== newNode.status) {
-      const oldStatusList = this.byStatus.get(oldNode.status)
+      const oldStatusList = this.mutableByStatus.get(oldNode.status)
       if (oldStatusList) {
         const idx = oldStatusList.findIndex(n => n.id === oldNode.id)
         if (idx !== -1) oldStatusList.splice(idx, 1)
       }
-      const newStatusList = this.byStatus.get(newNode.status)
+      const newStatusList = this.mutableByStatus.get(newNode.status)
       if (newStatusList) newStatusList.push(newNode)
-      else this.byStatus.set(newNode.status, [newNode])
+      else this.mutableByStatus.set(newNode.status, [newNode])
     }
 
     // Update search index
@@ -211,28 +220,28 @@ export class GraphIndices {
    * Remove a single node from all indices without rebuilding.
    */
   removeNode(nodeId: string): void {
-    const node = this.byId.get(nodeId)
+    const node = this.mutableById.get(nodeId)
     if (!node) return
 
-    this.byId.delete(nodeId)
+    this.mutableById.delete(nodeId)
 
     // Remove from byType
-    const typeList = this.byType.get(node.type)
+    const typeList = this.mutableByType.get(node.type)
     if (typeList) {
       const idx = typeList.findIndex(n => n.id === nodeId)
       if (idx !== -1) typeList.splice(idx, 1)
     }
 
     // Remove from byStatus
-    const statusList = this.byStatus.get(node.status)
+    const statusList = this.mutableByStatus.get(node.status)
     if (statusList) {
       const idx = statusList.findIndex(n => n.id === nodeId)
       if (idx !== -1) statusList.splice(idx, 1)
     }
 
     // Remove from neighbors
-    this.neighbors.delete(nodeId)
-    for (const [, neighbors] of this.neighbors) {
+    this.mutableNeighbors.delete(nodeId)
+    for (const [, neighbors] of this.mutableNeighbors) {
       neighbors.delete(nodeId)
     }
 
@@ -257,31 +266,36 @@ export class GraphIndices {
   // ── Query helpers ──────────────────────────────────────────────────
 
   getNode(id: string): AnyNode | undefined {
-    return this.byId.get(id)
+    const node = this.mutableById.get(id)
+    return node ? clone(node) : undefined
   }
 
   getNodesByType(type: NodeType): AnyNode[] {
-    return this.byType.get(type) || []
+    return (this.mutableByType.get(type) || []).map(clone)
   }
 
   getNodesByStatus(status: NodeStatus): AnyNode[] {
-    return this.byStatus.get(status) || []
+    return (this.mutableByStatus.get(status) || []).map(clone)
   }
 
   getOutgoing(nodeId: string): Relationship[] {
-    return this.outgoing.get(nodeId) || []
+    return (this.mutableOutgoing.get(nodeId) || []).map(clone)
   }
 
   getIncoming(nodeId: string): Relationship[] {
-    return this.incoming.get(nodeId) || []
+    return (this.mutableIncoming.get(nodeId) || []).map(clone)
   }
 
   getRelationships(nodeId: string): Relationship[] {
-    return this.all.get(nodeId) || []
+    return (this.mutableAll.get(nodeId) || []).map(clone)
   }
 
   getNeighborIds(nodeId: string): Set<string> {
-    return this.neighbors.get(nodeId) || new Set()
+    return new Set(this.mutableNeighbors.get(nodeId) || [])
+  }
+
+  searchAllTokens(tokens: Set<string>): string[] {
+    return this.searchIndex.searchAnd(new Set(tokens))
   }
 
   search(query: string, type?: NodeType): AnyNode[] {
@@ -291,16 +305,20 @@ export class GraphIndices {
 
     let candidateIds = this.searchIndex.search(queryTokens)
     if (type) {
-      const typeNodes = this.byType.get(type)
+      const typeNodes = this.mutableByType.get(type)
       if (!typeNodes) return []
       const typeIdSet = new Set(typeNodes.map(n => n.id))
       candidateIds = candidateIds.filter(id => typeIdSet.has(id))
     }
 
     return candidateIds
-      .map(id => this.byId.get(id))
+      .map(id => this.mutableById.get(id) ? clone(this.mutableById.get(id)!) : undefined)
       .filter((n): n is AnyNode => n !== undefined)
   }
+}
+
+function clone<T>(value: T): T {
+  return structuredClone(value)
 }
 
 /**
@@ -399,40 +417,39 @@ function stem(word: string): string {
 export class PerTypeGraphCache {
   private nodesByType: Map<NodeType, AnyNode[]> = new Map()
   private relationships: Relationship[] = []
-  private graphVersion: number = 0
-  private lastFullRebuild: number = 0
+  private graphFingerprint: string = ""
 
   /**
    * Get nodes of a specific type from cache.
    * Returns null if cache miss for that type.
    */
-  getNodesByType(type: NodeType, currentVersion: number): AnyNode[] | null {
-    if (currentVersion !== this.graphVersion) return null
-    return this.nodesByType.get(type) || []
+  getNodesByType(type: NodeType, currentFingerprint: string): AnyNode[] | null {
+    if (currentFingerprint !== this.graphFingerprint) return null
+    return structuredClone(this.nodesByType.get(type) || [])
   }
 
   /**
    * Get all relationships from cache.
    */
-  getRelationships(currentVersion: number): Relationship[] | null {
-    if (currentVersion !== this.graphVersion) return null
-    return this.relationships
+  getRelationships(currentFingerprint: string): Relationship[] | null {
+    if (currentFingerprint !== this.graphFingerprint) return null
+    return structuredClone(this.relationships)
   }
 
   /**
    * Populate cache for a specific type only.
    */
-  setType(type: NodeType, nodes: AnyNode[], version: number): void {
-    this.nodesByType.set(type, nodes)
-    this.graphVersion = version
+  setType(type: NodeType, nodes: AnyNode[], fingerprint: string): void {
+    this.nodesByType.set(type, structuredClone(nodes))
+    this.graphFingerprint = fingerprint
   }
 
   /**
    * Set relationships cache.
    */
-  setRelationships(rels: Relationship[], version: number): void {
-    this.relationships = rels
-    this.graphVersion = version
+  setRelationships(rels: Relationship[], fingerprint: string): void {
+    this.relationships = structuredClone(rels)
+    this.graphFingerprint = fingerprint
   }
 
   /**
@@ -455,103 +472,14 @@ export class PerTypeGraphCache {
   invalidateAll(): void {
     this.nodesByType.clear()
     this.relationships = []
-    this.graphVersion = 0
+    this.graphFingerprint = ""
   }
 
   /**
    * Check if cache is valid for a given version.
    */
-  isValid(version: number): boolean {
-    return version === this.graphVersion
-  }
-}
-
-// ── Incremental Graph Hash ───────────────────────────────────────────
-
-/**
- * Calculate a graph hash incrementally without reading the full graph.
- * Based on node count + relationship count + mutation counter.
- */
-export class IncrementalGraphHash {
-  private hash: string = ""
-  private nodeCount: number = 0
-  private relCount: number = 0
-  private mutationCount: number = 0
-
-  /**
-   * Initialize from graph metadata.
-   */
-  initialize(nodeCount: number, relCount: number): void {
-    this.nodeCount = nodeCount
-    this.relCount = relCount
-    this.mutationCount = 0
-    this.hash = this.computeHash()
-  }
-
-  /**
-   * Record a mutation (add/update/remove node or relationship).
-   */
-  recordMutation(): void {
-    this.mutationCount++
-    this.hash = this.computeHash()
-  }
-
-  /**
-   * Record node count change.
-   */
-  recordNodeCountChange(delta: number): void {
-    this.nodeCount += delta
-    this.mutationCount++
-    this.hash = this.computeHash()
-  }
-
-  /**
-   * Record relationship count change.
-   */
-  recordRelCountChange(delta: number): void {
-    this.relCount += delta
-    this.mutationCount++
-    this.hash = this.computeHash()
-  }
-
-  /**
-   * Get current hash.
-   */
-  getHash(): string {
-    return this.hash
-  }
-
-  /**
-   * Get current node count.
-   */
-  getNodeCount(): number {
-    return this.nodeCount
-  }
-
-  /**
-   * Get current relationship count.
-   */
-  getRelCount(): number {
-    return this.relCount
-  }
-
-  /**
-   * Check if hash matches.
-   */
-  matches(otherHash: string): boolean {
-    return this.hash === otherHash
-  }
-
-  private computeHash(): string {
-    const data = `${this.nodeCount}:${this.relCount}:${this.mutationCount}`
-    // Simple hash without crypto dependency
-    let hash = 0
-    for (let i = 0; i < data.length; i++) {
-      const char = data.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash // Convert to 32-bit integer
-    }
-    return hash.toString(36)
+  isValid(fingerprint: string): boolean {
+    return fingerprint === this.graphFingerprint
   }
 }
 
@@ -658,7 +586,7 @@ export function computeDirtyState(
  */
 function computeAdaptiveThreshold(
   graphSize: number,
-  dirtyCount: number,
+  _dirtyCount: number,
   dirtyTypes: Set<NodeType>,
 ): number {
   // Base threshold by graph size

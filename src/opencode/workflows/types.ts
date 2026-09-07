@@ -4,7 +4,6 @@
  * Consumido por: chains.ts, executor.ts, tools-workflow.ts
  */
 
-import type { WorkflowChain } from "./chains.js"
 import type { ChainExecutionResult } from "./executor.js"
 
 /** Status de uma execução de chain */

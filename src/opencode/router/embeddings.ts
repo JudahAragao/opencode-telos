@@ -1,29 +1,27 @@
 /**
  * Similaridade local entre input do usuário e tools SDD.
  *
- * O roteamento usa BM25 lexical; as funções de embedding permanecem apenas
- * como compatibilidade para consumidores externos e migração futura.
+ * O roteamento usa BM25 lexical. O vetor hash-based permanece apenas como
+ * compatibilidade para consumidores externos.
  *
  * Consumido por: intent-classifier.ts, semantic-nudge.ts
  * Dependências: nenhuma (módulo puro)
  */
 
-/** Dimensão dos embeddings (compatível com sentence-transformers all-MiniLM-L6-v2) */
-const EMBEDDING_DIM = 384
+/** Fixed dimension for the deterministic lexical vector. It is not an ML embedding. */
+const LEXICAL_VECTOR_DIM = 384
 
 /**
- * Gera um embedding determinístico a partir de uma string.
- * Usa hash simples para criar um vetor pseudo-aleatório.
- * Para produção, substituir por chamada a um modelo real.
+ * Gera um vetor lexical determinístico a partir de uma string usando hashes.
  */
-function hashToEmbedding(text: string): number[] {
-  const embedding: number[] = new Array(EMBEDDING_DIM)
+function hashToLexicalVector(text: string): number[] {
+  const vector: number[] = new Array(LEXICAL_VECTOR_DIM)
   const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim()
   const words = normalized.split(/\s+/).filter(w => w.length > 1)
 
   // Inicializar com zeros
-  for (let i = 0; i < EMBEDDING_DIM; i++) {
-    embedding[i] = 0
+  for (let i = 0; i < LEXICAL_VECTOR_DIM; i++) {
+    vector[i] = 0
   }
 
   // Adicionar contribuição de cada palavra
@@ -35,25 +33,25 @@ function hashToEmbedding(text: string): number[] {
 
     // Espalhar a contribuição da palavra pelo vetor
     const seed = Math.abs(hash)
-    for (let i = 0; i < EMBEDDING_DIM; i++) {
+    for (let i = 0; i < LEXICAL_VECTOR_DIM; i++) {
       const val = Math.sin(seed * (i + 1) * 0.001) * 0.1
-      embedding[i] += val
+      vector[i] += val
     }
   }
 
   // Normalizar
   let norm = 0
-  for (let i = 0; i < EMBEDDING_DIM; i++) {
-    norm += embedding[i] * embedding[i]
+  for (let i = 0; i < LEXICAL_VECTOR_DIM; i++) {
+    norm += vector[i] * vector[i]
   }
   norm = Math.sqrt(norm)
   if (norm > 0) {
-    for (let i = 0; i < EMBEDDING_DIM; i++) {
-      embedding[i] /= norm
+    for (let i = 0; i < LEXICAL_VECTOR_DIM; i++) {
+      vector[i] /= norm
     }
   }
 
-  return embedding
+  return vector
 }
 
 /**
@@ -74,21 +72,24 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 /**
- * Cache de embeddings calculados.
+ * Cache de vetores lexicais calculados.
  */
 const embeddingCache = new Map<string, number[]>()
 
 /**
- * Obtém o embedding para uma string (com cache).
+ * Obtém o vetor lexical para uma string (com cache).
  */
-export function getEmbedding(text: string): number[] {
+export function getLexicalVector(text: string): number[] {
   const cached = embeddingCache.get(text)
   if (cached) return cached
 
-  const embedding = hashToEmbedding(text)
-  embeddingCache.set(text, embedding)
-  return embedding
+  const vector = hashToLexicalVector(text)
+  embeddingCache.set(text, vector)
+  return vector
 }
+
+/** @deprecated Use getLexicalVector; this compatibility alias is not an ML embedding. */
+export const getEmbedding = getLexicalVector
 
 /**
  * Calcula similaridade entre um texto e múltiplas opções.
@@ -128,14 +129,14 @@ export function rankSimilarity(
 }
 
 /**
- * Limpa o cache de embeddings.
+ * Limpa o cache de vetores lexicais.
  */
 export function clearEmbeddingCache(): void {
   embeddingCache.clear()
 }
 
 /**
- * Gera embeddings para todas as tools e retorna o mapa.
+ * Gera vetores lexicais para todas as tools e retorna o mapa.
  * Útil para pré-computação e persistência.
  */
 export function generateToolEmbeddings(
@@ -143,7 +144,7 @@ export function generateToolEmbeddings(
 ): Map<string, number[]> {
   const map = new Map<string, number[]>()
   for (const tool of tools) {
-    map.set(tool.name, getEmbedding(tool.description))
+    map.set(tool.name, getLexicalVector(tool.description))
   }
   return map
 }

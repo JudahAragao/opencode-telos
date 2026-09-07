@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from "fs"
 import { join } from "path"
+import { sddDebug } from "../log.js"
 
 export interface ConfigDriftItem {
   file: string
@@ -148,6 +149,7 @@ function hasFilesWithExtension(projectDir: string, ext: string): boolean {
       if (!fs.existsSync(dir)) return false
       const entries = fs.readdirSync(dir, { withFileTypes: true })
       for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue
         if (entry.name === "node_modules" || entry.name === ".sdd" || entry.name === "dist") continue
         const fullPath = join(dir, entry.name)
         if (entry.isDirectory()) {
@@ -174,6 +176,7 @@ function hasFilesWithContent(projectDir: string, pattern: RegExp): boolean {
       if (!fs.existsSync(dir)) return false
       const entries = fs.readdirSync(dir, { withFileTypes: true })
       for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue
         if (entry.name === "node_modules" || entry.name === ".sdd" || entry.name === "dist") continue
         const fullPath = join(dir, entry.name)
         if (entry.isDirectory()) {
@@ -182,7 +185,7 @@ function hasFilesWithContent(projectDir: string, pattern: RegExp): boolean {
           try {
             const content = fs.readFileSync(fullPath, "utf-8")
             if (pattern.test(content)) return true
-          } catch {}
+          } catch (error) { sddDebug("config-drift", `Failed to read ${fullPath}`) }
         }
       }
       return false
@@ -265,6 +268,7 @@ function findEnvVarsInSource(projectDir: string): Set<string> {
       if (!fs.existsSync(dir)) return
       const entries = fs.readdirSync(dir, { withFileTypes: true })
       for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue
         if (EXCLUDE.includes(entry.name)) continue
         const fullPath = path.join(dir, entry.name)
         if (entry.isDirectory()) {
@@ -276,12 +280,12 @@ function findEnvVarsInSource(projectDir: string): Set<string> {
             for (const match of matches) {
               vars.add(match[1])
             }
-          } catch {}
+          } catch (error) { sddDebug("config-drift", `Failed to scan env vars in ${fullPath}`) }
         }
       }
     }
     walk(srcDir)
-  } catch {}
+  } catch (error) { sddDebug("config-drift", `Failed to collect env vars from ${projectDir}`) }
   return vars
 }
 

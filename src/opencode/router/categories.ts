@@ -8,7 +8,6 @@
  * Dependências: tool-taxonomy.ts
  */
 
-import { STANDALONE_TOOLS, TOOL_TAXONOMY, type ToolCategory } from "./tool-taxonomy.js"
 
 /**
  * Categorias de intenção do usuário.

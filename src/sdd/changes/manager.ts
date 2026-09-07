@@ -5,10 +5,9 @@ import type {
   AnyNode,
   SpecPromise,
 } from "../domain/types.js"
-import { getNode, addNode, updateNode, getNodesByType } from "../graph/engine.js"
+import { getNode, addNode, updateNode } from "../graph/engine.js"
 import { computeImpact } from "../graph/traverse.js"
 import { extractPromises } from "../promises/tracker.js"
-import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion.js"
 
 let changeCounter = 0
 

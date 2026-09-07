@@ -1,15 +1,11 @@
 import type {
   KnowledgeGraph,
   AnyNode,
-  Relationship,
   RelationshipType,
 } from "../domain/types.js"
 import {
   getNode,
   addRelationship,
-  removeRelationship,
-  getOutgoing,
-  getIncoming,
 } from "./engine.js"
 
 // ─── Types ─────────────────────────────────────────────────────────
@@ -164,7 +160,7 @@ export function ensureGraphIntegrity(
       report.summary.disconnected_groups_found = cachedConnectivity.groups.length
       report.summary.graph_connected = cachedConnectivity.connected
     } else {
-      const { mainGroup, disconnectedGroups } = detectDisconnectedGroups(graphToCheck)
+      const { disconnectedGroups } = detectDisconnectedGroups(graphToCheck)
       if (options.maxGroups && disconnectedGroups.length > options.maxGroups) {
         report.disconnected_groups = disconnectedGroups.slice(0, options.maxGroups)
       } else {
@@ -543,7 +539,7 @@ function getHierarchyLevel(type: string): number {
 function connectDisconnectedGroup(
   graph: KnowledgeGraph,
   group: DisconnectedGroup,
-  mainGroup: SubgraphInfo,
+  _mainGroup: SubgraphInfo,
 ): IntegrityFix | null {
   if (!group.suggested_connection) return null
 

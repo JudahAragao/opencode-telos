@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
+import { readFileSync, existsSync, mkdirSync } from "fs"
+import { atomicWriteFile } from "../cache/atomic.js"
 import { join, dirname } from "path"
 
 export interface SddToggleState {
@@ -29,7 +30,7 @@ export function setToggleState(projectDir: string, enabled: boolean): SddToggleS
   const filePath = join(projectDir, TOGGLE_FILE)
   const dir = dirname(filePath)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8")
+  atomicWriteFile(filePath, JSON.stringify(state, null, 2))
   return state
 }
 

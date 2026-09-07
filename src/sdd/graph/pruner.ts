@@ -1,7 +1,8 @@
 import type { KnowledgeGraph, FileNode, SymbolNode, TestNode, ChangeNode } from "../domain/types.js"
 import { getNodesByType, removeNode } from "./engine.js"
 import { existsSync, readFileSync } from "fs"
-import { join } from "path"
+import { projectPath } from "../security/paths.js"
+import { sddDebug } from "../log.js"
 
 export interface PruneReport {
   removed_nodes: Array<{ id: string; type: string; name: string; reason: string }>
@@ -52,7 +53,7 @@ function pruneDeadFileNodes(graph: KnowledgeGraph, projectDir: string, report: P
   for (const fileNode of fileNodes) {
     const path = fileNode.metadata.path
     if (!path) continue
-    const fullPath = join(projectDir, path)
+    const fullPath = projectPath(projectDir, path)
     if (!existsSync(fullPath)) {
       report.removed_nodes.push({
         id: fileNode.id,
@@ -63,7 +64,7 @@ function pruneDeadFileNodes(graph: KnowledgeGraph, projectDir: string, report: P
       try {
         removeNode(graph, fileNode.id)
         report.total_removed++
-      } catch {}
+      } catch (error) { sddDebug("pruner", `Failed to remove file node ${fileNode.id}`, error) }
     }
   }
 }
@@ -73,7 +74,7 @@ function pruneDeadSymbolNodes(graph: KnowledgeGraph, projectDir: string, report:
   for (const symNode of symbolNodes) {
     const filePath = symNode.metadata.file_path
     if (!filePath) continue
-    const fullPath = join(projectDir, filePath)
+    const fullPath = projectPath(projectDir, filePath)
     if (!existsSync(fullPath)) {
       report.removed_nodes.push({
         id: symNode.id,
@@ -84,7 +85,7 @@ function pruneDeadSymbolNodes(graph: KnowledgeGraph, projectDir: string, report:
       try {
         removeNode(graph, symNode.id)
         report.total_removed++
-      } catch {}
+      } catch (error) { sddDebug("pruner", `Failed to remove symbol node ${symNode.id}`, error) }
       continue
     }
 
@@ -102,9 +103,9 @@ function pruneDeadSymbolNodes(graph: KnowledgeGraph, projectDir: string, report:
         try {
           removeNode(graph, symNode.id)
           report.total_removed++
-        } catch {}
+        } catch (error) { sddDebug("pruner", `Failed to remove dead symbol ${symNode.id}`, error) }
       }
-    } catch {}
+    } catch (error) { sddDebug("pruner", `Failed to read file for symbol check: ${filePath}`, error) }
   }
 }
 
@@ -113,7 +114,7 @@ function pruneDeadTestNodes(graph: KnowledgeGraph, projectDir: string, report: P
   for (const testNode of testNodes) {
     const target = (testNode.metadata as any).target
     if (!target) continue
-    const fullPath = join(projectDir, target)
+    const fullPath = projectPath(projectDir, target)
     if (!existsSync(fullPath)) {
       report.removed_nodes.push({
         id: testNode.id,
@@ -124,7 +125,7 @@ function pruneDeadTestNodes(graph: KnowledgeGraph, projectDir: string, report: P
       try {
         removeNode(graph, testNode.id)
         report.total_removed++
-      } catch {}
+      } catch (error) { sddDebug("pruner", `Failed to remove test node ${testNode.id}`, error) }
     }
   }
 }

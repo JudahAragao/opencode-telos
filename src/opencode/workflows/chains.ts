@@ -12,11 +12,21 @@ export interface WorkflowStep {
   /** Nome da tool SDD a chamar */
   tool: string
   /** Args estáticos ou função que gera args do resultado anterior */
-  args: Record<string, unknown> | ((prevResult: string) => Record<string, unknown>)
+  args: Record<string, unknown> | ((prevResult: string, initialParams: Record<string, unknown>, previousSteps: WorkflowStepResult[]) => Record<string, unknown>)
   /** Se true, falha neste step para a chain inteira */
   required: boolean
   /** Descrição do step para logging */
   description: string
+}
+
+export interface WorkflowStepResult {
+  tool: string
+  result: string
+}
+
+function changeIdFrom(steps: WorkflowStepResult[], previous: string): string {
+  const text = [...steps.map((step) => step.result), previous].join("\n")
+  return text.match(/\b(?:CHG|CHANGE)-[A-Za-z0-9_-]+\b/i)?.[0] || ""
 }
 
 export interface WorkflowChain {
@@ -41,13 +51,13 @@ export const NEW_FEATURE_CHAIN: WorkflowChain = {
   steps: [
     {
       tool: "sdd.enforce",
-      args: (prev) => ({ change_request: prev }),
+      args: (_prev, initial) => ({ request_description: String(initial.briefing || "") }),
       required: true,
       description: "Classificar a requisição e criar Change node",
     },
     {
       tool: "sdd.build_graph",
-      args: (prev) => ({ briefing: prev }),
+      args: (_prev, initial) => ({ briefing: String(initial.briefing || "") }),
       required: true,
       description: "Construir o Knowledge Graph a partir do briefing",
     },
@@ -63,6 +73,30 @@ export const NEW_FEATURE_CHAIN: WorkflowChain = {
       required: false,
       description: "Revisar o que foi criado",
     },
+    {
+      tool: "sdd.approve_change",
+      args: (_prev, _initial, steps) => ({ change_id: changeIdFrom(steps, _prev) }),
+      required: true,
+      description: "Aprovar a Change criada",
+    },
+    {
+      tool: "sdd.generate_code",
+      args: {},
+      required: true,
+      description: "Gerar a implementação aprovada",
+    },
+    {
+      tool: "sdd.verify_implementation",
+      args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
+      required: true,
+      description: "Verificar a implementação da feature",
+    },
+    {
+      tool: "sdd.complete_change",
+      args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
+      required: true,
+      description: "Completar a Change após verificação",
+    },
   ],
 }
 
@@ -77,7 +111,7 @@ export const BUG_FIX_CHAIN: WorkflowChain = {
   steps: [
     {
       tool: "sdd.enforce",
-      args: (prev) => ({ change_request: `Bug fix: ${prev}` }),
+      args: (_prev, initial) => ({ request_description: `Bug fix: ${String(initial.bug_description || "")}` }),
       required: true,
       description: "Criar Change node para o bug fix",
     },
@@ -86,6 +120,30 @@ export const BUG_FIX_CHAIN: WorkflowChain = {
       args: {},
       required: true,
       description: "Validar estado atual do grafo",
+    },
+    {
+      tool: "sdd.approve_change",
+      args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
+      required: true,
+      description: "Aprovar a correção",
+    },
+    {
+      tool: "sdd.generate_code",
+      args: {},
+      required: true,
+      description: "Gerar a correção aprovada",
+    },
+    {
+      tool: "sdd.verify_implementation",
+      args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
+      required: true,
+      description: "Verificar a implementação do bug fix",
+    },
+    {
+      tool: "sdd.complete_change",
+      args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
+      required: true,
+      description: "Completar a Change após verificação",
     },
   ],
 }
@@ -101,7 +159,7 @@ export const HOTFIX_CHAIN: WorkflowChain = {
   steps: [
     {
       tool: "sdd.hotfix",
-      args: (prev) => ({ description: prev }),
+      args: (_prev, initial) => ({ description: String(initial.emergency_description || "") }),
       required: true,
       description: "Aplicar hotfix e documentar retroativamente",
     },
@@ -125,7 +183,7 @@ export const REFACTORING_CHAIN: WorkflowChain = {
   steps: [
     {
       tool: "sdd.enforce",
-      args: (prev) => ({ change_request: `Refactoring: ${prev}` }),
+      args: (_prev, initial) => ({ request_description: `Refactoring: ${String(initial.refactoring_scope || "")}` }),
       required: true,
       description: "Classificar refactoring e criar Change node",
     },
@@ -141,6 +199,30 @@ export const REFACTORING_CHAIN: WorkflowChain = {
       required: false,
       description: "Revisar estado atual",
     },
+    {
+      tool: "sdd.approve_change",
+      args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
+      required: true,
+      description: "Aprovar o refactoring",
+    },
+    {
+      tool: "sdd.generate_code",
+      args: {},
+      required: true,
+      description: "Gerar a implementação do refactoring",
+    },
+    {
+      tool: "sdd.verify_implementation",
+      args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
+      required: true,
+      description: "Verificar a implementação do refactoring",
+    },
+    {
+      tool: "sdd.complete_change",
+      args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
+      required: true,
+      description: "Completar o refactoring",
+    },
   ],
 }
 
@@ -148,36 +230,16 @@ export const REFACTORING_CHAIN: WorkflowChain = {
 
 export const FULL_CYCLE_CHAIN: WorkflowChain = {
   name: "sdd.workflow_full_cycle",
-  description: "Ciclo SDD completo: enforce → validate → generate code → detect drift → complete.",
+  description: "Ciclo SDD completo com geração, verificação, drift e conclusão.",
   params: [
     { name: "change_request", type: "string", description: "Descrição da mudança", required: true },
   ],
-  steps: [
-    {
-      tool: "sdd.enforce",
-      args: (prev) => ({ change_request: prev }),
-      required: true,
-      description: "Classificar e criar Change node",
-    },
-    {
-      tool: "sdd.validate",
-      args: {},
-      required: true,
-      description: "Validar grafo",
-    },
-    {
-      tool: "sdd.generate_code",
-      args: {},
-      required: true,
-      description: "Gerar código a partir da spec",
-    },
-    {
-      tool: "sdd.detect_drift",
-      args: {},
-      required: false,
-      description: "Verificar drift specification vs code",
-    },
-  ],
+  steps: [{
+    tool: "sdd.full_cycle",
+    args: (_prev, initial) => ({ request: String(initial.change_request || "") }),
+    required: true,
+    description: "Executar o ciclo completo com todas as validações",
+  }],
 }
 
 // ── Todas as chains ───────────────────────────────────────────────

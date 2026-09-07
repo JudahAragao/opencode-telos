@@ -2,6 +2,7 @@ import type { KnowledgeGraph, ChangeNode, FileNode } from "../domain/types.js"
 import { getNodesByType, getNode } from "../graph/engine.js"
 import { readFileSync, existsSync, readdirSync } from "fs"
 import { join, extname, relative } from "path"
+import { projectPath } from "../security/paths.js"
 
 export interface MutantDuplicate {
   file_a: string
@@ -125,7 +126,7 @@ function detectMutantDuplicates(
     // Focused scan: only scan specified paths
     tsFiles = []
     for (const fp of focusPaths) {
-      const fullPath = join(projectDir, fp)
+      const fullPath = projectPath(projectDir, fp)
       if (existsSync(fullPath)) {
         tsFiles.push(fullPath)
       } else {
@@ -388,9 +389,10 @@ function collectTsFiles(dir: string): string[] {
   const walk = (d: string) => {
     const entries = readdirSync(d, { withFileTypes: true })
     for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue
       const fullPath = join(d, entry.name)
       if (entry.isDirectory()) {
-        if (!entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "dist") {
+        if (!entry.name.startsWith(".") && !["node_modules", "dist", "build", "coverage", "target", "vendor"].includes(entry.name)) {
           walk(fullPath)
         }
       } else if (/\.(ts|tsx|js|jsx)$/.test(entry.name)) {

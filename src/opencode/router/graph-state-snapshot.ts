@@ -1,15 +1,19 @@
 /**
  * Graph State Snapshot — Captura o estado do grafo para decisão de visibilidade de tools.
  *
- * Cache por sessão com TTL de 30s para evitar reads redundantes do disco.
+ * Cache por sessão invalidado por fingerprint criptográfico do armazenamento.
  *
  * Consumido por: state-gate.ts, hooks.ts
  */
 
 import { createRepository } from "../../sdd/persistence/repository.js"
-import type { KnowledgeGraph } from "../../sdd/domain/types.js"
+import { existsSync } from "fs"
+import { join } from "path"
+import { fileSignature } from "../../sdd/cache/fingerprint.js"
+import { sddDebug } from "../../sdd/log.js"
 
 export type GraphState =
+  | "error"
   | "uninitialized"
   | "empty"
   | "partial"
@@ -28,30 +32,41 @@ export interface GraphSnapshot {
   pendingChangeCount: number
   approvedChangeCount: number
   hasWorkflow: boolean
-  /** Timestamp do snapshot (para TTL cache) */
+  /** Timestamp de criação do snapshot */
   timestamp: number
 }
-
-const CACHE_TTL_MS = 30_000 // 30 segundos
 
 const SPEC_NODE_TYPES = ["feature", "entity", "requirement", "architecture_component", "module"]
 
 let cachedSnapshot: GraphSnapshot | null = null
 let cachedDirectory: string | null = null
+let cachedSourceSignature: string | null = null
+
+function sourceSignature(directory: string): string {
+  const paths = [
+    join(directory, ".sdd", "graph.yaml"),
+    join(directory, ".sdd", "graph.db"),
+    join(directory, ".sdd", "graph.db-wal"),
+    join(directory, ".sdd", "graph.db-shm"),
+  ]
+    .filter(existsSync)
+  return fileSignature(paths)
+}
 
 /**
  * Captura o estado atual do grafo (com cache).
- * Se o cache ainda é válido (TTL < 30s), retorna o cache.
+ * O cache só é reutilizado quando o conteúdo persistido não mudou.
  */
 export function getGraphSnapshot(directory: string): GraphSnapshot {
-  const now = Date.now()
-  if (cachedSnapshot && cachedDirectory === directory && (now - cachedSnapshot.timestamp) < CACHE_TTL_MS) {
+  const signature = sourceSignature(directory)
+  if (cachedSnapshot && cachedDirectory === directory && cachedSourceSignature === signature) {
     return cachedSnapshot
   }
 
   const snapshot = captureSnapshot(directory)
   cachedSnapshot = snapshot
   cachedDirectory = directory
+  cachedSourceSignature = signature
   return snapshot
 }
 
@@ -61,6 +76,7 @@ export function getGraphSnapshot(directory: string): GraphSnapshot {
 export function invalidateSnapshotCache(): void {
   cachedSnapshot = null
   cachedDirectory = null
+  cachedSourceSignature = null
 }
 
 function captureSnapshot(directory: string): GraphSnapshot {
@@ -96,9 +112,9 @@ function captureSnapshot(directory: string): GraphSnapshot {
     let hasWorkflow = false
     try {
       const { getWorkflowState } = require("../../sdd/enforcement/workflow-tracker.js")
-      const wfState = getWorkflowState()
+      const wfState = getWorkflowState(directory)
       hasWorkflow = wfState.enforced === true
-    } catch {}
+    } catch (error) { sddDebug("snapshot", "Failed to read workflow state") }
 
     // Determinar estado
     let state: GraphState
@@ -130,7 +146,7 @@ function captureSnapshot(directory: string): GraphSnapshot {
     }
   } catch {
     return {
-      state: "uninitialized",
+      state: "error",
       nodeCount: 0, relationshipCount: 0, nodeTypes: [],
       hasSpecNodes: false, hasChanges: false,
       pendingChangeCount: 0, approvedChangeCount: 0,
@@ -144,6 +160,7 @@ function captureSnapshot(directory: string): GraphSnapshot {
  */
 export function formatGraphState(snapshot: GraphSnapshot): string {
   const stateLabels: Record<GraphState, string> = {
+    error: "⚠️ Erro ao ler o grafo",
     uninitialized: "❌ Não inicializado",
     empty: "📭 Grafo vazio",
     partial: "⚠️ Parcial (sem spec nodes)",

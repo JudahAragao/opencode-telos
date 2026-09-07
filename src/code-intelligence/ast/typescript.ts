@@ -52,7 +52,10 @@ export class TypeScriptParser implements LanguageParser {
         if (clause?.name) names.push(clause.name.text)
         if (clause?.namedBindings) {
           if (ts.isNamespaceImport(clause.namedBindings)) names.push(`* as ${clause.namedBindings.name.text}`)
-          else for (const element of clause.namedBindings.elements) names.push(element.name.text)
+          else for (const element of clause.namedBindings.elements) {
+            const importedName = element.propertyName?.text || element.name.text
+            names.push(importedName === element.name.text ? importedName : `${importedName} as ${element.name.text}`)
+          }
         }
         addImport({ source: node.moduleSpecifier.text, names, kind: "import", range: symbolRange(node, source), resolution_status: "unresolved" })
       }
@@ -60,7 +63,7 @@ export class TypeScriptParser implements LanguageParser {
       if (ts.isExportDeclaration(node)) {
         const sourceName = node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : undefined
         if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-          for (const element of node.exportClause.elements) addExport({ name: element.name.text, source: sourceName, kind: sourceName ? "reexport" : "named", range: symbolRange(element, source) })
+          for (const element of node.exportClause.elements) addExport({ name: element.name.text, source_name: element.propertyName?.text, source: sourceName, kind: sourceName ? "reexport" : "named", range: symbolRange(element, source) })
         } else if (sourceName) addExport({ name: "*", source: sourceName, kind: "reexport", range: symbolRange(node, source) })
       }
       if (ts.isExportAssignment(node)) {
@@ -112,7 +115,11 @@ export class TypeScriptParser implements LanguageParser {
 
       if (scopedSymbol) symbolStack.push(scopedSymbol)
       if (ts.isCallExpression(node)) {
-        const callee = ts.isIdentifier(node.expression) ? node.expression.text : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ""
+        const callee = ts.isIdentifier(node.expression)
+          ? node.expression.text
+          : ts.isPropertyAccessExpression(node.expression)
+            ? node.expression.getText(source).replace(/^this\./, "")
+            : ""
         const first = node.arguments[0]
         if (["describe", "test", "it", "specify"].includes(callee) && first && ts.isStringLiteral(first)) result.test_names.push(first.text)
         const current = symbolStack.at(-1)

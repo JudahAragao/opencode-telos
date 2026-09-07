@@ -1,6 +1,7 @@
 import { registerMigration } from "./migration-runner.js"
-import { existsSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, readFileSync } from "fs"
 import { join } from "path"
+import { atomicWriteFile } from "../cache/atomic.js"
 
 // ── Migration 1: Sync graph.db from graph.yaml ──
 registerMigration({
@@ -93,7 +94,7 @@ registerMigration({
       const whitelist = JSON.parse(readFileSync(whitelistPath, "utf-8"))
       
       if (!whitelist.entries || !Array.isArray(whitelist.entries)) {
-        writeFileSync(whitelistPath, JSON.stringify({ version: 1, entries: [] }, null, 2))
+        atomicWriteFile(whitelistPath, JSON.stringify({ version: 1, entries: [] }, null, 2))
         return { success: true, message: "Rebuilt corrupted whitelist" }
       }
       
@@ -107,12 +108,12 @@ registerMigration({
       }
       
       if (modified) {
-        writeFileSync(whitelistPath, JSON.stringify(whitelist, null, 2))
+        atomicWriteFile(whitelistPath, JSON.stringify(whitelist, null, 2))
         return { success: true, message: "Normalized paths" }
       }
       return { success: true, message: "Whitelist is valid" }
     } catch {
-      writeFileSync(whitelistPath, JSON.stringify({ version: 1, entries: [] }, null, 2))
+      atomicWriteFile(whitelistPath, JSON.stringify({ version: 1, entries: [] }, null, 2))
       return { success: true, message: "Rebuilt corrupted whitelist" }
     }
   },

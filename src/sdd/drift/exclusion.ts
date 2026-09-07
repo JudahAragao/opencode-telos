@@ -1,5 +1,6 @@
 import type { KnowledgeGraph, ChangeNode } from "../domain/types.js"
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, readFileSync, mkdirSync } from "fs"
+import { atomicWriteFile } from "../cache/atomic.js"
 import { join, dirname } from "path"
 
 /**
@@ -107,7 +108,7 @@ export function saveDriftWhitelist(projectDir: string, whitelist: DriftWhitelist
   const path = join(projectDir, DRIFT_WHITELIST_FILE)
   const dir = dirname(path)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(path, JSON.stringify(whitelist, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify(whitelist, null, 2))
 }
 
 /**

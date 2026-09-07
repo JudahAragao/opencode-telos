@@ -4,17 +4,14 @@ import type {
   NodeType,
   NodeStatus,
   Relationship,
-  RelationshipType,
 } from "../domain/types.js"
 import { GraphIndices } from "../graph/index.js"
 import { ensureDir } from "./yaml.js"
 import { join } from "path"
 import { getCacheManager } from "../cache/manager.js"
-import { fileSignature } from "../cache/fingerprint.js"
+import { fileSignature, graphFingerprint } from "../cache/fingerprint.js"
 import type { GraphRepository } from "./repository.js"
 import { recordLegitimateSave, validateGraphIntegrity } from "../graph/integrity-guard.js"
-
-let dbCounter = 0
 
 /**
  * SQLite-backed graph repository.
@@ -50,7 +47,9 @@ export class SqliteGraphRepository {
 
     // Enable WAL mode for better concurrency
     this.db.exec("PRAGMA journal_mode=WAL")
-    this.db.exec("PRAGMA synchronous=NORMAL")
+    // FULL keeps WAL commits durable across process/system crashes. The graph
+    // is the source of truth, so losing the last transaction is unacceptable.
+    this.db.exec("PRAGMA synchronous=FULL")
 
     // Create tables if they don't exist
     this.db.exec(`
@@ -131,7 +130,6 @@ export class SqliteGraphRepository {
         indices,
         sourceSignature: currentSourceSignature,
       })
-      cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
       return structuredClone(graph)
     }
 
@@ -194,7 +192,9 @@ export class SqliteGraphRepository {
       if (tamperResult.tampered) {
         ;(graph.metadata as any).__tamper_warning = tamperResult.reason
       }
-    } catch {}
+    } catch {
+      ;(graph.metadata as any).__tamper_warning = "Graph integrity validation could not be completed"
+    }
 
     return structuredClone(graph)
   }
@@ -270,15 +270,18 @@ export class SqliteGraphRepository {
         )
       }
 
-      const nodeIds = new Set(graph.nodes.map((node) => node.id))
-      const existingNodeIds = db.query("SELECT id FROM nodes").all() as Array<{ id: string }>
-      const deleteNode = db.prepare("DELETE FROM nodes WHERE id = ?")
-      for (const row of existingNodeIds) if (!nodeIds.has(row.id)) deleteNode.run(row.id)
-
-      const relationshipIds = new Set(graph.relationships.map((relationship) => relationship.id))
-      const existingRelationshipIds = db.query("SELECT id FROM relationships").all() as Array<{ id: string }>
-      const deleteRelationship = db.prepare("DELETE FROM relationships WHERE id = ?")
-      for (const row of existingRelationshipIds) if (!relationshipIds.has(row.id)) deleteRelationship.run(row.id)
+      // Reconcile IDs inside SQLite instead of materializing every persisted
+      // row in JavaScript and deleting one row at a time.
+      db.exec("CREATE TEMP TABLE IF NOT EXISTS _sdd_current_node_ids (id TEXT PRIMARY KEY)")
+      db.exec("CREATE TEMP TABLE IF NOT EXISTS _sdd_current_relationship_ids (id TEXT PRIMARY KEY)")
+      db.exec("DELETE FROM _sdd_current_node_ids")
+      db.exec("DELETE FROM _sdd_current_relationship_ids")
+      const currentNodeId = db.prepare("INSERT INTO _sdd_current_node_ids (id) VALUES (?)")
+      for (const node of graph.nodes) currentNodeId.run(node.id)
+      const currentRelationshipId = db.prepare("INSERT INTO _sdd_current_relationship_ids (id) VALUES (?)")
+      for (const relationship of graph.relationships) currentRelationshipId.run(relationship.id)
+      db.exec("DELETE FROM relationships WHERE id NOT IN (SELECT id FROM _sdd_current_relationship_ids)")
+      db.exec("DELETE FROM nodes WHERE id NOT IN (SELECT id FROM _sdd_current_node_ids)")
 
         db.exec("COMMIT")
       } catch (e) {
@@ -339,9 +342,6 @@ export class SqliteGraphRepository {
     }
     */
 
-    // Update incremental hash
-    cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
-
     // A: Granular invalidation — only invalidate caches for changed types
     if (dirty.allChanged || dirty.dirtyTypes.size > 10) {
       // Too many types changed — full invalidation is faster
@@ -358,12 +358,14 @@ export class SqliteGraphRepository {
     const projectDir = require("path").dirname(this.baseDir)
     try {
       recordLegitimateSave(projectDir, graph)
-    } catch {}
+    } catch (error) {
+      throw new Error("Graph saved but integrity state could not be recorded", { cause: error })
+    }
   }
 
   getIndices(): GraphIndices {
     const cached = SqliteGraphRepository.cache.get(this.dbPath)
-    if (cached) return cached.indices
+    if (cached) return GraphIndices.from(structuredClone(cached.graph))
 
     const graph = this.loadGraph()
     return GraphIndices.from(graph)
@@ -374,7 +376,15 @@ export class SqliteGraphRepository {
   }
 
   isCacheValid(): boolean {
-    return SqliteGraphRepository.cache.has(this.dbPath)
+    const cached = SqliteGraphRepository.cache.get(this.dbPath)
+    if (!cached) return false
+    try {
+      const currentSignature = fileSignature([this.dbPath, `${this.dbPath}-wal`, `${this.dbPath}-shm`])
+      const projectDir = require("path").dirname(this.baseDir)
+      return cached.sourceSignature === currentSignature && !getCacheManager(projectDir).checkCrossProcessInvalidation(this.dbPath)
+    } catch {
+      return false
+    }
   }
 
   invalidateCache(): void {
@@ -473,8 +483,8 @@ export class SqliteGraphRepository {
   getNodesByType(type: NodeType): AnyNode[] {
     // Check per-type cache first
     const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
-    const versionNum = (() => { try { return new Date(this.loadGraph().metadata.updated_at).getTime() } catch { return 0 } })()
-    const cached = cacheMgr.getCachedNodesByType(type, versionNum)
+    const currentFingerprint = (() => { try { return graphFingerprint(this.loadGraph()) } catch { return "" } })()
+    const cached = cacheMgr.getCachedNodesByType(type, currentFingerprint)
     if (cached) return cached
 
     const db = this.getDb()
@@ -491,7 +501,7 @@ export class SqliteGraphRepository {
       updated_at: row.updated_at,
     })) as AnyNode[]
 
-    cacheMgr.setCachedNodesByType(type, nodes, versionNum)
+    cacheMgr.setCachedNodesByType(type, nodes, currentFingerprint)
     return nodes
   }
 

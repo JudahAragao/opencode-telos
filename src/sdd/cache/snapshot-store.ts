@@ -9,9 +9,10 @@
 
 import { existsSync, readFileSync, mkdirSync } from "fs"
 import { join, dirname } from "path"
-import type { KnowledgeGraph, AnyNode, Relationship } from "../domain/types.js"
+import type { KnowledgeGraph } from "../domain/types.js"
 import { atomicWriteFile } from "./atomic.js"
 import { graphFingerprint } from "./fingerprint.js"
+import { sddDebug } from "../log.js"
 
 const SNAPSHOT_FILE = ".sdd/graph-cache.json"
 const SNAPSHOT_MAX_AGE_MS = 60 * 60 * 1000 // 1 hour
@@ -90,9 +91,7 @@ export class GraphSnapshotStore {
         graphHash: snapshot.graphHash || "",
         sourceSignature: snapshot.sourceSignature,
       }
-    } catch {
-      return null
-    }
+    } catch (error) { sddDebug("snapshot", "Failed to load snapshot", error); return null }
   }
 
   /**
@@ -107,9 +106,7 @@ export class GraphSnapshotStore {
       const snapshot: SerializedSnapshot = JSON.parse(raw)
       return snapshot.version === 3 && Boolean(snapshot.sourceSignature) &&
         (Date.now() - snapshot.timestamp) < SNAPSHOT_MAX_AGE_MS
-    } catch {
-      return false
-    }
+    } catch (error) { sddDebug("snapshot", "Snapshot validation failed", error); return false }
   }
 
   /**
@@ -122,7 +119,7 @@ export class GraphSnapshotStore {
         const { unlinkSync } = require("fs")
         unlinkSync(path)
       }
-    } catch {}
+    } catch (error) { sddDebug("snapshot", "Failed to invalidate snapshot", error) }
   }
 
   /**

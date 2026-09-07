@@ -12,8 +12,10 @@
  */
 
 import { createHash } from "crypto"
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, readFileSync, mkdirSync } from "fs"
 import { join, dirname } from "path"
+import { atomicWriteFile } from "../cache/atomic.js"
+import { stableSerialize } from "../cache/fingerprint.js"
 
 const INTEGRITY_FILE = ".sdd/graph-integrity.json"
 const CHECKSUM_HISTORY_SIZE = 50
@@ -50,24 +52,20 @@ export interface IntegrityState {
  * Includes nodes, relationships, and metadata for full integrity.
  */
 export function computeGraphChecksum(graph: {
-  nodes: Array<{ id: string; type: string; name: string; status: string; version: number }>
-  relationships: Array<{ id: string; from: string; to: string; type: string }>
-  metadata: { updated_at: string }
+  nodes: unknown[]
+  relationships: unknown[]
+  metadata: unknown
+  project_id?: unknown
+  version?: unknown
 }): string {
-  // Sort nodes by ID for determinism
-  const sortedNodes = [...graph.nodes]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map(n => `${n.id}:${n.type}:${n.status}:${n.version}`)
-    .join("|")
-
-  // Sort relationships by ID for determinism
-  const sortedRels = [...graph.relationships]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map(r => `${r.id}:${r.from}:${r.to}:${r.type}`)
-    .join("|")
-
-  const payload = `nodes[${sortedNodes}]rels[${sortedRels}]ts:${graph.metadata.updated_at}`
-  return createHash("sha256").update(payload).digest("hex").slice(0, 16)
+  const payload = stableSerialize({
+    project_id: graph.project_id,
+    version: graph.version,
+    metadata: graph.metadata,
+    nodes: [...graph.nodes].sort((a, b) => stableSerialize(a).localeCompare(stableSerialize(b))),
+    relationships: [...graph.relationships].sort((a, b) => stableSerialize(a).localeCompare(stableSerialize(b))),
+  })
+  return createHash("sha256").update(payload).digest("hex")
 }
 
 /**
@@ -102,7 +100,9 @@ function loadIntegrityState(projectDir: string): IntegrityState {
       last合法Save: 0,
       tamperCount: 0,
       checksumHistory: [],
-      tampered: false,
+      // A corrupt integrity file is not equivalent to a clean first run.
+      // Keep the graph blocked until an explicit legitimate save recreates it.
+      tampered: true,
       tamperLog: [],
     }
   }
@@ -115,7 +115,7 @@ function saveIntegrityState(projectDir: string, state: IntegrityState): void {
   const path = join(projectDir, INTEGRITY_FILE)
   const dir = dirname(path)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(path, JSON.stringify(state, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify(state, null, 2))
 }
 
 /**
@@ -124,11 +124,7 @@ function saveIntegrityState(projectDir: string, state: IntegrityState): void {
  */
 export function recordLegitimateSave(
   projectDir: string,
-  graph: {
-    nodes: Array<{ id: string; type: string; name: string; status: string; version: number }>
-    relationships: Array<{ id: string; from: string; to: string; type: string }>
-    metadata: { updated_at: string }
-  },
+  graph: { nodes: unknown[]; relationships: unknown[]; metadata: unknown; project_id?: unknown; version?: unknown },
   changeId?: string,
 ): string {
   const checksum = computeGraphChecksum(graph)
@@ -162,11 +158,7 @@ export function recordLegitimateSave(
  */
 export function validateGraphIntegrity(
   projectDir: string,
-  graph: {
-    nodes: Array<{ id: string; type: string; name: string; status: string; version: number }>
-    relationships: Array<{ id: string; from: string; to: string; type: string }>
-    metadata: { updated_at: string }
-  },
+  graph: { nodes: unknown[]; relationships: unknown[]; metadata: unknown; project_id?: unknown; version?: unknown },
 ): {
   valid: boolean
   tampered: boolean
@@ -179,8 +171,20 @@ export function validateGraphIntegrity(
   const state = loadIntegrityState(projectDir)
   const currentChecksum = computeGraphChecksum(graph)
 
-  // No baseline yet — first save, accept
+  // No baseline yet — accept only a genuinely new project. A corrupt integrity
+  // file is represented by tampered=true and must not be silently reset.
   if (!state.last合法Checksum) {
+    if (state.tampered) {
+      return {
+        valid: false,
+        tampered: true,
+        reason: "Integrity metadata is corrupt or unreadable; recreate it through a legitimate SDD save.",
+        currentChecksum,
+        expectedChecksum: "",
+        nodeCountDiff: 0,
+        relCountDiff: 0,
+      }
+    }
     return {
       valid: true,
       tampered: false,
@@ -207,18 +211,11 @@ export function validateGraphIntegrity(
   const nodeCountDiff = lastEntry ? graph.nodes.length - lastEntry.nodeCount : 0
   const relCountDiff = lastEntry ? graph.relationships.length - lastEntry.relCount : 0
 
-  // Determine if this is a suspicious modification:
-  // - No Change node was created (no changeId in recent history)
-  // - Nodes/relationships changed significantly without workflow
+  // A checksum is trusted only if this exact graph was recorded by a
+  // legitimate save. Looking at a recent Change ID is insufficient because a
+  // direct edit can happen after an unrelated change.
   const timeSinceLastSave = Date.now() - state.last合法Save
-  const recentChangeIds = state.checksumHistory
-    .filter(e => e.changeId)
-    .slice(-3)
-    .map(e => e.changeId)
-
-  const isSuspicious =
-    recentChangeIds.length === 0 && // No recent workflow activity
-    Math.abs(nodeCountDiff) + Math.abs(relCountDiff) > 0 // But graph changed
+  const isSuspicious = !state.checksumHistory.some(entry => entry.checksum === currentChecksum)
 
   if (isSuspicious) {
     state.tampered = true

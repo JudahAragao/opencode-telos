@@ -8,7 +8,9 @@
  * Dependências: chains.ts
  */
 
-import type { WorkflowChain, WorkflowStep } from "./chains.js"
+import type { WorkflowChain, WorkflowStepResult } from "./chains.js"
+import type { ExecutorConfig } from "./types.js"
+import { DEFAULT_EXECUTOR_CONFIG } from "./types.js"
 
 export interface StepResult {
   stepIndex: number
@@ -35,6 +37,11 @@ export interface ChainExecutionResult {
  */
 export type ToolExecutor = (toolName: string, args: Record<string, unknown>) => Promise<string>
 
+export interface WorkflowExecutorHooks {
+  beforeStep?: (stepIndex: number, step: WorkflowChain["steps"][number]) => Promise<unknown> | unknown
+  rollback?: (snapshots: unknown[], failedStepIndex: number) => Promise<void> | void
+}
+
 /**
  * Executa uma workflow chain.
  *
@@ -47,20 +54,48 @@ export async function executeChain(
   chain: WorkflowChain,
   initialParams: Record<string, unknown>,
   executeTool: ToolExecutor,
+  config: ExecutorConfig = DEFAULT_EXECUTOR_CONFIG,
+  hooks?: WorkflowExecutorHooks,
 ): Promise<ChainExecutionResult> {
   const startTime = Date.now()
   const steps: StepResult[] = []
-  let prevResult = JSON.stringify(initialParams)
+  const initialValue = Object.values(initialParams).find((value) => typeof value === "string")
+  let prevResult = typeof initialValue === "string" ? initialValue : JSON.stringify(initialParams)
   let completedSteps = 0
+  const previousSteps: WorkflowStepResult[] = []
+  const snapshots: unknown[] = []
+
+  const rollbackIfNeeded = async (stepIndex: number): Promise<void> => {
+    if (config.autoRollback && hooks?.rollback && snapshots.length > 0) {
+      await hooks.rollback(snapshots, stepIndex)
+    }
+  }
 
   for (let i = 0; i < chain.steps.length; i++) {
+    if (Date.now() - startTime >= config.chainTimeoutMs) {
+      await rollbackIfNeeded(i)
+      return {
+        chainName: chain.name,
+        success: false,
+        steps,
+        finalResult: `Workflow timed out after ${config.chainTimeoutMs}ms`,
+        totalTimeMs: Date.now() - startTime,
+        completedSteps,
+      }
+    }
     const step = chain.steps[i]
     const args = typeof step.args === "function"
-      ? step.args(prevResult)
+      ? step.args(prevResult, initialParams, previousSteps)
       : step.args
 
     try {
-      const result = await executeTool(step.tool, args)
+      if (config.snapshotBeforeStep && hooks?.beforeStep) {
+        snapshots.push(await hooks.beforeStep(i, step))
+      }
+      const result = await Promise.race([
+        executeTool(step.tool, args),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error(`Step timed out after ${config.stepTimeoutMs}ms`)), config.stepTimeoutMs)),
+      ])
       const stepResult: StepResult = {
         stepIndex: i,
         tool: step.tool,
@@ -70,12 +105,14 @@ export async function executeChain(
         timestamp: new Date().toISOString(),
       }
       steps.push(stepResult)
+      previousSteps.push({ tool: step.tool, result })
       prevResult = result
       completedSteps++
 
       // Se o resultado indica falha (contém "BLOCKED" ou "Error")
       if (result.includes("BLOCKED") || result.startsWith("Error:")) {
         if (step.required) {
+          await rollbackIfNeeded(i)
           return {
             chainName: chain.name,
             success: false,
@@ -98,6 +135,7 @@ export async function executeChain(
       steps.push(stepResult)
 
       if (step.required) {
+        await rollbackIfNeeded(i)
         return {
           chainName: chain.name,
           success: false,

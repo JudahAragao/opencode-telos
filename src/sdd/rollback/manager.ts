@@ -1,8 +1,11 @@
 import type { KnowledgeGraph, ChangeNode } from "../domain/types.js"
 import { getNode, updateNode } from "../graph/engine.js"
-import { execSync } from "child_process"
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from "fs"
+import { execFileSync } from "child_process"
+import { readFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from "fs"
 import { join, dirname } from "path"
+import { createHash } from "crypto"
+import { atomicWriteFile } from "../cache/atomic.js"
+import { projectPath } from "../security/paths.js"
 
 export interface RollbackResult {
   success: boolean
@@ -53,9 +56,10 @@ export function createSnapshot(
     if (!existsSync(backupDir)) mkdirSync(backupDir, { recursive: true })
 
     for (const file of change.metadata.affected_files) {
-      const fullPath = join(projectDir, file)
+      const fullPath = projectPath(projectDir, file)
       if (existsSync(fullPath)) {
-        const backupPath = join(backupDir, file.replace(/\//g, "_"))
+        const safeName = `${file.replace(/\//g, "_")}-${createHash("sha256").update(file).digest("hex").slice(0, 10)}`
+        const backupPath = join(backupDir, safeName)
         try {
           copyFileSync(fullPath, backupPath)
           snapshot.backed_up_files.push({ path: file, backup_path: backupPath })
@@ -68,7 +72,7 @@ export function createSnapshot(
 
   const snapshotsDir = join(projectDir, SNAPSHOTS_DIR)
   if (!existsSync(snapshotsDir)) mkdirSync(snapshotsDir, { recursive: true })
-  writeFileSync(join(snapshotsDir, `${snapshotId}.json`), JSON.stringify(snapshot, null, 2), "utf-8")
+  atomicWriteFile(join(snapshotsDir, `${snapshotId}.json`), JSON.stringify(snapshot, null, 2))
 
   return snapshot
 }
@@ -84,7 +88,10 @@ export function rollbackByGit(
       return { success: false, method: "git", details: "No commit found for this change" }
     }
 
-    execSync(`git revert ${commitHash} --no-edit`, {
+    if (!/^[0-9a-f]{7,64}$/i.test(commitHash)) {
+      return { success: false, method: "git", details: "Invalid commit hash" }
+    }
+    execFileSync("git", ["revert", commitHash, "--no-edit"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 30000,
@@ -116,18 +123,31 @@ export function rollbackBySnapshot(
   }
 
   const restoredFiles: string[] = []
+  const failedFiles: string[] = []
 
   for (const backedUp of snapshot.backed_up_files) {
-    if (existsSync(backedUp.backup_path)) {
-      const fullPath = join(projectDir, backedUp.path)
+    const backupPath = projectPath(projectDir, backedUp.backup_path)
+    if (existsSync(backupPath)) {
+      const fullPath = projectPath(projectDir, backedUp.path, true)
       const dir = dirname(fullPath)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       try {
-        copyFileSync(backedUp.backup_path, fullPath)
+        copyFileSync(backupPath, fullPath)
         restoredFiles.push(backedUp.path)
       } catch {
-        // skip
+        failedFiles.push(backedUp.path)
       }
+    } else {
+      failedFiles.push(backedUp.path)
+    }
+  }
+
+  if (snapshot.backed_up_files.length === 0 || failedFiles.length > 0) {
+    return {
+      success: false,
+      method: "snapshot",
+      details: `Snapshot restore incomplete: ${failedFiles.length} file(s) could not be restored`,
+      restored_files: restoredFiles,
     }
   }
 
@@ -163,18 +183,31 @@ export function rollbackByBackup(
   }
 
   const restoredFiles: string[] = []
+  const failedFiles: string[] = []
 
   for (const backedUp of snapshot.backed_up_files) {
-    if (existsSync(backedUp.backup_path)) {
-      const fullPath = join(projectDir, backedUp.path)
+    const backupPath = projectPath(projectDir, backedUp.backup_path)
+    if (existsSync(backupPath)) {
+      const fullPath = projectPath(projectDir, backedUp.path, true)
       const dir = dirname(fullPath)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       try {
-        copyFileSync(backedUp.backup_path, fullPath)
+        copyFileSync(backupPath, fullPath)
         restoredFiles.push(backedUp.path)
       } catch {
-        // skip
+        failedFiles.push(backedUp.path)
       }
+    } else {
+      failedFiles.push(backedUp.path)
+    }
+  }
+
+  if (snapshot.backed_up_files.length === 0 || failedFiles.length > 0) {
+    return {
+      success: false,
+      method: "backup",
+      details: `Backup restore incomplete: ${failedFiles.length} file(s) could not be restored`,
+      restored_files: restoredFiles,
     }
   }
 
@@ -225,7 +258,7 @@ function findCommitForChange(
 
   let result: string | null = null
   try {
-    const log = execSync(`git log --all --oneline --grep="${changeId}"`, {
+    const log = execFileSync("git", ["log", "--all", "--oneline", `--grep=${changeId}`], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 10000,
@@ -262,7 +295,7 @@ function findSnapshot(
   // Fast path: use index
   if (options?.snapshotIndex?.has(changeId)) {
     const snapshotId = options.snapshotIndex.get(changeId)!
-    const snapshotPath = join(projectDir, SNAPSHOTS_DIR, `${snapshotId}.json`)
+    const snapshotPath = projectPath(projectDir, `${SNAPSHOTS_DIR}/${encodeURIComponent(snapshotId)}.json`)
     if (existsSync(snapshotPath)) {
       try {
         return JSON.parse(readFileSync(snapshotPath, "utf-8")) as RollbackSnapshot
@@ -319,7 +352,7 @@ function saveRollbackHistory(projectDir: string, history: RollbackHistory): void
   const path = join(projectDir, ROLLBACK_HISTORY_FILE)
   const dir = dirname(path)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(path, JSON.stringify(history, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify(history, null, 2))
 }
 
 export function formatRollbackResult(result: RollbackResult): string {

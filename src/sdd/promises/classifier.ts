@@ -1,5 +1,5 @@
 import type { KnowledgeGraph } from "../domain/types.js"
-import { getNodesByType, getNodesByTypeIndexed } from "../graph/engine.js"
+import { getNodesByType } from "../graph/engine.js"
 import { GraphIndices } from "../graph/index.js"
 
 /**

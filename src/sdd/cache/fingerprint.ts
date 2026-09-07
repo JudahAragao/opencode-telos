@@ -1,5 +1,5 @@
 import { createHash } from "crypto"
-import { existsSync, readFileSync, readdirSync, statSync } from "fs"
+import { existsSync, readFileSync, readdirSync } from "fs"
 import { join, relative } from "path"
 import type { KnowledgeGraph } from "../domain/types.js"
 
@@ -47,15 +47,10 @@ export function fileContentFingerprint(filePath: string): string {
   }
 }
 
-/** Fast identity for external-file detection; includes all files when several files are supplied. */
+/** Cryptographic content identity for external-file detection. */
 export function fileSignature(filePaths: string[]): string {
   const parts = filePaths.map((filePath) => {
-    try {
-      const stat = statSync(filePath)
-      return `${filePath}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`
-    } catch {
-      return `${filePath}:missing`
-    }
+    return `${filePath}:${fileContentFingerprint(filePath)}`
   })
   return sha256(parts.sort().join("\n"))
 }
@@ -85,7 +80,12 @@ function sourceFiles(projectDir: string): string[] {
   return files.sort()
 }
 
-/** Content fingerprint for code-dependent analyses. The caller can cache this by fileSignature. */
+/**
+ * Content fingerprint for code-dependent analyses.
+ *
+ * File stat metadata is not trusted as proof of unchanged content: editors,
+ * overlays and fast successive writes can preserve size and timestamps.
+ */
 export function sourceFingerprint(
   projectDir: string,
   previous?: { fingerprint: string; signature: string } | null,
@@ -94,5 +94,7 @@ export function sourceFingerprint(
   const signature = fileSignature(files)
   if (previous?.signature === signature) return previous
   const content = files.map((path) => `${relative(projectDir, path)}:${fileContentFingerprint(path)}`).join("\n")
-  return { fingerprint: sha256(content), signature }
+  const fingerprint = sha256(content)
+  if (previous?.signature === signature && previous.fingerprint === fingerprint) return previous
+  return { fingerprint, signature }
 }

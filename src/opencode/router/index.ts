@@ -25,7 +25,7 @@ export { calculateSemanticNudge, formatNudgeInput, isToolSuggested, getTopSugges
 export type { NudgeResult } from "./semantic-nudge.js"
 
 // Embeddings
-export { cosineSimilarity, getEmbedding, rankSimilarity } from "./embeddings.js"
+export { cosineSimilarity, getEmbedding, getLexicalVector, rankSimilarity } from "./embeddings.js"
 
 // Categories
 export { getToolCategories, getToolsByCategory, getCategoriesInToolSet, CATEGORY_KEYWORDS } from "./categories.js"

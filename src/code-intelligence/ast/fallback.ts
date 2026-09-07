@@ -17,7 +17,10 @@ export class FallbackParser implements LanguageParser {
   readonly name = "regex-fallback"
   readonly version = "1"
 
-  supports(): boolean { return true }
+  // Fallback is deliberately selected only after all structured parsers have
+  // declined the file. Advertising support for every extension hides unknown
+  // formats as if they had an authoritative parser.
+  supports(): boolean { return false }
 
   parse(filePath: string, content: string): ParsedFile {
     const language = languageForPath(filePath) || "unknown"
@@ -41,4 +44,3 @@ export class FallbackParser implements LanguageParser {
     return result
   }
 }
-

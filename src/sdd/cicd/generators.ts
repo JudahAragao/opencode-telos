@@ -1,7 +1,9 @@
 import type { KnowledgeGraph, EndpointNode } from "../domain/types.js"
 import { getNodesByType } from "../graph/engine.js"
-import { writeFileSync, existsSync, mkdirSync } from "fs"
+import { existsSync, mkdirSync } from "fs"
 import { join, dirname } from "path"
+import { atomicWriteFile } from "../cache/atomic.js"
+import { projectPath } from "../security/paths.js"
 
 export type CicdPlatform = "github" | "gitlab" | "jenkins" | "docker" | "circleci" | "azure" | "aws" | "travis" | "npm" | "compose" | "maven" | "pip" | "all"
 
@@ -1057,14 +1059,15 @@ const generators: Record<string, (config: CicdConfig) => CicdResult> = {
   go: generateGoReleaser,
 }
 
-export function writeCicdFiles(results: CicdResult[]): string[] {
+export function writeCicdFiles(results: CicdResult[], projectDir?: string): string[] {
   const written: string[] = []
 
   for (const result of results) {
-    const dir = dirname(result.file_path)
+    const safePath = projectDir ? projectPath(projectDir, result.file_path, true) : result.file_path
+    const dir = dirname(safePath)
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    writeFileSync(result.file_path, result.content, "utf-8")
-    written.push(result.file_path)
+    atomicWriteFile(safePath, result.content)
+    written.push(safePath)
   }
 
   return written

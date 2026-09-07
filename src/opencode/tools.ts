@@ -21,7 +21,7 @@ import {
 import { GraphIndices } from "../sdd/graph/index.js"
 import { bfsOutgoing, bfsBoth, bfsIncoming, computeImpact, findPath, getSubgraph } from "../sdd/graph/traverse.js"
 import { analyzeBriefing, generateDiscoveryQuestions, updateGraphFromAnswers, formatDiscoverySummary } from "../sdd/discovery/briefing.js"
-import { createChange, classifyApprovalLevel, approveChange, completeChange, getPendingChanges, failChange, getChangeHistory, formatImpactReport } from "../sdd/changes/manager.js"
+import { createChange, classifyApprovalLevel, approveChange, getPendingChanges, failChange, getChangeHistory, formatImpactReport } from "../sdd/changes/manager.js"
 import { validateGraph, formatValidationResult } from "../sdd/validation/validator.js"
 import { detectDrift, formatDriftReport } from "../sdd/drift/detector.js"
 import { buildSddContextPack } from "./system-prompt.js"
@@ -51,12 +51,13 @@ import { SddDashboardServer } from "../server/server.js"
 import { readJson } from "../sdd/persistence/yaml.js"
 import type { KnowledgeGraph, AnyNode, NodeType, ConstitutionNode } from "../sdd/domain/types.js"
 import { getCacheManager } from "../sdd/cache/manager.js"
-import { markEnforced, markApproved, markValidated, markCompleted, resetWorkflowState } from "../sdd/enforcement/workflow-tracker.js"
+import { markEnforced, markApproved, markValidated, markCompleted, resetWorkflowState, workflowScope } from "../sdd/enforcement/workflow-tracker.js"
 import { validateSmart, type SmartValidationOptions } from "../sdd/validation/smart-validator.js"
-import { validateExecutableProject, saveExecutableValidation, loadExecutableValidation, isExecutableValidationCurrent } from "../sdd/validation/executable.js"
+import { validateExecutableProject, validateFunctionalEvidence, saveExecutableValidation, loadExecutableValidation, isExecutableValidationCurrent } from "../sdd/validation/executable.js"
 import { getTelemetrySummary, recordFeedback, recordTelemetry } from "../sdd/monitoring/telemetry.js"
 import { ValidationIndex } from "../sdd/validation/coverage-index.js"
 import { detectAllSignals, formatDriftSignals } from "../sdd/drift/signals.js"
+import { sddDebug } from "../sdd/log.js"
 import { TransactionManager } from "../sdd/transactions/manager.js"
 import {
   createGraphMutationTool,
@@ -72,6 +73,7 @@ import {
 } from "./router/tools-composite.js"
 import { createWorkflowTools } from "./workflows/tools-workflow.js"
 import { graphFingerprint } from "../sdd/cache/fingerprint.js"
+import { projectPath } from "../sdd/security/paths.js"
 
 // ── Validation Coverage Index (singleton per session) ──────────────
 const validationIndex = new ValidationIndex()
@@ -86,33 +88,34 @@ function loadOrEmpty(directory: string): KnowledgeGraph {
   return createGraph("pending")
 }
 
-/**
- * Get cached tool response if available.
- * Returns null if not cached or cache is stale.
- */
-function getCachedToolResponse(directory: string, toolName: string, args: Record<string, unknown>): string | null {
-  try {
-    const cacheMgr = getCacheManager(directory)
-    const repo = getRepo(directory)
-    if (!repo.isInitialized()) return null
-    const graph = repo.loadGraph()
-    return cacheMgr.getToolResponse(toolName, args, graphFingerprint(graph))
-  } catch {
-    return null
+function attachResponseCache(tools: Record<string, ToolDefinition>): Record<string, ToolDefinition> {
+  const cacheable = new Set(["sdd.validate", "sdd.quality", "sdd.detect_drift", "sdd.coverage", "sdd.contradictions"])
+  for (const toolName of cacheable) {
+    const definition = tools[toolName] as any
+    if (!definition || typeof definition.execute !== "function") continue
+    const originalExecute = definition.execute
+    definition.execute = async (args: Record<string, unknown>, ctx: { directory: string }) => {
+      let repo: GraphRepository | null = null
+      try {
+        repo = getRepo(ctx.directory)
+        if (repo.isInitialized()) {
+          const manager = getCacheManager(ctx.directory)
+          const cached = manager.getToolResponse(toolName, args, graphFingerprint(repo.loadGraph()))
+          if (cached !== null) return cached
+        }
+      } catch {
+        repo = null
+      }
+      const response = await originalExecute(args, ctx)
+      if (typeof response === "string" && repo?.isInitialized()) {
+        try {
+          getCacheManager(ctx.directory).setToolResponse(toolName, args, response, graphFingerprint(repo.loadGraph()))
+        } catch (error) { sddDebug("tools", `Failed to cache response for ${toolName}`) }
+      }
+      return response
+    }
   }
-}
-
-/**
- * Cache a tool response.
- */
-function setCachedToolResponse(directory: string, toolName: string, args: Record<string, unknown>, response: string): void {
-  try {
-    const cacheMgr = getCacheManager(directory)
-    const repo = getRepo(directory)
-    if (!repo.isInitialized()) return
-    const graph = repo.loadGraph()
-    cacheMgr.setToolResponse(toolName, args, response, graphFingerprint(graph))
-  } catch {}
+  return tools
 }
 
 /**
@@ -122,7 +125,7 @@ export function invalidateCacheForMutation(directory: string, nodeTypes: string[
   try {
     const cacheMgr = getCacheManager(directory)
     cacheMgr.invalidatePartial(nodeTypes, relTypes)
-  } catch {}
+  } catch (error) { sddDebug("tools", "Failed to invalidate cache after mutation") }
 }
 
 // Re-export for composite tools
@@ -145,13 +148,8 @@ function truncateList(items: string[], maxItems: number = 20): string[] {
   return [...items.slice(0, maxItems), `... and ${items.length - maxItems} more`]
 }
 
-function formatTruncated(items: string[], label: string, maxItems: number = 20): string {
-  if (items.length <= maxItems) return items.join("\n")
-  return [...items.slice(0, maxItems), `\n... and ${items.length - maxItems} more ${label}`].join("\n")
-}
-
 export function createSddTools(): Record<string, ToolDefinition> {
-  return {
+  const tools: Record<string, ToolDefinition> = {
     "sdd.initialize": tool({
       description:
         "Initialize the SDD Knowledge Graph for a project. Detects if SDD is already initialized. " +
@@ -268,7 +266,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         // try AND search for more precise matches
         const queryWords = args.query.split(/\s+/).filter(w => w.length > 1)
         if (queryWords.length > 1 && results.length > 20) {
-          const andResults = indices.searchIndex.searchAnd(new Set(queryWords.map(w => w.toLowerCase())))
+          const andResults = indices.searchAllTokens(new Set(queryWords.map(w => w.toLowerCase())))
           if (andResults.length > 0 && andResults.length < results.length) {
             results = andResults
               .map(id => indices.byId.get(id))
@@ -598,7 +596,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
             const gapQuestions = generateGapQuestions(graph)
             questions = [...filteredQuestions, ...gapQuestions]
           }
-        } catch {}
+        } catch (error) { sddDebug("tools", "Discovery adaptive filtering failed") }
 
         // Build the prompt for the agent
         const lines: string[] = []
@@ -712,6 +710,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
 
         // Use smart validation with the coverage index for incremental validation
         const smartOptions: SmartValidationOptions = {
+          projectDir: ctx.directory,
           coverageIndex: validationIndex,
           // A user-requested validation is always a full authoritative check.
           // Incremental validation is reserved for callers that provide a
@@ -724,7 +723,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         const formatted = formatValidationResult(smartResult)
 
         if (smartResult.valid) {
-          markValidated()
+          markValidated(workflowScope(ctx.directory, ctx.sessionID))
         }
 
         // Cache the result
@@ -932,10 +931,6 @@ export function createSddTools(): Record<string, ToolDefinition> {
         const neighborIds = new Set(neighbors.map(n => n.id))
         const subgraphNodeIds = new Set([args.node_id, ...neighborIds])
 
-        const subgraphNodes = [...subgraphNodeIds]
-          .map(id => indices.byId.get(id))
-          .filter((n): n is AnyNode => n !== undefined)
-
         const subgraphRels = graph.relationships.filter(
           r => subgraphNodeIds.has(r.from) && subgraphNodeIds.has(r.to)
         )
@@ -1037,7 +1032,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
           approveChange(graph, args.change_id)
           repo.saveGraph(graph)
           invalidateCacheForMutation(ctx.directory, ["change"], ["approved_by"])
-          markApproved()
+          markApproved(workflowScope(ctx.directory, ctx.sessionID))
 
           // Advance transaction to SPEC_UPDATED
           try {
@@ -1046,7 +1041,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
             if (txs.length > 0) {
               txManager.advanceStatus(txs[0].id, "SPEC_UPDATED")
             }
-          } catch {}
+          } catch (error) { sddDebug("tools", `Failed to advance transaction for ${args.change_id}`) }
 
           return `Change ${args.change_id} approved.`
         } catch (e) {
@@ -1068,7 +1063,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         try {
           if (!args.force) {
             const execution = loadExecutableValidation(ctx.directory, args.change_id)
-            if (!execution?.verified || !execution.passed || !isExecutableValidationCurrent(ctx.directory, execution)) {
+            if (!execution?.verified || execution.functional_verified !== true || !execution.passed || !isExecutableValidationCurrent(ctx.directory, execution)) {
               return `## Change ${args.change_id} Completion BLOCKED\n\nRun sdd.verify_implementation successfully after the last code change. Use force=true only for an explicit override.`
             }
           }
@@ -1096,7 +1091,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
 
           repo.saveGraph(graph)
           invalidateCacheForMutation(ctx.directory, ["change"], ["completed"])
-          markCompleted()
+          markCompleted(workflowScope(ctx.directory, ctx.sessionID))
 
           // Advance transaction to COMPLETED
           try {
@@ -1105,7 +1100,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
             if (txs.length > 0) {
               txManager.advanceStatus(txs[0].id, "COMPLETED")
             }
-          } catch {}
+          } catch (error) { sddDebug("tools", `Failed to advance transaction for ${args.change_id}`) }
 
           return `Change ${args.change_id} completed.`
         } catch (e) {
@@ -1122,15 +1117,25 @@ export function createSddTools(): Record<string, ToolDefinition> {
       async execute(args, ctx) {
         const startedAt = Date.now()
         const result = validateExecutableProject(ctx.directory)
+        const repo = getRepo(ctx.directory)
+        const functional = repo.isInitialized()
+          ? validateFunctionalEvidence(repo.loadGraph(), args.change_id)
+          : { verified: false, gaps: ["SDD graph is not initialized"] }
+        result.functional_verified = functional.verified
+        result.functional_gaps = functional.gaps
         saveExecutableValidation(ctx.directory, args.change_id, result)
         recordTelemetry(ctx.directory, {
           name: "executable_verification",
           duration_ms: Date.now() - startedAt,
-          metadata: { change_id: args.change_id, passed: result.passed, verified: result.verified },
+          metadata: { change_id: args.change_id, passed: result.passed, verified: result.verified, functional_verified: result.functional_verified },
         })
         const lines = [`## Executable Verification: ${result.passed && result.verified ? "PASSED" : "BLOCKED"}`]
         for (const check of result.checks) lines.push(`- ${check.status.toUpperCase()}: ${check.name}${check.output ? ` — ${check.output.slice(0, 300)}` : ""}`)
         if (!result.verified) lines.push("No executable verification script was available; configure project scripts before completing the Change.")
+        if (!result.functional_verified) {
+          lines.push("Functional evidence is incomplete:")
+          for (const gap of result.functional_gaps || []) lines.push(`- ${gap}`)
+        }
         return lines.join("\n")
       },
     }),
@@ -1336,7 +1341,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
 
         // ENFORCEMENT: require approved Change before generating code
         const { getWorkflowState } = await import("../sdd/enforcement/workflow-tracker.js")
-        const wfState = getWorkflowState()
+        const wfState = getWorkflowState(workflowScope(ctx.directory, ctx.sessionID))
         if (!wfState.enforced) {
           return [
             "## SDD BLOCKED: No workflow active",
@@ -1369,7 +1374,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         }
 
         // Validate before generating
-        const validation = validateGraph(graph)
+        const validation = validateGraph(graph, undefined, ctx.directory)
         if (!validation.valid && !args.force) {
           return [
             "Cannot generate code: SDD validation failed.",
@@ -1385,7 +1390,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         const stackDesc = [stack.frontend, stack.backend, stack.database].filter(Boolean).join(" + ") || "unknown"
 
         // Generate
-        const targetDir = args.target_dir || ctx.directory
+        const targetDir = projectPath(ctx.directory, args.target_dir || ".", true)
         const plan = generateProject(graph, stack)
 
         // If no files were generated (spec prompt mode), tell the agent to generate code itself
@@ -1504,21 +1509,20 @@ export function createSddTools(): Record<string, ToolDefinition> {
         invalidateCacheForMutation(ctx.directory, ["change"], ["created_by"])
 
         if (result.auto_completed) {
-          if (result.change_id) markEnforced(result.change_id)
+          if (result.change_id) markEnforced(result.change_id, workflowScope(ctx.directory, ctx.sessionID))
           return [
-            `## SDD Enforcement: AUTO-COMPLETED ✅`,
+            `## SDD Enforcement: AUTO-APPROVED ✅`,
             `**Request Type:** ${request.type}`,
             `**Description:** ${request.description}`,
             `**Change ID:** ${result.change_id}`,
             `**Validation:** PASSED`,
             ``,
-            `This is a low-risk change. The SDD cycle has been completed automatically.`,
-            `You may proceed with implementation.`,
+            `This is a low-risk change and was approved automatically. Implementation and explicit completion verification are still required.`,
           ].join("\n")
         }
 
         if (result.allowed && result.change_id) {
-          markEnforced(result.change_id)
+          markEnforced(result.change_id, workflowScope(ctx.directory, ctx.sessionID))
         }
 
         return buildEnforcementPrompt(request, result)
@@ -1549,7 +1553,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
           return "SDD not initialized. Run sdd.initialize first."
         }
 
-        const graph = repo.loadGraph()
+        let graph = repo.loadGraph()
         const lines: string[] = []
         const request = classifyChangeRequest(args.request)
 
@@ -1558,7 +1562,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
 
         // Step 1: Enforce SDD-first
         lines.push("### Step 1: SDD Enforcement")
-        const enforcement = enforceSddFirst(graph, request)
+        const enforcement = enforceSddFirst(graph, request, { projectDir: ctx.directory })
 
         if (!enforcement.allowed) {
           lines.push(`❌ **BLOCKED:** ${enforcement.reason}`)
@@ -1570,12 +1574,35 @@ export function createSddTools(): Record<string, ToolDefinition> {
           return lines.join("\n")
         }
 
-        lines.push(`✅ **APPROVED:** Change ${enforcement.change_id}`)
+        lines.push(`✅ **Change created:** ${enforcement.change_id}${enforcement.change_id && graph.nodes.find(n => n.id === enforcement.change_id)?.status === "APPROVED" ? " (AUTO-APPROVED)" : " (awaiting explicit approval)"}`)
         lines.push(enforcement.impact_summary || "")
+        if (enforcement.change_id) markEnforced(enforcement.change_id, workflowScope(ctx.directory, ctx.sessionID))
 
-        // Step 2: Validate SDD
-        lines.push("\n### Step 2: SDD Validation")
-        const validation = validateGraph(graph)
+        // Step 2: Update the specification from the request before validating
+        // or generating code. Use the same graph-builder path exposed to the
+        // user so full_cycle cannot claim to update the spec without doing it.
+        lines.push("\n### Step 2: Specification Update")
+        try {
+          const buildTool = createSddTools()["sdd.build_graph"]
+          const buildResult = await buildTool.execute({ briefing: args.request }, ctx)
+          const buildText = typeof buildResult === "string" ? buildResult : JSON.stringify(buildResult)
+          lines.push(buildText)
+          if (/^Error|\bBLOCKED\b/i.test(buildText)) {
+            repo.invalidateCache()
+            return lines.join("\n")
+          }
+          repo.invalidateCache()
+          graph = repo.loadGraph()
+          const { markSpecUpdated } = await import("../sdd/enforcement/workflow-tracker.js")
+          markSpecUpdated(workflowScope(ctx.directory, ctx.sessionID))
+        } catch (error) {
+          lines.push(`❌ Specification update failed: ${error instanceof Error ? error.message : String(error)}`)
+          return lines.join("\n")
+        }
+
+        // Step 3: Validate SDD
+        lines.push("\n### Step 3: SDD Validation")
+          const validation = validateGraph(graph, undefined, ctx.directory)
         if (validation.valid) {
           lines.push("✅ SDD validation passed")
         } else {
@@ -1586,43 +1613,82 @@ export function createSddTools(): Record<string, ToolDefinition> {
           return lines.join("\n")
         }
 
-        // Step 3: Generate code plan
-        lines.push("\n### Step 3: Code Generation Plan")
+        // Explicit approval is required for REVIEW/APPROVAL changes unless
+        // the caller deliberately opts into auto_approve.
+        if (enforcement.change_id) {
+          const change = getNode(graph, enforcement.change_id)
+          if (change?.status !== "APPROVED") {
+            if (args.auto_approve && request.type !== "architecture_change") {
+              approveChange(graph, enforcement.change_id)
+              repo.saveGraph(graph)
+              markApproved(workflowScope(ctx.directory, ctx.sessionID))
+            } else {
+              lines.push("❌ Completion blocked: explicit Change approval is required (or set auto_approve=true for non-architecture changes).")
+              repo.saveGraph(graph)
+              return lines.join("\n")
+            }
+          }
+        }
+
+        // Step 4: Generate code plan
+        lines.push("\n### Step 4: Code Generation Plan")
         const plan = generateProject(graph)
         lines.push(`Generated plan: ${plan.files.length} files to create/update`)
 
-        // Step 4: Write code
-        lines.push("\n### Step 4: Implementation")
+        // Step 5: Write code
+        lines.push("\n### Step 5: Implementation")
         const writeResult = writeGeneratedFiles(ctx.directory, plan)
         lines.push(`Files written: ${writeResult.written}`)
+        if (writeResult.conflicts.length > 0) {
+          lines.push(`❌ Implementation blocked: ${writeResult.conflicts.length} existing file conflict(s)`)
+          for (const conflict of writeResult.conflicts) lines.push(`- ${conflict}`)
+          lines.push("Review the files and rerun generation with explicit overwrite approval.")
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["change"], [])
+          return lines.join("\n")
+        }
         if (writeResult.errors.length > 0) {
           lines.push(`Errors: ${writeResult.errors.length}`)
           for (const err of writeResult.errors) lines.push(`  - ${err}`)
+          lines.push("❌ Implementation blocked: generated files could not be written completely")
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["change"], [])
+          return lines.join("\n")
         }
 
-        // Step 5: Validate implementation
-        lines.push("\nStep 5: Post-Implementation Validation")
-        const postValidation = validateGraph(graph)
+        // Step 6: Validate implementation
+        lines.push("\n### Step 6: Post-Implementation Validation")
+        const postValidation = validateGraph(graph, undefined, ctx.directory)
         if (postValidation.valid) {
           lines.push("✅ Post-implementation SDD validation passed")
         } else {
-          lines.push(`⚠️ Post-implementation warnings: ${postValidation.warnings.length}`)
+          lines.push(`❌ Post-implementation validation failed: ${postValidation.errors.length} error(s)`)
+          for (const error of postValidation.errors) lines.push(`- [${error.code}] ${error.message}`)
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["change"], [])
+          return lines.join("\n")
         }
 
-        // Step 5b: execute the project's declared verification pipeline.
-        lines.push("\n### Step 5b: Executable Verification")
+        // Step 6b: execute the project's declared verification pipeline.
+        lines.push("\n### Step 6b: Executable Verification")
         const execution = validateExecutableProject(ctx.directory)
+        const functional = enforcement.change_id
+          ? validateFunctionalEvidence(graph, enforcement.change_id)
+          : { verified: false, gaps: ["No active Change was identified"] }
+        execution.functional_verified = functional.verified
+        execution.functional_gaps = functional.gaps
         if (enforcement.change_id) saveExecutableValidation(ctx.directory, enforcement.change_id, execution)
-        lines.push(execution.passed && execution.verified
-          ? "✅ Formatter/lint/typecheck/tests passed"
+        lines.push(execution.passed && execution.verified && execution.functional_verified
+          ? "✅ All declared verification scripts passed"
           : "❌ Executable verification is incomplete or failed; Change will not be completed")
 
-        // Step 6: Complete change (with promise check)
+        // Step 7: Complete change (with promise check)
         if (enforcement.change_id) {
-          lines.push("\n### Step 6: Change Completion")
+          lines.push("\n### Step 7: Change Completion")
           try {
-            if (!execution.passed || !execution.verified) {
+            if (!execution.passed || !execution.verified || !execution.functional_verified) {
               lines.push("⚠️ Completion blocked: executable verification did not pass")
+              for (const gap of execution.functional_gaps || []) lines.push(`- Functional evidence: ${gap}`)
               repo.saveGraph(graph)
               return lines.join("\n")
             }
@@ -1630,6 +1696,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
             const completionResult = completeChangeWithPromiseCheck(graph, enforcement.change_id)
             if (completionResult.completed) {
               lines.push(`✅ Change ${enforcement.change_id} completed`)
+              markCompleted(workflowScope(ctx.directory, ctx.sessionID))
             } else {
               lines.push(`⚠️ Change ${enforcement.change_id} completion BLOCKED`)
               lines.push(`**Reason:** ${completionResult.result.reason}`)
@@ -1653,7 +1720,8 @@ export function createSddTools(): Record<string, ToolDefinition> {
         lines.push(`- Change: ${enforcement.change_id}`)
         lines.push(`- Files generated: ${writeResult.written}`)
         lines.push(`- SDD valid: ${postValidation.valid}`)
-        lines.push(`- Status: COMPLETED`)
+        const completed = lines.some((line) => line.includes(`✅ Change ${enforcement.change_id} completed`))
+        lines.push(`- Status: ${completed ? "COMPLETED" : "BLOCKED"}`)
 
         return lines.join("\n")
       },
@@ -1673,7 +1741,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         const state = setToggleState(ctx.directory, newState)
 
         if (!state.enabled) {
-          resetWorkflowState()
+          resetWorkflowState(workflowScope(ctx.directory, ctx.sessionID))
         }
 
         const status = state.enabled ? "🟢 ENABLED" : "🔴 DISABLED"
@@ -2026,7 +2094,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         }
 
         const results = generateCicd(config)
-        writeCicdFiles(results)
+        writeCicdFiles(results, ctx.directory)
         return formatCicdResults(results)
       },
     }),
@@ -2608,8 +2676,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { readFileSync } = await import("fs")
-        const { join } = await import("path")
-        const filePath = join(ctx.directory, args.file)
+        const filePath = projectPath(ctx.directory, args.file)
         const code = readFileSync(filePath, "utf-8")
         const { analyzeComplexity, formatComplexityReport } = await import("../sdd/code-quality/complexity.js")
         const report = analyzeComplexity(code, args.file)
@@ -2624,8 +2691,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { readFileSync } = await import("fs")
-        const { join } = await import("path")
-        const filePath = join(ctx.directory, args.file)
+        const filePath = projectPath(ctx.directory, args.file)
         const code = readFileSync(filePath, "utf-8")
         const { analyzeMetrics, formatMetricsReport } = await import("../sdd/code-quality/metrics.js")
         const report = analyzeMetrics(code, args.file)
@@ -2640,8 +2706,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { readFileSync } = await import("fs")
-        const { join } = await import("path")
-        const filePath = join(ctx.directory, args.file)
+        const filePath = projectPath(ctx.directory, args.file)
         const code = readFileSync(filePath, "utf-8")
         const { detectCodeSmells, formatCodeSmellReport } = await import("../sdd/code-quality/smells.js")
         const report = detectCodeSmells(code, args.file)
@@ -2694,9 +2759,9 @@ export function createSddTools(): Record<string, ToolDefinition> {
                 try {
                   const content = readFileSync(fullPath, "utf-8")
                   sourceFiles.set(relPath, content)
-                } catch {}
+                } catch (error) { sddDebug("tools", `Failed to read ${fullPath} for usage analysis`) }
               }
-            } catch {}
+            } catch (error) { sddDebug("tools", `Failed to scan directory ${fullPath}`) }
           }
         }
 
@@ -2713,8 +2778,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { readFileSync } = await import("fs")
-        const { join } = await import("path")
-        const filePath = join(ctx.directory, args.file)
+        const filePath = projectPath(ctx.directory, args.file)
         const code = readFileSync(filePath, "utf-8")
         const { analyzeImports, formatImportAnalysis } = await import("../sdd/code-quality/import-analyzer.js")
         const analysis = analyzeImports(code, args.file)
@@ -2730,8 +2794,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { readFileSync, existsSync } = await import("fs")
-        const { join } = await import("path")
-        const filePath = join(ctx.directory, args.file)
+        const filePath = projectPath(ctx.directory, args.file)
         
         if (!existsSync(filePath)) {
           return `❌ Arquivo não encontrado: ${args.file}`
@@ -2830,8 +2893,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { readFileSync } = await import("fs")
-        const { join } = await import("path")
-        const filePath = join(ctx.directory, args.file)
+        const filePath = projectPath(ctx.directory, args.file)
         const code = readFileSync(filePath, "utf-8")
         const { parseSymbols, formatSymbolParseResult } = await import("../sdd/code-quality/symbol-parser.js")
         const result = parseSymbols(code, args.file)
@@ -2851,8 +2913,6 @@ export function createSddTools(): Record<string, ToolDefinition> {
         const indices = repo2.isInitialized() ? repo2.getIndices() : null
         const { parseSymbols, convertToSymbolNodes } = await import("../sdd/code-quality/symbol-parser.js")
         const { readFileSync } = await import("fs")
-        const { join } = await import("path")
-
         const fileList = args.files.split(",").map(f => f.trim())
         const featureNode = indices ? indices.byId.get(args.feature_id) : graph.nodes.find(n => n.id === args.feature_id)
 
@@ -2864,7 +2924,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         const newRelationships: Array<{id: string, from: string, to: string, type: string, metadata: Record<string, unknown>}> = []
 
         for (const file of fileList) {
-          const fullPath = join(ctx.directory, file)
+          const fullPath = projectPath(ctx.directory, file)
           let code: string
           try {
             code = readFileSync(fullPath, "utf-8")
@@ -3244,7 +3304,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         if (!repo.isInitialized()) return "SDD not initialized."
         const graph = repo.loadGraph()
 
-        const conflicts = detectConflicts(graph, args.remote_graph_path)
+        const conflicts = detectConflicts(graph, projectPath(ctx.directory, args.remote_graph_path))
 
         if (conflicts.length === 0) return "No sync conflicts detected."
 
@@ -3278,10 +3338,11 @@ export function createSddTools(): Record<string, ToolDefinition> {
         const graph = repo.loadGraph()
 
         try {
-          const remoteGraph = readJson<KnowledgeGraph>(args.remote_graph_path)
+          const remoteGraphPath = projectPath(ctx.directory, args.remote_graph_path)
+          const remoteGraph = readJson<KnowledgeGraph>(remoteGraphPath)
 
           // Detect conflicts first using resolveConflict for detailed reporting
-          const conflicts = detectConflicts(graph, args.remote_graph_path)
+          const conflicts = detectConflicts(graph, remoteGraphPath)
           const resolvedConflicts = conflicts.map(c => resolveConflict(c, "local"))
 
           const strategy = {
@@ -3813,7 +3874,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         }
 
         const graph = repo.loadGraph()
-        const newRepo = repo.migrateTo(args.target as "yaml" | "sqlite", ctx.directory)
+        repo.migrateTo(args.target as "yaml" | "sqlite", ctx.directory)
 
         return [
           `## Storage Migration Complete`,
@@ -3943,6 +4004,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { addToDriftWhitelist, loadDriftWhitelist } = await import("../sdd/drift/exclusion.js")
+        projectPath(ctx.directory, args.file_path)
         addToDriftWhitelist(ctx.directory, args.file_path, args.reason)
         const whitelist = loadDriftWhitelist(ctx.directory)
         return [
@@ -3960,6 +4022,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { removeFromDriftWhitelist } = await import("../sdd/drift/exclusion.js")
+        projectPath(ctx.directory, args.file_path)
         removeFromDriftWhitelist(ctx.directory, args.file_path)
         return `✅ Removed from whitelist: \`${args.file_path}\``
       },
@@ -4100,4 +4163,5 @@ export function createSddTools(): Record<string, ToolDefinition> {
     // ── Workflow Chains (Item 4: Orquestração) ──────────────────────
     ...createWorkflowTools(),
   }
+  return attachResponseCache(tools)
 }

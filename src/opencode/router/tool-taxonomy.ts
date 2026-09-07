@@ -254,6 +254,19 @@ export const STANDALONE_TOOLS = [
   "sdd.start_dashboard",
   "sdd.mcp_server_info",
   "sdd.handle_mcp_tool",
+  // Operational tools and workflow entrypoints remain standalone so every
+  // registered tool participates in routing, visibility and policy checks.
+  "sdd.check_migrations",
+  "sdd.run_migrations",
+  "sdd.verify_implementation",
+  "sdd.record_feedback",
+  "sdd.telemetry",
+  "sdd.remote_status",
+  "sdd.workflow_new_feature",
+  "sdd.workflow_bug_fix",
+  "sdd.workflow_hotfix",
+  "sdd.workflow_refactor",
+  "sdd.workflow_full_cycle",
 ]
 
 /** Todas as tools originais que foram substituídas por composits */

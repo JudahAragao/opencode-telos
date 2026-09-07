@@ -8,7 +8,7 @@
  * Dependências: state-gate.ts, intent-classifier.ts, tool-taxonomy.ts
  */
 
-import { getVisibleTools, formatVisibleTools, ESCAPE_HATCH_INSTRUCTION } from "./state-gate.js"
+import { getVisibleTools, ESCAPE_HATCH_INSTRUCTION } from "./state-gate.js"
 import { classifyIntent, getToolsForIntent, type IntentResult } from "./intent-classifier.js"
 import { TOOL_TAXONOMY, STANDALONE_TOOLS, type CompositeTool } from "./tool-taxonomy.js"
 
@@ -47,7 +47,7 @@ export function getToolsForSession(directory: string, userInput: string): ToolRe
   const finalTools = tools.length >= 3 ? tools : (stateTools ? [...stateTools] : [...STANDALONE_TOOLS, ...TOOL_TAXONOMY.map(t => t.name)])
 
   // 5. Formatar mensagem para o system prompt
-  const formattedMessage = formatToolRegistryMessage(finalTools, intent, stateTools)
+  const formattedMessage = formatToolRegistryMessage(finalTools, intent)
 
   return {
     tools: finalTools,
@@ -63,7 +63,6 @@ export function getToolsForSession(directory: string, userInput: string): ToolRe
 function formatToolRegistryMessage(
   tools: string[],
   intent: IntentResult,
-  stateTools: Set<string> | null,
 ): string {
   const lines: string[] = []
 

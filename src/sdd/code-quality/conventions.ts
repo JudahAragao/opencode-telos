@@ -165,7 +165,7 @@ function detectAsyncConventions(files: Array<{ path: string; content: string }>)
   }
 }
 
-function detectStructureConventions(projectDir: string, files: Array<{ path: string; content: string }>): ProjectConventions["structure"] {
+function detectStructureConventions(_projectDir: string, files: Array<{ path: string; content: string }>): ProjectConventions["structure"] {
   // Check for index files
   let indexCount = 0
   for (const file of files) {

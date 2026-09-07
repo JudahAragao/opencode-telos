@@ -1,8 +1,9 @@
 import type { KnowledgeGraph, AnyNode, NodeType, NodeStatus, Relationship } from "../domain/types.js"
 import { DEFAULT_SDD_CONFIG, type SddConfig } from "../domain/types.js"
 import { GraphIndices } from "../graph/index.js"
-import { existsSync, readFileSync } from "fs"
+import { existsSync, readFileSync, statSync } from "fs"
 import { join } from "path"
+import { sddDebug } from "../log.js"
 
 /**
  * Unified interface for graph storage.
@@ -80,7 +81,37 @@ export function createRepository(projectDir: string): GraphRepository {
   const yamlPath = join(sddDir, "graph.yaml")
   const dbPath = join(sddDir, "graph.db")
 
-  // If SQLite already exists, use it
+  // If both backends exist, select the graph with the newest metadata and
+  // fall back safely when one backend is corrupt. This avoids silently using
+  // an old SQLite file after a YAML edit or migration failure.
+  if (existsSync(dbPath) && existsSync(yamlPath)) {
+    try {
+      const { SqliteGraphRepository } = require("./sqlite.js")
+      const { YamlGraphRepository } = require("./yaml.js")
+      const sqlite = new SqliteGraphRepository(projectDir)
+      const yaml = new YamlGraphRepository(projectDir)
+      const sqliteGraph = sqlite.loadGraph()
+      const yamlGraph = yaml.loadGraph()
+      const sqliteTime = Date.parse(sqliteGraph.metadata.updated_at) || 0
+      const yamlTime = Date.parse(yamlGraph.metadata.updated_at) || 0
+      if (yamlTime !== sqliteTime) return yamlTime > sqliteTime ? yaml : sqlite
+      // Metadata timestamps can be equal when two writers serialize quickly.
+      // Use the backend file mtime as a deterministic tie-breaker instead of
+      // silently preferring SQLite.
+      const sqliteMtime = statSync(dbPath).mtimeMs
+      const yamlMtime = statSync(yamlPath).mtimeMs
+      return yamlMtime > sqliteMtime ? yaml : sqlite
+    } catch {
+      try {
+        const { YamlGraphRepository } = require("./yaml.js")
+        return new YamlGraphRepository(projectDir)
+      } catch {
+        const { SqliteGraphRepository } = require("./sqlite.js")
+        return new SqliteGraphRepository(projectDir)
+      }
+    }
+  }
+
   if (existsSync(dbPath)) {
     const { SqliteGraphRepository } = require("./sqlite.js")
     return new SqliteGraphRepository(projectDir)
@@ -109,9 +140,8 @@ export function createRepository(projectDir: string): GraphRepository {
 function countNodesInYaml(yamlPath: string): number {
   try {
     const content = readFileSync(yamlPath, "utf-8")
-    // Count "- id:" occurrences which indicates node entries
-    const matches = content.match(/^  - id:/gm)
-    return matches ? matches.length : 0
+    const parsed = require("js-yaml").load(content) as { nodes?: unknown[] }
+    return Array.isArray(parsed?.nodes) ? parsed.nodes.length : 0
   } catch {
     return 0
   }
@@ -134,10 +164,12 @@ function autoMigrateToSqlite(projectDir: string): GraphRepository {
   // Keep YAML as backup
   const yamlPath = join(projectDir, ".sdd", "graph.yaml.bak")
   try {
-    const { writeFileSync } = require("fs")
     const yaml = require("js-yaml")
-    writeFileSync(yamlPath, yaml.dump(graph, { noRefs: true, lineWidth: 120 }))
-  } catch {}
+    const { atomicWriteFile } = require("../cache/atomic.js")
+    atomicWriteFile(yamlPath, yaml.dump(graph, { noRefs: true, lineWidth: 120 }))
+  } catch (error) {
+    throw new Error(`Could not create YAML migration backup: ${error instanceof Error ? error.message : String(error)}`)
+  }
 
   return sqliteRepo
 }
@@ -160,7 +192,7 @@ export function loadSddConfig(projectDir: string): SddConfig {
         git: { ...DEFAULT_SDD_CONFIG.git, ...(parsed.git || {}) },
         validation: { ...DEFAULT_SDD_CONFIG.validation, ...(parsed.validation || {}) },
       }
-    } catch {}
+    } catch (error) { sddDebug("repository", "Failed to load SDD config, using defaults") }
   }
   return DEFAULT_SDD_CONFIG
 }

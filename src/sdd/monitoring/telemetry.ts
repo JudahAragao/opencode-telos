@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs"
 import { join } from "path"
 
 export interface TelemetryEvent {
@@ -19,7 +19,8 @@ export function recordTelemetry(projectDir: string, event: Omit<TelemetryEvent, 
   const dir = join(projectDir, ".sdd")
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   const payload: TelemetryEvent = { timestamp: new Date().toISOString(), ...event }
-  writeFileSync(eventsPath(projectDir), `${JSON.stringify(payload)}\n`, { encoding: "utf-8", flag: "a" })
+  // O_APPEND makes each JSONL record append atomically for concurrent writers.
+  appendFileSync(eventsPath(projectDir), `${JSON.stringify(payload)}\n`, { encoding: "utf-8" })
 }
 
 export function getTelemetrySummary(projectDir: string): {

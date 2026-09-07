@@ -35,6 +35,8 @@ export interface ImportInfo {
 
 export interface ExportInfo {
   name: string
+  /** Original exported name when this is an aliased re-export. */
+  source_name?: string
   source?: string
   kind: "named" | "default" | "reexport" | "public"
   range: SourceRange
@@ -88,4 +90,3 @@ export interface LanguageParser {
   supports(language: string, extension: string): boolean
   parse(filePath: string, content: string): ParsedFile
 }
-

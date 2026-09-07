@@ -8,8 +8,8 @@
  * Dependências: graph-state-snapshot.ts, tool-taxonomy.ts
  */
 
-import { getGraphSnapshot, type GraphState, type GraphSnapshot } from "./graph-state-snapshot.js"
-import { STANDALONE_TOOLS, TOOL_TAXONOMY, type ToolCategory } from "./tool-taxonomy.js"
+import { getGraphSnapshot, type GraphState } from "./graph-state-snapshot.js"
+import { TOOL_TAXONOMY, type ToolCategory } from "./tool-taxonomy.js"
 
 /** Tools que são sempre visíveis (essenciais) */
 const ALWAYS_VISIBLE = new Set([
@@ -32,6 +32,10 @@ const ALWAYS_VISIBLE_COMPOSITES = new Set([
  * Keys são subconjuntos de GraphState.
  */
 const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[] }> = {
+  error: {
+    composite: [],
+    standalone: ["sdd.inspect", "sdd.validate", "sdd.initialize"],
+  },
   uninitialized: {
     composite: [],
     standalone: ["sdd.initialize", "sdd.build_graph", "sdd.discover"],
@@ -93,6 +97,7 @@ const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[
  * Categorias de tools que ficam ocultas em certos estados.
  */
 const CATEGORY_HIDDEN: Record<GraphState, ToolCategory[]> = {
+  error: ["quality", "sync", "enterprise", "admin"],
   uninitialized: ["quality", "sync", "enterprise", "admin"],
   empty: ["quality", "sync", "enterprise"],
   partial: ["sync", "enterprise"],

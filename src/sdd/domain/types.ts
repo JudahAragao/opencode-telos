@@ -296,6 +296,9 @@ export interface TestNode extends Node {
   metadata: {
     test_type: "unit" | "integration" | "e2e"
     target?: string
+    /** Structured evidence for requirement aspects; never inferred from names. */
+    covered_aspects?: string[]
+    verifies?: string[]
   }
 }
 

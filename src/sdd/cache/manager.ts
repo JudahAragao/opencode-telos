@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, statSync, openSync, fsyncSync, closeSync } from "fs"
+import { sddDebug, sddError } from "../log.js"
 import { join, dirname } from "path"
 import { createHash } from "crypto"
-import { PerTypeGraphCache, IncrementalGraphHash } from "../graph/index.js"
+import { PerTypeGraphCache } from "../graph/index.js"
 import type { AnyNode, NodeType, Relationship } from "../domain/types.js"
 import { getGraphSnapshotStore } from "./snapshot-store.js"
 import type { KnowledgeGraph } from "../domain/types.js"
@@ -9,14 +10,6 @@ import { atomicWriteFile } from "./atomic.js"
 import { configFingerprint, graphFingerprint, sourceFingerprint } from "./fingerprint.js"
 
 // ── Cache Entry Types ────────────────────────────────────────────────
-
-interface CacheEntry<T> {
-  value: T
-  timestamp: number
-  version: number
-  accessCount: number
-  lastAccess: number
-}
 
 interface ToolCacheEntry {
   response: string
@@ -79,6 +72,7 @@ const ANALYSIS_TTL = 3 * 60 * 1000            // 3 minutes
 const PERSISTENT_CACHE_FILE = ".sdd/cache.json"
 const INVALIDATION_FILE = ".sdd/cache-invalidated.json"
 const INVALIDATION_JOURNAL_FILE = ".sdd/cache-events.jsonl"
+const TOOL_CATALOG_VERSION = "2026-09-06"
 const INVALIDATION_JOURNAL_MAX_BYTES = 1024 * 1024
 
 export class CacheManager {
@@ -103,8 +97,6 @@ export class CacheManager {
   // Per-type graph cache
   private graphCache = new PerTypeGraphCache()
 
-  // Incremental graph hash
-  private graphHash = new IncrementalGraphHash()
   private sourceFingerprintCache: { signature: string; fingerprint: string } | null = null
   private invalidationJournalOffset = 0
   private invalidationEventCounter = 0
@@ -122,7 +114,7 @@ export class CacheManager {
     this.projectDir = projectDir
     this.loadInvalidationTracker()
     this.invalidationVersionOnWrite = this.invalidation.version
-    try { this.invalidationJournalOffset = statSync(join(projectDir, INVALIDATION_JOURNAL_FILE)).size } catch {}
+    try { this.invalidationJournalOffset = statSync(join(projectDir, INVALIDATION_JOURNAL_FILE)).size } catch { /* journal not yet created */ }
   }
 
   // ── Tool Response Cache ───────────────────────────────────────────
@@ -192,7 +184,7 @@ export class CacheManager {
       timestamp: now,
       lastAccess: now,
       toolName,
-      argsHash: this.toolCacheKey(toolName, args).split(':')[1] || '',
+      argsHash: this.toolCacheKey(toolName, args).split(':').at(-1) || '',
       graphFingerprint: currentGraphFingerprint,
       configFingerprint: configFingerprint(this.projectDir),
       sourceFingerprint: this.toolNeedsSource(toolName) ? this.getSourceFingerprint() : undefined,
@@ -327,14 +319,14 @@ export class CacheManager {
    */
   invalidatePartial(changedNodeTypes: string[], changedRelTypes: string[] = []): void {
     // Invalidate tool responses that depend on changed types
-    for (const [key, entry] of this.toolResponses) {
+    for (const [key] of this.toolResponses) {
       if (this.doesToolDependOnTypes(key, changedNodeTypes, changedRelTypes)) {
         this.toolResponses.delete(key)
       }
     }
 
     // Invalidate analysis results that depend on changed types
-    for (const [key, entry] of this.analysisResults) {
+    for (const [key] of this.analysisResults) {
       if (this.doesAnalysisDependOnTypes(key, changedNodeTypes, changedRelTypes)) {
         this.analysisResults.delete(key)
       }
@@ -496,7 +488,7 @@ export class CacheManager {
     try {
       const store = getGraphSnapshotStore(this.projectDir)
       store.save(graph, graphFingerprint(graph), sourceSignature)
-    } catch {}
+    } catch (error) { sddError("cache", "Failed to save graph snapshot", error) }
   }
 
   /**
@@ -519,7 +511,7 @@ export class CacheManager {
     try {
       const store = getGraphSnapshotStore(this.projectDir)
       store.invalidate()
-    } catch {}
+    } catch (error) { sddError("cache", "Failed to invalidate graph snapshot", error) }
   }
 
   // ── Cross-Process Shared Cache ────────────────────────────────────
@@ -528,7 +520,7 @@ export class CacheManager {
    * D: Check if another process has modified the graph since our last read.
    * Uses file-based locking + PID liveness check for robust cross-process coordination.
    */
-  checkCrossProcessInvalidation(graphPath: string): boolean {
+  checkCrossProcessInvalidation(_graphPath: string): boolean {
     if (this.refreshExternalInvalidation()) return true
     const lockPath = join(this.projectDir, ".sdd", ".cache-lock")
     try {
@@ -558,7 +550,7 @@ export class CacheManager {
           return true
         }
       }
-    } catch {}
+    } catch (error) { sddDebug("cache", "Cross-process lock read failed", error) }
     return false
   }
 
@@ -609,7 +601,7 @@ export class CacheManager {
           unlinkSync(lockPath)
         }
       }
-    } catch {}
+    } catch (error) { sddDebug("cache", "Failed to release write lock", error) }
   }
 
   // ── Full Reset (H) ───────────────────────────────────────────────
@@ -642,7 +634,7 @@ export class CacheManager {
         unlinkSync(cachePath)
         disk = true
       }
-    } catch {}
+    } catch (error) { sddDebug("cache", "Failed to remove persistent cache", error) }
 
     // Clear graph snapshot (G)
     let snapshot = false
@@ -652,7 +644,7 @@ export class CacheManager {
         store.invalidate()
         snapshot = true
       }
-    } catch {}
+    } catch (error) { sddDebug("cache", "Failed to invalidate snapshot during reset", error) }
 
     // Release lock
     let lock = false
@@ -662,7 +654,7 @@ export class CacheManager {
         this.releaseWriteLock()
         lock = true
       }
-    } catch {}
+    } catch (error) { sddDebug("cache", "Failed to release lock during reset", error) }
 
     return { cleared: { memory: true, disk, snapshot, lock } }
   }
@@ -728,15 +720,15 @@ export class CacheManager {
    * Get cached nodes for a specific type.
    * Only returns if the cache version matches.
    */
-  getCachedNodesByType(type: NodeType, graphVersion: number): AnyNode[] | null {
-    return this.graphCache.getNodesByType(type, graphVersion)
+  getCachedNodesByType(type: NodeType, graphFingerprint: string): AnyNode[] | null {
+    return this.graphCache.getNodesByType(type, graphFingerprint)
   }
 
   /**
    * Cache nodes for a specific type.
    */
-  setCachedNodesByType(type: NodeType, nodes: AnyNode[], graphVersion: number): void {
-    this.graphCache.setType(type, nodes, graphVersion)
+  setCachedNodesByType(type: NodeType, nodes: AnyNode[], graphFingerprint: string): void {
+    this.graphCache.setType(type, nodes, graphFingerprint)
   }
 
   /**
@@ -764,59 +756,15 @@ export class CacheManager {
   /**
    * Get cached relationships.
    */
-  getCachedRelationships(graphVersion: number): Relationship[] | null {
-    return this.graphCache.getRelationships(graphVersion)
+  getCachedRelationships(graphFingerprint: string): Relationship[] | null {
+    return this.graphCache.getRelationships(graphFingerprint)
   }
 
   /**
    * Cache relationships.
    */
-  setCachedRelationships(rels: Relationship[], graphVersion: number): void {
-    this.graphCache.setRelationships(rels, graphVersion)
-  }
-
-  // ── Incremental Graph Hash ────────────────────────────────────────
-
-  /**
-   * Initialize the incremental hash from graph state.
-   */
-  initGraphHash(nodeCount: number, relCount: number): void {
-    this.graphHash.initialize(nodeCount, relCount)
-  }
-
-  /**
-   * Record a node mutation for incremental hash.
-   */
-  recordNodeMutation(delta: number = 0): void {
-    this.graphHash.recordNodeCountChange(delta)
-  }
-
-  /**
-   * Record a relationship mutation for incremental hash.
-   */
-  recordRelMutation(delta: number = 0): void {
-    this.graphHash.recordRelCountChange(delta)
-  }
-
-  /**
-   * Get current graph hash.
-   */
-  getGraphHash(): string {
-    return this.graphHash.getHash()
-  }
-
-  /**
-   * Check if graph hash matches.
-   */
-  isGraphHashValid(expectedHash: string): boolean {
-    return this.graphHash.matches(expectedHash)
-  }
-
-  /**
-   * Get current node count from incremental hash.
-   */
-  getNodeCountFromHash(): number {
-    return this.graphHash.getNodeCount()
+  setCachedRelationships(rels: Relationship[], graphFingerprint: string): void {
+    this.graphCache.setRelationships(rels, graphFingerprint)
   }
 
   // ── Statistics ────────────────────────────────────────────────────
@@ -841,10 +789,10 @@ export class CacheManager {
   private toolCacheKey(toolName: string, args: Record<string, unknown>): string {
     const argsStr = JSON.stringify(args, Object.keys(args).sort())
     const argsHash = createHash("md5").update(argsStr).digest("hex").slice(0, 8)
-    return `${toolName}:${argsHash}`
+    return `${TOOL_CATALOG_VERSION}:${toolName}:${argsHash}`
   }
 
-  private isToolAffectedByInvalidation(toolName: string, argsHash: string): boolean {
+  private isToolAffectedByInvalidation(toolName: string, _argsHash: string): boolean {
     // Check if the tool's dependent types have been invalidated
     const dependentTypes = this.getToolDependentTypes(toolName)
     for (const type of dependentTypes) {
@@ -939,14 +887,15 @@ export class CacheManager {
     return map[nodeType] || []
   }
 
-  private doesToolDependOnTypes(key: string, types: string[], relTypes: string[]): boolean {
-    const toolName = key.split(":")[0]
+  private doesToolDependOnTypes(key: string, types: string[], _relTypes: string[]): boolean {
+    const parts = key.split(":")
+    const toolName = parts.length >= 3 ? parts.slice(1, -1).join(":") : parts[0]
     const depTypes = this.getToolDependentTypes(toolName)
     if (depTypes.length === 0) return true // Unknown dependency, invalidate to be safe
     return types.some(t => depTypes.includes(t))
   }
 
-  private doesAnalysisDependOnTypes(key: string, types: string[], relTypes: string[]): boolean {
+  private doesAnalysisDependOnTypes(key: string, types: string[], _relTypes: string[]): boolean {
     const analysisType = key.replace("analysis:", "")
     const depTypes = this.getAnalysisDependentTypes(analysisType)
     if (depTypes.length === 0) return true
@@ -971,7 +920,7 @@ export class CacheManager {
       this.invalidation.dirtyTypes = new Set(data.dirtyTypes || [])
       this.invalidation.dirtyNodeIds = new Set(data.dirtyNodeIds || [])
       this.invalidation.dirtyRelTypes = new Set(data.dirtyRelTypes || [])
-    } catch {}
+    } catch (error) { sddDebug("cache", "Invalidation tracker load failed, starting fresh", error) }
   }
 
   private saveInvalidationTracker(): void {
@@ -1010,7 +959,7 @@ export class CacheManager {
         }
       }
       this.invalidationJournalOffset = statSync(path).size
-    } catch {}
+    } catch (error) { sddDebug("cache", "Invalidation journal append failed", error) }
   }
 
   private toolNeedsSource(toolName: string): boolean {

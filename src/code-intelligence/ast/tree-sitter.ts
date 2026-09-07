@@ -197,11 +197,18 @@ export class TreeSitterParser implements LanguageParser {
         }
       }
 
-      if (node.type.includes("call") || node.type === "call") {
-        const callee = node.childForFieldName("function") || node.childForFieldName("method") || node.namedChildren[0]
+      if (node.type.includes("call") || node.type === "call" || node.type === "method_invocation") {
+        const methodNode = node.childForFieldName("function") || node.childForFieldName("method") ||
+          (language === "java" ? node.childForFieldName("name") : undefined)
+        const callee = methodNode || node.namedChildren[0]
         const current = contexts.at(-1)
         if (callee && current) {
-          const target = callee.text.replace(/^self[.:#]/, "")
+          let target = callee.text.replace(/^self[.:#]/, "")
+          if (language === "java" && methodNode && node.childForFieldName("object")) {
+            const object = node.childForFieldName("object")!.text.match(/(?:new\s+)?([A-Za-z_$][\w$]*)/)
+            if (object) target = `${object[1]}.${target}`
+          }
+          target = target.replace(/\(\)/g, "")
           addRelation("calls", current, target, node, 0.6)
           if (["describe", "test", "it", "specify"].includes(target)) {
             const stringNode = node.namedChildren.find((child) => child.type.includes("string"))

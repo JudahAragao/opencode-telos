@@ -1,7 +1,7 @@
 /**
  * Intent Classifier — Classifica a intenção do usuário a partir do input.
  *
- * Combina similaridade semântica (embeddings) com keywords para classificar
+ * Combina relevância lexical BM25 com keywords para classificar
  * a intenção em uma das categorias: mutation, query, workflow, analysis, etc.
  *
  * Consumido por: hooks.ts (experimental.chat.system.transform)
@@ -14,7 +14,6 @@ import {
   getToolsByCategory,
   type IntentCategory,
 } from "./categories.js"
-import { TOOL_TAXONOMY, STANDALONE_TOOLS } from "./tool-taxonomy.js"
 
 export interface IntentResult {
   category: IntentCategory
@@ -61,9 +60,9 @@ function keywordScore(text: string): Record<IntentCategory, number> {
 }
 
 /**
- * Calcula score de embeddings para cada categoria.
+ * Calcula score lexical para cada categoria.
  */
-function embeddingScore(text: string): Record<IntentCategory, number> {
+function lexicalScore(text: string): Record<IntentCategory, number> {
   const options = Object.entries(CATEGORY_DESCRIPTIONS).map(([category, description]) => ({
     label: category,
     text: description,
@@ -80,16 +79,16 @@ function embeddingScore(text: string): Record<IntentCategory, number> {
 }
 
 /**
- * Combina keyword score e embedding score com pesos.
- * Keywords: 0.4, Embeddings: 0.6
+ * Combina keyword score e relevância lexical com pesos.
+ * Keywords: 0.4, lexical relevance: 0.6
  */
 function combinedScore(text: string): Record<IntentCategory, number> {
   const kw = keywordScore(text)
-  const emb = embeddingScore(text)
+  const lexical = lexicalScore(text)
 
   const combined: Record<IntentCategory, number> = {} as any
   for (const category of Object.keys(kw) as IntentCategory[]) {
-    combined[category] = (kw[category] * 0.4) + ((emb[category] || 0) * 0.6)
+    combined[category] = (kw[category] * 0.4) + ((lexical[category] || 0) * 0.6)
   }
 
   return combined

@@ -1,4 +1,4 @@
-import type { KnowledgeGraph, NodeType } from "../domain/types.js"
+import type { KnowledgeGraph } from "../domain/types.js"
 import { GraphIndices } from "../graph/index.js"
 import { getAffectedSubsystems, type SmartValidationResult } from "./smart-validator.js"
 
@@ -67,7 +67,6 @@ export class ValidationIndex {
     const now = new Date().toISOString()
 
     for (const subsystem of result.subsystems_checked) {
-      const existing = this.coverage.get(subsystem)
       const nodesInSubsystem = result.nodes_checked // Approximate
 
       this.coverage.set(subsystem, {

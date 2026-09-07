@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
+import { readFileSync, existsSync, mkdirSync } from "fs"
 import { join, dirname } from "path"
-import { execSync } from "child_process"
+import { execFileSync } from "child_process"
+import { atomicWriteFile } from "../cache/atomic.js"
 
 export type Role = "admin" | "architect" | "developer" | "viewer"
 
@@ -142,7 +143,7 @@ export function savePermissions(projectDir: string, config: PermissionConfig): v
   const path = join(projectDir, PERMISSIONS_FILE)
   const dir = dirname(path)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(path, JSON.stringify(config, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify(config, null, 2))
 }
 
 export function checkPermission(
@@ -209,7 +210,7 @@ export function addAuditEntry(
     entries = entries.slice(-1000)
   }
 
-  writeFileSync(auditPath, JSON.stringify(entries, null, 2), "utf-8")
+  atomicWriteFile(auditPath, JSON.stringify(entries, null, 2))
 }
 
 export interface AuditLogFilters {
@@ -229,7 +230,6 @@ export interface AuditLogFilters {
 }
 
 /** Cache for audit log reads. Key: projectDir. */
-const auditLogCache = new Map<string, { entries: AuditEntry[]; timestamp: number }>()
 
 export function getAuditLog(
   projectDir: string,
@@ -288,7 +288,7 @@ export function setRole(
   }
 
   users[user] = role
-  writeFileSync(usersFile, JSON.stringify(users, null, 2), "utf-8")
+  atomicWriteFile(usersFile, JSON.stringify(users, null, 2))
 
   addAuditEntry(projectDir, "system", "set_role", user, "allowed", `Role set to ${role}`)
 }
@@ -307,7 +307,7 @@ export function getUserRole(projectDir: string, user: string): Role {
 
 export function detectRemote(projectDir: string): RemoteAuthConfig | null {
   try {
-    const remoteUrl = execSync("git remote get-url origin", {
+    const remoteUrl = execFileSync("git", ["remote", "get-url", "origin"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 5000,
@@ -357,9 +357,15 @@ export function fetchRemoteUser(projectDir: string, username: string): RemoteUse
 
   try {
     if (remote.provider === "github") {
-      const response = execSync(
-        `curl -s -H "Authorization: token ${remote.token}" "https://api.github.com/repos/${remote.owner}/${remote.repo}/collaborators/${username}/permission"`,
-        { cwd: projectDir, encoding: "utf-8", timeout: 10000 },
+      const response = execFileSync(
+        "curl",
+        ["-fsS", "--config", "-", `https://api.github.com/repos/${encodeURIComponent(remote.owner)}/${encodeURIComponent(remote.repo)}/collaborators/${encodeURIComponent(username)}/permission`],
+        {
+          cwd: projectDir,
+          encoding: "utf-8",
+          timeout: 10000,
+          input: `header = ${JSON.stringify(`Authorization: token ${remote.token}`)}\n`,
+        },
       )
 
       const data = JSON.parse(response)
@@ -384,9 +390,15 @@ export function fetchRemoteUser(projectDir: string, username: string): RemoteUse
     }
 
     if (remote.provider === "gitlab") {
-      const response = execSync(
-        `curl -s -H "PRIVATE-TOKEN: ${remote.token}" "https://gitlab.com/api/v4/projects/${encodeURIComponent(`${remote.owner}/${remote.repo}`)}/members/all/${username}"`,
-        { cwd: projectDir, encoding: "utf-8", timeout: 10000 },
+      const response = execFileSync(
+        "curl",
+        ["-fsS", "--config", "-", `https://gitlab.com/api/v4/projects/${encodeURIComponent(`${remote.owner}/${remote.repo}`)}/members/all/${encodeURIComponent(username)}`],
+        {
+          cwd: projectDir,
+          encoding: "utf-8",
+          timeout: 10000,
+          input: `header = ${JSON.stringify(`PRIVATE-TOKEN: ${remote.token}`)}\n`,
+        },
       )
 
       const data = JSON.parse(response)

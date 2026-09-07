@@ -5,6 +5,14 @@ import { validateGraph } from "../sdd/validation/validator.js"
 import { detectDrift } from "../sdd/drift/detector.js"
 import { getPendingChanges } from "../sdd/changes/manager.js"
 import { progressEmitter, type ProgressEvent } from "./events.js"
+import type { SqliteGraphRepository } from "../sdd/persistence/sqlite.js"
+import type { NodeType } from "../sdd/domain/types.js"
+
+type DashboardSqliteAdapter = Partial<Pick<SqliteGraphRepository,
+  | "getGraphCounts" | "getUpdatedAt" | "getAllNodesSummary" | "getAllRelationshipsSummary"
+  | "getRelationshipsSummary" | "getNodesSummary" | "getNodeTypeCounts" | "getNodesByType"
+  | "getNodeById" | "getRelationshipsForNode"
+>>
 
 export interface DashboardEvent {
   type: string
@@ -49,10 +57,15 @@ export class SddDashboardServer {
   }
 
   private async handleRequest(url: URL, req: Request): Promise<Response> {
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
+    const origin = req.headers.get("origin")
+    const allowedOrigins = new Set([`http://127.0.0.1:${this.port}`, `http://localhost:${this.port}`])
+    const corsHeaders: Record<string, string> = {
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
+    }
+    if (origin && allowedOrigins.has(origin)) {
+      corsHeaders["Access-Control-Allow-Origin"] = origin
+      corsHeaders["Vary"] = "Origin"
     }
 
     if (req.method === "OPTIONS") {
@@ -83,6 +96,12 @@ export class SddDashboardServer {
         const limit = parseInt(url.searchParams.get("limit") || "500")
         const type = url.searchParams.get("type") || undefined
         return this.jsonResponse(this.getGraphSummary(offset, limit, type), corsHeaders)
+      }
+
+      if (path === "/api/graph/relationships") {
+        const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0)
+        const limit = Math.min(5000, Math.max(1, parseInt(url.searchParams.get("limit") || "2000", 10) || 2000))
+        return this.jsonResponse(this.getGraphRelationships(offset, limit), corsHeaders)
       }
 
       if (path === "/api/graph/types") {
@@ -176,8 +195,8 @@ export class SddDashboardServer {
     if (!this.repo.isInitialized()) return { nodes: [], relationships: [], updated_at: "" }
 
     // Use optimized SQLite queries when available for large graphs
-    const sqliteRepo = this.repo as any
-    if (sqliteRepo.getNodesSummary) {
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
+    if (sqliteRepo.getGraphCounts && sqliteRepo.getUpdatedAt && sqliteRepo.getAllNodesSummary && sqliteRepo.getAllRelationshipsSummary && sqliteRepo.getNodesSummary && sqliteRepo.getRelationshipsSummary) {
       const counts = sqliteRepo.getGraphCounts()
       const updatedAt = sqliteRepo.getUpdatedAt()
 
@@ -224,8 +243,8 @@ export class SddDashboardServer {
   private getGraphCounts() {
     if (!this.repo.isInitialized()) return { nodeCount: 0, relCount: 0, updated_at: "" }
 
-    const sqliteRepo = this.repo as any
-    if (sqliteRepo.getGraphCounts) {
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
+    if (sqliteRepo.getGraphCounts && sqliteRepo.getUpdatedAt) {
       const counts = sqliteRepo.getGraphCounts()
       const updatedAt = sqliteRepo.getUpdatedAt()
       return { ...counts, updated_at: updatedAt }
@@ -242,7 +261,7 @@ export class SddDashboardServer {
   private getGraphSummary(offset: number, limit: number, type?: string) {
     if (!this.repo.isInitialized()) return { nodes: [], relationships: [], total: 0 }
 
-    const sqliteRepo = this.repo as any
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
     if (sqliteRepo.getNodesSummary) {
       const nodesResult = sqliteRepo.getNodesSummary(offset, limit, type)
       return {
@@ -273,10 +292,40 @@ export class SddDashboardServer {
     }
   }
 
+  private getGraphRelationships(offset: number, limit: number) {
+    if (!this.repo.isInitialized()) return { relationships: [], total: 0, offset, limit, hasMore: false }
+
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
+    if (sqliteRepo.getRelationshipsSummary) {
+      const result = sqliteRepo.getRelationshipsSummary(offset, limit)
+      return {
+        relationships: result.relationships,
+        total: result.total,
+        offset,
+        limit,
+        hasMore: offset + limit < result.total,
+      }
+    }
+
+    const relationships = this.repo.loadGraph().relationships.map((r) => ({
+      id: r.id,
+      from: r.from,
+      to: r.to,
+      type: r.type,
+    }))
+    return {
+      relationships: relationships.slice(offset, offset + limit),
+      total: relationships.length,
+      offset,
+      limit,
+      hasMore: offset + limit < relationships.length,
+    }
+  }
+
   private getNodeTypeCounts() {
     if (!this.repo.isInitialized()) return []
 
-    const sqliteRepo = this.repo as any
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
     if (sqliteRepo.getNodeTypeCounts) {
       return sqliteRepo.getNodeTypeCounts()
     }
@@ -294,9 +343,9 @@ export class SddDashboardServer {
   private getNodes(type?: string | null) {
     if (!this.repo.isInitialized()) return []
 
-    const sqliteRepo = this.repo as any
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
     if (type && sqliteRepo.getNodesByType) {
-      return sqliteRepo.getNodesByType(type)
+      return sqliteRepo.getNodesByType(type as NodeType)
     }
 
     const graph = this.repo.loadGraph()
@@ -309,7 +358,7 @@ export class SddDashboardServer {
   private getNodeDetail(nodeId: string) {
     if (!this.repo.isInitialized()) return { error: "Not initialized" }
 
-    const sqliteRepo = this.repo as any
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
     if (sqliteRepo.getNodeById) {
       const node = sqliteRepo.getNodeById(nodeId)
       return node || { error: "Node not found" }
@@ -324,7 +373,7 @@ export class SddDashboardServer {
   private getNodeRelationships(nodeId: string) {
     if (!this.repo.isInitialized()) return []
 
-    const sqliteRepo = this.repo as any
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
     if (sqliteRepo.getRelationshipsForNode) {
       return sqliteRepo.getRelationshipsForNode(nodeId)
     }
@@ -343,26 +392,10 @@ export class SddDashboardServer {
 
   private getStatus() {
     if (!this.repo.isInitialized()) return { initialized: false }
-
-    const sqliteRepo = this.repo as any
-    if (sqliteRepo.getGraphCounts) {
-      const counts = sqliteRepo.getGraphCounts()
-      return {
-        initialized: true,
-        stats: {
-          total_nodes: counts.nodeCount,
-          total_relationships: counts.relCount,
-        },
-        pending_changes: 0,
-        validation_errors: 0,
-        validation_warnings: 0,
-      }
-    }
-
     const graph = this.repo.loadGraph()
     const stats = getGraphStats(graph)
     const pending = getPendingChanges(graph)
-    const validation = validateGraph(graph)
+    const validation = validateGraph(graph, undefined, this.projectDir)
     return {
       initialized: true,
       stats,
@@ -375,7 +408,7 @@ export class SddDashboardServer {
   private getValidation() {
     if (!this.repo.isInitialized()) return { error: "Not initialized" }
     const graph = this.repo.loadGraph()
-    return validateGraph(graph)
+    return validateGraph(graph, undefined, this.projectDir)
   }
 
   private getDrift() {
@@ -387,9 +420,9 @@ export class SddDashboardServer {
   private getChanges() {
     if (!this.repo.isInitialized()) return []
 
-    const sqliteRepo = this.repo as any
+    const sqliteRepo = this.repo as unknown as DashboardSqliteAdapter
     if (sqliteRepo.getNodesByType) {
-      return sqliteRepo.getNodesByType("change")
+      return sqliteRepo.getNodesByType("change" as NodeType)
     }
 
     const graph = this.repo.loadGraph()
@@ -458,7 +491,7 @@ export class SddDashboardServer {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": `http://127.0.0.1:${this.port}`,
       },
     })
   }
@@ -634,18 +667,34 @@ export class SddDashboardServer {
           isLargeGraph = nodeCount > LARGE_GRAPH_THRESHOLD;
 
           allNodes = data.nodes;
-          allLinks = data.relationships;
-
-          if (changed) {
-            applyFilters();
+          function renderLoadedLinks(links) {
+            allLinks = links;
+            if (changed) applyFilters();
+            renderFilters();
+            renderLegend();
+            renderNodeList();
+            var overlayText = nodeCount + " nodes, " + relCount + " links";
+            if (isLargeGraph) overlayText += " (large graph mode)";
+            document.getElementById("graph-overlay").textContent = overlayText;
           }
-          renderFilters();
-          renderLegend();
-          renderNodeList();
 
-          var overlayText = nodeCount + " nodes, " + relCount + " links";
-          if (isLargeGraph) overlayText += " (large graph mode)";
-          document.getElementById("graph-overlay").textContent = overlayText;
+          if (data.hasMoreRelationships) {
+            function loadRelationshipPage(offset, links) {
+              return fetch("/api/graph/relationships?offset=" + offset + "&limit=2000")
+                .then(function(res) { return res.json(); })
+                .then(function(page) {
+                  var combined = links.concat(page.relationships || []);
+                  if (page.hasMore) return loadRelationshipPage(offset + (page.relationships || []).length, combined);
+                  renderLoadedLinks(combined);
+                });
+            }
+            loadRelationshipPage(data.relationships.length, data.relationships).catch(function(e) {
+              console.error("Failed to load relationship page:", e);
+              renderLoadedLinks(data.relationships);
+            });
+          } else {
+            renderLoadedLinks(data.relationships);
+          }
         })
         .catch(function(e) { console.error("Failed to load graph:", e); });
     }

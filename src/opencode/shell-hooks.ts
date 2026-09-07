@@ -1,5 +1,6 @@
-import { writeFileSync, existsSync, chmodSync } from "fs"
+import { existsSync, chmodSync } from "fs"
 import { join } from "path"
+import { atomicWriteFile } from "../sdd/cache/atomic.js"
 
 export interface ShellHookConfig {
   projectDir: string
@@ -58,7 +59,7 @@ exit 0
 `
 
   const hookPath = join(hookDir, "pre-commit")
-  writeFileSync(hookPath, hook, "utf-8")
+  atomicWriteFile(hookPath, hook)
   chmodSync(hookPath, "755")
 }
 
@@ -75,7 +76,7 @@ exit 0
 `
 
   const hookPath = join(hookDir, "post-checkout")
-  writeFileSync(hookPath, hook, "utf-8")
+  atomicWriteFile(hookPath, hook)
   chmodSync(hookPath, "755")
 }
 
@@ -92,7 +93,7 @@ exit 0
 `
 
   const hookPath = join(hookDir, "post-merge")
-  writeFileSync(hookPath, hook, "utf-8")
+  atomicWriteFile(hookPath, hook)
   chmodSync(hookPath, "755")
 }
 

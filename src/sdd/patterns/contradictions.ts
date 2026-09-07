@@ -1,7 +1,6 @@
 import type { KnowledgeGraph, RequirementNode, BusinessRuleNode } from "../domain/types.js"
 import { getNodesByType } from "../graph/engine.js"
 import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion.js"
-import { GraphIndices } from "../graph/index.js"
 
 export interface Contradiction {
   node_a: string

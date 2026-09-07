@@ -77,6 +77,12 @@ interface VerificationResult {
 
 function checkFileConsumed(filePath: string): { consumed: boolean; consumers: string[] } {
   const relativePath = path.relative(ROOT, filePath)
+  // CLI audit scripts are executed by package scripts/CI rather than imported
+  // by application modules. Treating the verifier itself as dead code made
+  // the verifier report a false positive.
+  if (relativePath.startsWith("scripts/")) {
+    return { consumed: true, consumers: ["package script / direct CLI entrypoint"] }
+  }
   const baseName = path.basename(filePath, ".ts")
   const dirName = path.dirname(relativePath)
 

@@ -1,21 +1,20 @@
 import type { Hooks } from "@opencode-ai/plugin"
 import { createRepository } from "../sdd/persistence/repository.js"
 import { SDD_CORE_SYSTEM_PROMPT, buildSddContextPack } from "./system-prompt.js"
-import { detectDrift } from "../sdd/drift/detector.js"
 import { validateGraph } from "../sdd/validation/validator.js"
 import { getPendingChanges } from "../sdd/changes/manager.js"
 import { isSddEnabled, setToggleState, getToggleState } from "../sdd/toggle/state.js"
-import { generateHandoff, formatHandoffPack, computeGraphHealth } from "../sdd/session/handoff.js"
 import { checkPermission, getUserRoleWithAuth, addAuditEntry } from "../sdd/permissions/access.js"
 import { createSnapshot } from "../sdd/rollback/manager.js"
-import { extractPromises } from "../sdd/promises/tracker.js"
-import { calculateCoverage } from "../sdd/coverage/tracker.js"
 import { getCacheManager } from "../sdd/cache/manager.js"
-import { checkToolAccess, resetWorkflowState, getWorkflowState, markSpecUpdated } from "../sdd/enforcement/workflow-tracker.js"
+import { checkToolAccess, resetWorkflowState, getWorkflowState, markSpecUpdated, workflowScope } from "../sdd/enforcement/workflow-tracker.js"
 import { formatNudgeInput } from "./router/semantic-nudge.js"
 import { getToolsForSession } from "./router/tool-registry.js"
 import { invalidateSnapshotCache } from "./router/graph-state-snapshot.js"
-import { runMigrations, hasPendingMigrations } from "../sdd/migrations/index.js"
+import { hasPendingMigrations } from "../sdd/migrations/index.js"
+import { graphFingerprint, sourceFingerprint } from "../sdd/cache/fingerprint.js"
+import { sddDebug } from "../sdd/log.js"
+import { projectPath } from "../sdd/security/paths.js"
 
 const SDD_FILE_PATTERNS = [
   /\.ts$/,
@@ -48,7 +47,6 @@ const SDD_EXCLUDED_PATTERNS = [
  * Used to enforce SDD-first even when agents try to bypass via run_terminal_command.
  */
 const SRC_EXT = /\.(?:ts|tsx|js|jsx|mjs|mts|py|go|rs|java|rb|vue|svelte|c|cpp|h|hpp|cs|swift|kt)$/
-const SRC_FILE = /([^\s>"]+\.(?:ts|tsx|js|jsx|mjs|mts|py|go|rs|java|rb|vue|svelte|c|cpp|h|hpp|cs|swift|kt))/
 
 const SHELL_WRITE_PATTERNS: Array<{ pattern: RegExp; extractor: (match: RegExpMatchArray) => string[] }> = [
   // open('file','w').write(...) pattern (primary detection for python heredocs and -c)
@@ -173,24 +171,29 @@ export function detectShellFileWrites(command: string): string[] {
 
 export function createSddHooks(projectDir: string): Hooks {
   let systemInjected = false
+  let injectedGraphFingerprint = ""
+  let injectedSourceSignature = ""
 
   return {
     "experimental.chat.system.transform": async (_input, output) => {
-      if (systemInjected) return
+      if (systemInjected) {
+        try {
+          const currentRepo = createRepository(projectDir)
+          if (currentRepo.isInitialized()) {
+            const currentSource = sourceFingerprint(projectDir).signature
+            if (graphFingerprint(currentRepo.loadGraph()) === injectedGraphFingerprint && currentSource === injectedSourceSignature) return
+          }
+          systemInjected = false
+        } catch {
+          return
+        }
+      }
       if (!isSddEnabled(projectDir)) return
 
-      // Run pending migrations on first load
+      // Migrations are explicit operations. The prompt may report pending
+      // work, but session initialization must not write to the project.
       if (hasPendingMigrations(projectDir)) {
-        try {
-          const migrationResults = runMigrations(projectDir)
-          const successful = migrationResults.filter(r => r.success)
-          if (successful.length > 0) {
-            output.system.push(`## 🔄 opencode-telos Migrations: ${successful.length} fix(es) applied`)  
-          }
-        } catch (err) {
-          // Don't block system init on migration errors
-          console.error("[opencode-telos] Migration error:", err)
-        }
+        output.system.push("## 🔄 opencode-telos Migrations\nPending migrations exist. Run `sdd.run_migrations` explicitly to apply them.")
       }
 
       const repo = createRepository(projectDir)
@@ -199,7 +202,8 @@ export function createSddHooks(projectDir: string): Hooks {
         const cacheMgr = getCacheManager(projectDir)
         cacheMgr.restoreFromPersistentCache()
 
-        output.system.push(SDD_CORE_SYSTEM_PROMPT)
+          output.system.push(SDD_CORE_SYSTEM_PROMPT)
+          output.system.push(getToolsForSession(projectDir, "").formattedMessage)
 
         // Tool Registry: injeta tools relevantes para o estado atual do grafo
         try {
@@ -207,18 +211,20 @@ export function createSddHooks(projectDir: string): Hooks {
           const snapshot = getGraphSnapshot(projectDir)
           const { formatGraphState } = await import("./router/graph-state-snapshot.js")
           output.system.push(formatGraphState(snapshot))
-        } catch {}
+        } catch (error) { sddDebug("hooks", "Failed to inject graph state snapshot") }
         try {
           const graph = repo.loadGraph()
 
           // Inject context pack for focused node info
           const contextPack = buildSddContextPack(graph)
           output.system.push(contextPack)
+          injectedGraphFingerprint = graphFingerprint(graph)
+          injectedSourceSignature = sourceFingerprint(projectDir).signature
 
           // Validation is cheap enough to expose blocking state. Drift, full
           // health, promises, coverage and handoff are available on demand;
           // running all of them at session start is expensive on large repos.
-          const validation = validateGraph(graph)
+          const validation = validateGraph(graph, undefined, projectDir)
           if (!validation.valid || validation.warnings.length > 0) {
             const valLines = ["## SDD Validation"]
             valLines.push(`**Valid:** ${validation.valid ? "✅" : "❌"}`)
@@ -240,12 +246,12 @@ export function createSddHooks(projectDir: string): Hooks {
         try {
           const cacheMgr = getCacheManager(projectDir)
           cacheMgr.persistToDisk()
-        } catch {}
+        } catch (error) { sddDebug("hooks", "Failed to persist cache to disk") }
         systemInjected = true
       }
     },
 
-    "chat.message": async (_input, output) => {
+    "chat.message": async (input, output) => {
       if (!output.parts) return
 
       for (const part of output.parts) {
@@ -264,7 +270,7 @@ export function createSddHooks(projectDir: string): Hooks {
         if (text === "/sdd off") {
           const state = setToggleState(projectDir, false)
           systemInjected = false
-          resetWorkflowState()
+          resetWorkflowState(workflowScope(projectDir, input.sessionID))
           part.text = `⏸️ SDD enforcement **disabled** at ${state.changed_at}.\n\nYou can now make code changes freely without SDD workflow. Use \`/sdd on\` to re-enable.`
           return
         }
@@ -307,7 +313,11 @@ export function createSddHooks(projectDir: string): Hooks {
 
       // Enforce workflow context for SDD graph mutation tools
       if (input.tool.startsWith("sdd.")) {
-        const access = checkToolAccess(input.tool)
+        const scope = workflowScope(projectDir, input.sessionID)
+        const action = output.args?.action && output.args?.learn_action
+          ? `${output.args.action}:${output.args.learn_action}`
+          : output.args?.action
+        const access = checkToolAccess(input.tool, scope, action)
         if (!access.allowed) {
           addAuditEntry(
             projectDir,
@@ -347,7 +357,24 @@ export function createSddHooks(projectDir: string): Hooks {
           }
 
           const detectedFiles = detectShellFileWrites(command)
+          const looksLikeSourceWrite = /(?:writeFile|writeFileSync|write_text|write_bytes|pathlib|open\s*\([^)]*['"](?:w|a)|(?:^|\s)(?:sed\s+-i|cp|mv|install|touch|dd|truncate|tee)\b|>{1,2})/i.test(command) &&
+            /\.(?:ts|tsx|js|jsx|mjs|mts|py|go|rs|java|rb|vue|svelte|c|cpp|h|hpp|cs|swift|kt)\b/i.test(command)
+          const unresolvedVariableWrite = /(?:^|\s)(?:cp|mv|install|touch|tee|python[3]?|node|ruby|perl)\b/i.test(command) &&
+            /\$[A-Za-z_][A-Za-z0-9_]*/.test(command) &&
+            /(?:writeFile|write_text|write_bytes|open\s*\(|>{1,2})/i.test(command)
+          if ((looksLikeSourceWrite || unresolvedVariableWrite) && detectedFiles.length === 0) {
+            addAuditEntry(projectDir, process.env.USER || "current", "shell_command", "unknown", "denied", "Unable to resolve shell write target safely")
+            throw new Error("[SDD BLOCKED] Shell write target could not be resolved safely. Use an SDD tool or provide an explicit project-relative source path.")
+          }
           if (detectedFiles.length > 0) {
+            for (const file of detectedFiles) {
+              try {
+                projectPath(projectDir, file)
+              } catch {
+                addAuditEntry(projectDir, process.env.USER || "current", "shell_command", file, "denied", "Shell write path escapes project")
+                throw new Error(`[SDD BLOCKED] Shell write path is outside the active project: ${file}`)
+              }
+            }
             const repo = createRepository(projectDir)
             if (!repo.isInitialized()) return
 
@@ -421,7 +448,7 @@ export function createSddHooks(projectDir: string): Hooks {
             }
 
             // ENFORCEMENT: Require spec update before shell write
-            const shellWorkflow = getWorkflowState()
+            const shellWorkflow = getWorkflowState(workflowScope(projectDir, input.sessionID))
             if (shellWorkflow.enforced && !shellWorkflow.specUpdated) {
               addAuditEntry(
                 projectDir,
@@ -569,7 +596,7 @@ export function createSddHooks(projectDir: string): Hooks {
 
         if (approvedChanges.length > 0) {
           // ENFORCEMENT: Require spec update before code write
-          const workflow = getWorkflowState()
+          const workflow = getWorkflowState(workflowScope(projectDir, input.sessionID))
           if (workflow.enforced && !workflow.specUpdated) {
             addAuditEntry(
               projectDir,
@@ -663,6 +690,7 @@ export function createSddHooks(projectDir: string): Hooks {
       ]
       if (mutationTools.includes(input.tool)) {
         invalidateSnapshotCache()
+        systemInjected = false
       }
 
       // Mark spec as updated when spec-mutating tools are called
@@ -679,7 +707,7 @@ export function createSddHooks(projectDir: string): Hooks {
         "sdd.workflow_full_cycle",
       ])
       if (specMutationTools.has(input.tool)) {
-        markSpecUpdated()
+        markSpecUpdated(workflowScope(projectDir, input.sessionID))
       }
     },
 
@@ -717,7 +745,7 @@ export function createSddHooks(projectDir: string): Hooks {
         const cacheMgr = getCacheManager(projectDir)
         cacheMgr.persistToDisk()
         cacheMgr.releaseWriteLock()
-      } catch {}
+      } catch (error) { sddDebug("hooks", "Failed to release cache lock on session end") }
     },
   }
 }

@@ -1,7 +1,7 @@
 import type { KnowledgeGraph, FileNode, ChangeNode } from "../domain/types.js"
 import { getNode, getNodesByType } from "../graph/engine.js"
 import { existsSync, readFileSync } from "fs"
-import { join } from "path"
+import { projectPath } from "../security/paths.js"
 import { detectAllSignals, formatDriftSignals } from "./signals.js"
 import type { DriftSignals, DuplicateDetectionOptions } from "./signals.js"
 import { getExclusionSets, isNodeExcludedOrDeprecated, isFileWhitelistedPattern } from "./exclusion.js"
@@ -80,7 +80,13 @@ export function detectDrift(
         severity: "high",
       })
     }
-  } catch {}
+  } catch (error) {
+    result.spec_code_mismatches.push({
+      node_id: "__integrity_check__",
+      description: `Graph integrity validation could not be completed: ${error instanceof Error ? error.message : String(error)}`,
+      severity: "high",
+    })
+  }
 
   // Re-evaluate has_drift after filtering
   result.has_drift =
@@ -126,10 +132,11 @@ function detectAstFileMismatches(
   for (const fileNode of fileNodes) {
     if (isNodeExcludedOrDeprecated(fileNode.id, fileNode.status, removedNodeIds, deprecatedNodeIds)) continue
     const filePath = fileNode.metadata.path
-    if (!filePath || !existsSync(join(projectDir, filePath))) continue
+    if (!filePath || !existsSync(projectPath(projectDir, filePath))) continue
     try {
-      const content = readFileSync(join(projectDir, filePath), "utf-8")
-      const parsed = parseWithCache(projectDir, join(projectDir, filePath), content, cache)
+      const fullPath = projectPath(projectDir, filePath)
+      const content = readFileSync(fullPath, "utf-8")
+      const parsed = parseWithCache(projectDir, fullPath, content, cache)
       const metadata = fileNode.metadata as Record<string, unknown>
       if (typeof metadata.content_hash === "string" && metadata.content_hash !== parsed.content_hash) {
         result.spec_code_mismatches.push({ node_id: fileNode.id, description: `AST content fingerprint changed for ${filePath}`, severity: "high" })
@@ -163,7 +170,7 @@ function detectMissingFiles(
 
     const filePath = fileNode.metadata.path
     if (!filePath) continue
-    const fullPath = join(projectDir, filePath)
+    const fullPath = projectPath(projectDir, filePath)
     if (existsSync(fullPath)) continue
 
     // ── Fuzzy path matching: try to find the file in nearby locations ──
@@ -194,7 +201,7 @@ function detectMissingFiles(
     if (Array.isArray(meta.files)) {
       for (const file of meta.files) {
         if (typeof file === "string") {
-          const fullPath = join(projectDir, file)
+          const fullPath = projectPath(projectDir, file)
           if (!existsSync(fullPath)) {
             result.missing_files.push({
               node_id: task.id,
@@ -394,27 +401,27 @@ function findFuzzyPathMatch(expectedPath: string, projectDir: string): string | 
     `${withoutExt}/index.jsx`,
   ]
   for (const candidate of indexCandidates) {
-    if (existsSync(join(projectDir, candidate))) return candidate
+    if (existsSync(projectPath(projectDir, candidate))) return candidate
   }
 
   // Strategy 2: Search for files with the same name in parent/sibling directories
-  const dir = segments.slice(0, -1).join("/")
+  segments.slice(0, -1).join("/")
   const parentDir = segments.slice(0, -2).join("/")
   if (parentDir) {
     try {
-      const entries = require("fs").readdirSync(join(projectDir, parentDir), { withFileTypes: true })
+      const entries = require("fs").readdirSync(projectPath(projectDir, parentDir), { withFileTypes: true })
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
         const candidateDir = `${parentDir}/${entry.name}`
         const candidatePath = `${candidateDir}/${filename}`
-        if (existsSync(join(projectDir, candidatePath))) return candidatePath
+        if (existsSync(projectPath(projectDir, candidatePath))) return candidatePath
         // Also check index files in subdirectories
         const idxCandidates = [
           `${candidateDir}/${nameWithoutExt}/index.ts`,
           `${candidateDir}/${nameWithoutExt}/index.tsx`,
         ]
         for (const idx of idxCandidates) {
-          if (existsSync(join(projectDir, idx))) return idx
+        if (existsSync(projectPath(projectDir, idx))) return idx
         }
       }
     } catch {
@@ -425,7 +432,7 @@ function findFuzzyPathMatch(expectedPath: string, projectDir: string): string | 
   // Strategy 3: Check one level up in directory tree
   if (segments.length > 2) {
     const parentPath = segments.slice(0, -2).concat(filename).join("/")
-    if (existsSync(join(projectDir, parentPath))) return parentPath
+    if (existsSync(projectPath(projectDir, parentPath))) return parentPath
   }
 
   return null

@@ -1,20 +1,20 @@
 /**
  * Tool catalog — Descriptions cacheadas para todas as tools SDD.
  *
- * Mantém o catálogo usado pelo roteamento lexical. O campo embedding é
- * preservado por compatibilidade com consumidores antigos.
+ * Mantém o catálogo usado pelo roteamento lexical. Os vetores são hash-based,
+ * não embeddings semânticos de um modelo.
  *
  * Consumido por: semantic-nudge.ts
  * Dependências: embeddings.ts, tool-taxonomy.ts
  */
 
-import { getEmbedding } from "./embeddings.js"
+import { getLexicalVector } from "./embeddings.js"
 import { TOOL_TAXONOMY, STANDALONE_TOOLS } from "./tool-taxonomy.js"
 
 export interface ToolEmbedding {
   name: string
   description: string
-  embedding: number[]
+  vector: number[]
   category: string
 }
 
@@ -81,7 +81,7 @@ export function generateAllToolEmbeddings(): ToolEmbedding[] {
     embeddings.push({
       name,
       description,
-      embedding: getEmbedding(description),
+      vector: getLexicalVector(description),
       category: "standalone",
     })
   }
@@ -91,7 +91,7 @@ export function generateAllToolEmbeddings(): ToolEmbedding[] {
     embeddings.push({
       name: tool.name,
       description: tool.description,
-      embedding: getEmbedding(tool.description),
+      vector: getLexicalVector(tool.description),
       category: tool.category,
     })
 
@@ -100,7 +100,7 @@ export function generateAllToolEmbeddings(): ToolEmbedding[] {
       embeddings.push({
         name: `${tool.name}:${action.name}`,
         description: `${action.description} (${tool.label})`,
-        embedding: getEmbedding(action.description),
+        vector: getLexicalVector(action.description),
         category: tool.category,
       })
     }
@@ -140,7 +140,7 @@ export function serializeEmbeddings(embeddings: ToolEmbedding[]): string {
     embeddings.map(e => ({
       n: e.name,
       d: e.description,
-      e: e.embedding,
+      v: e.vector,
       c: e.category,
     })),
     null,
@@ -156,7 +156,7 @@ export function deserializeEmbeddings(json: string): ToolEmbedding[] {
   return data.map((e: any) => ({
     name: e.n,
     description: e.d,
-    embedding: e.e,
+    vector: e.v ?? e.e,
     category: e.c,
   }))
 }

@@ -2,18 +2,30 @@ import { describe, expect, test } from "bun:test"
 import { appendFileSync, mkdtempSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { createGraph, addNode } from "../src/sdd/graph/engine.js"
+import { createGraph, addNode, addRelationship } from "../src/sdd/graph/engine.js"
+import { calculateCoverage } from "../src/sdd/coverage/tracker.js"
 import { validateSmart } from "../src/sdd/validation/smart-validator.js"
 import { validateGraph } from "../src/sdd/validation/validator.js"
 import { writeGeneratedFiles } from "../src/sdd/codegen/generator.js"
-import { validateExecutableProject, saveExecutableValidation, loadExecutableValidation, isExecutableValidationCurrent } from "../src/sdd/validation/executable.js"
+import { validateExecutableProject, validateFunctionalEvidence, saveExecutableValidation, loadExecutableValidation, isExecutableValidationCurrent } from "../src/sdd/validation/executable.js"
 import { rankSimilarity } from "../src/opencode/router/embeddings.js"
 import { analyzeCodebase } from "../src/code-intelligence/analyzer.js"
 import { CacheManager } from "../src/sdd/cache/manager.js"
 import { getGraphSnapshotStore } from "../src/sdd/cache/snapshot-store.js"
 import { graphFingerprint } from "../src/sdd/cache/fingerprint.js"
+import { projectPath } from "../src/sdd/security/paths.js"
 
 describe("Reliability safeguards", () => {
+  test("project paths reject traversal and escaping symlinks", () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-telos-paths-"))
+    try {
+      expect(() => projectPath(directory, "../outside.ts")).toThrow()
+      expect(projectPath(directory, "src/new.ts", true)).toBe(join(directory, "src/new.ts"))
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   test("empty dirty set performs an authoritative full validation", () => {
     const graph = createGraph("project")
     addNode(graph, {
@@ -39,6 +51,48 @@ describe("Reliability safeguards", () => {
     })
     expect(result.errors.some((error) => error.code === "CRITICAL_REQUIREMENT_UNTESTED")).toBe(false)
     expect(result.warnings.some((warning) => warning.code === "CRITICAL_REQUIREMENT_UNTESTED")).toBe(true)
+  })
+
+  test("coverage requires structured evidence for specialized requirement aspects", () => {
+    const graph = createGraph("coverage")
+    addNode(graph, {
+      id: "REQ-SEC", type: "requirement", name: "Secure login", status: "DRAFT", version: 1,
+      description: "The login must satisfy security controls", metadata: {}, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    addNode(graph, {
+      id: "TEST-SEC", type: "test", name: "login test", status: "IMPLEMENTED", version: 1,
+      metadata: { test_type: "unit", target: "login.test.ts" }, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    addRelationship(graph, "REQ-SEC", "TEST-SEC", "tested_by")
+    expect(calculateCoverage(graph).items[0].coverage_type).toBe("none")
+    const test = graph.nodes.find((node) => node.id === "TEST-SEC")!
+    test.metadata.covered_aspects = ["security"]
+    expect(calculateCoverage(graph).items[0].coverage_type).toBe("full")
+  })
+
+  test("functional verification requires explicit evidence for acceptance criteria", () => {
+    const graph = createGraph("functional-evidence")
+    addNode(graph, {
+      id: "REQ-F", type: "requirement", name: "Payment requirement", status: "DRAFT", version: 1,
+      metadata: { acceptance_criteria: ["payment is rejected when expired"] }, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    addNode(graph, {
+      id: "TEST-F", type: "test", name: "payment test", status: "IMPLEMENTED", version: 1,
+      metadata: { test_type: "unit", verifies: [] }, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    addNode(graph, {
+      id: "CHG-F", type: "change", name: "Payment change", status: "DRAFT", version: 1,
+      metadata: {
+        title: "Payment change", reason: "Requirement implementation", approval_level: "AUTO",
+        affected_nodes: ["REQ-F"], affected_relationships: [], new_nodes: [], removed_nodes: [], modified_nodes: [],
+        affected_files: [], affected_tests: ["TEST-F"], implementation_tasks: [],
+      }, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    addRelationship(graph, "REQ-F", "TEST-F", "tested_by")
+    expect(validateFunctionalEvidence(graph, "CHG-F").verified).toBe(false)
+    const test = graph.nodes.find((node) => node.id === "TEST-F")!
+    ;(test.metadata as { verifies: string[] }).verifies = ["payment is rejected when expired"]
+    expect(validateFunctionalEvidence(graph, "CHG-F").verified).toBe(true)
   })
 
   test("generation reports a conflict instead of replacing brownfield code", () => {
@@ -117,6 +171,28 @@ describe("Reliability safeguards", () => {
       analyzeCodebase(secondGraph, directory)
       const secondIds = secondGraph.nodes.filter((node) => node.type === "file" || node.type === "symbol").map((node) => node.id).sort()
       expect(secondIds).toEqual(firstIds)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("code intelligence resolves imported aliases without linking homonyms", () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-telos-import-resolution-"))
+    try {
+      const source = join(directory, "src")
+      mkdirSync(source, { recursive: true })
+      writeFileSync(join(source, "account.ts"), "export class Account { static load() { return true } }\n")
+      writeFileSync(join(source, "other.ts"), "export class Account { static load() { return false } }\n")
+      writeFileSync(join(source, "index.ts"), "export { Account as PublicAccount } from './account'\n")
+      writeFileSync(join(source, "consumer.ts"), "import { PublicAccount } from './index'\nexport function run() { return PublicAccount.load() }\n")
+
+      const graph = createGraph("imports")
+      analyzeCodebase(graph, directory)
+      const account = graph.nodes.find((node) => node.type === "symbol" && node.name === "Account.load" && (node.metadata as Record<string, unknown>).file_path === "src/account.ts")!
+      const other = graph.nodes.find((node) => node.type === "symbol" && node.name === "Account.load" && (node.metadata as Record<string, unknown>).file_path === "src/other.ts")!
+      const run = graph.nodes.find((node) => node.type === "symbol" && node.name === "run")!
+      expect(graph.relationships.some((rel) => rel.type === "calls" && rel.from === run.id && rel.to === account.id)).toBe(true)
+      expect(graph.relationships.some((rel) => rel.type === "calls" && rel.from === run.id && rel.to === other.id)).toBe(false)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

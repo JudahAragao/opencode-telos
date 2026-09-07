@@ -10,7 +10,11 @@
 
 import { tool, type ToolDefinition } from "@opencode-ai/plugin"
 import { ALL_CHAINS, type WorkflowChain } from "./chains.js"
-import { executeChain, formatChainResult, type ToolExecutor } from "./executor.js"
+import { executeChain, formatChainResult, type ToolExecutor, type WorkflowExecutorHooks } from "./executor.js"
+import { DEFAULT_EXECUTOR_CONFIG } from "./types.js"
+import { createRepository } from "../../sdd/persistence/repository.js"
+import { createSnapshot, executeRollback } from "../../sdd/rollback/manager.js"
+import { getWorkflowState, workflowScope } from "../../sdd/enforcement/workflow-tracker.js"
 
 /**
  * Cria uma tool definition para uma workflow chain.
@@ -58,8 +62,30 @@ function createChainTool(chain: WorkflowChain): ToolDefinition {
         return JSON.stringify(result)
       }
 
+      const executorHooks: WorkflowExecutorHooks = {
+        beforeStep: (_stepIndex) => {
+          const workflow = getWorkflowState(workflowScope(ctx.directory, ctx.sessionID))
+          if (!workflow.changeId) return null
+          const repo = createRepository(ctx.directory)
+          if (!repo.isInitialized()) return null
+          const snapshot = createSnapshot(repo.loadGraph(), workflow.changeId, ctx.directory)
+          return { changeId: workflow.changeId, snapshotId: snapshot.id }
+        },
+        rollback: (snapshots) => {
+          const last = [...snapshots].reverse().find((item): item is { changeId: string } =>
+            Boolean(item && typeof item === "object" && "changeId" in item && typeof item.changeId === "string"),
+          )
+          if (!last) return
+          const repo = createRepository(ctx.directory)
+          if (!repo.isInitialized()) return
+          const graph = repo.loadGraph()
+          executeRollback(graph, last.changeId, ctx.directory)
+          repo.saveGraph(graph)
+        },
+      }
+
       // Executar chain
-      const result = await executeChain(chain, params, executeTool)
+      const result = await executeChain(chain, params, executeTool, DEFAULT_EXECUTOR_CONFIG, executorHooks)
       return formatChainResult(result)
     },
   })

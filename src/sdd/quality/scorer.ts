@@ -5,7 +5,8 @@ import { validateGraph } from "../validation/validator.js"
 import { detectDrift } from "../drift/detector.js"
 import { getPromiseReport } from "../promises/tracker.js"
 import { validateAgainstConstitution } from "../constitution/validator.js"
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
+import { readFileSync, existsSync, mkdirSync } from "fs"
+import { atomicWriteFile } from "../cache/atomic.js"
 import { join, dirname } from "path"
 
 export interface QualityFactor {
@@ -92,7 +93,7 @@ export function calculateQualityScore(
     if (cached) {
       factors.push(cached)
     } else if (!options?.skipValidation) {
-      const validation = validateGraph(graph)
+      const validation = validateGraph(graph, undefined, projectDir)
       const validationScore = validation.errors.length === 0 ? 1 : Math.max(0, 1 - validation.errors.length / Math.max(graph.nodes.length, 1))
       const details = `${validation.errors.length} errors, ${validation.warnings.length} warnings`
       factors.push({ name: "validation", score: validationScore, weight: FACTOR_WEIGHTS.validation, details })
@@ -217,7 +218,7 @@ function saveHistory(projectDir: string, history: Array<{ timestamp: string; sco
   const path = join(projectDir, HISTORY_FILE)
   const dir = dirname(path)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(path, JSON.stringify(history, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify(history, null, 2))
 }
 
 function calculateTrend(

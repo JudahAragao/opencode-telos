@@ -5,7 +5,8 @@ import { detectContradictions } from "../patterns/contradictions.js"
 import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion.js"
 import { ensureGraphIntegrity, formatIntegrityReport } from "../graph/integrity.js"
 import type { IntegrityReport } from "../graph/integrity.js"
-import { isGraphTampered } from "../graph/integrity-guard.js"
+import { validateGraphIntegrity } from "../graph/integrity-guard.js"
+import { sddDebug } from "../log.js"
 
 export interface ValidationResult {
   valid: boolean
@@ -73,6 +74,7 @@ const validationCache = createValidationCache()
 export function validateGraph(
   graph: KnowledgeGraph,
   policy: ValidationPolicy = DEFAULT_VALIDATION_POLICY,
+  projectDir?: string,
 ): ValidationResult {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
@@ -88,7 +90,14 @@ export function validateGraph(
         message: tamperWarning,
       })
     }
-  } catch {}
+  } catch (error) { sddDebug("validator", "Legacy tamper check failed", error) }
+
+  if (projectDir) {
+    const integrityResult = validateGraphIntegrity(projectDir, graph)
+    if (integrityResult.tampered) {
+      errors.push({ code: "GRAPH_TAMPERED", message: integrityResult.reason || "Graph integrity validation failed" })
+    }
+  }
 
   validateStructural(graph, errors, warnings)
   validateSemantic(graph, errors, warnings, policy)

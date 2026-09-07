@@ -6,8 +6,8 @@ import { GraphIndices } from "../graph/index.js"
 import type { GraphRepository } from "./repository.js"
 import { getCacheManager } from "../cache/manager.js"
 import { atomicWriteFile } from "../cache/atomic.js"
-import { fileSignature } from "../cache/fingerprint.js"
-import { recordLegitimateSave, validateGraphIntegrity, isGraphTampered } from "../graph/integrity-guard.js"
+import { fileSignature, graphFingerprint } from "../cache/fingerprint.js"
+import { recordLegitimateSave, validateGraphIntegrity } from "../graph/integrity-guard.js"
 
 export function readYaml<T>(filePath: string): T {
   const content = readFileSync(filePath, "utf-8")
@@ -141,7 +141,6 @@ export class YamlGraphRepository implements GraphRepository {
         lastModified: Date.now(),
         sourceSignature: currentSourceSignature,
       })
-      cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
       return structuredClone(graph)
     }
 
@@ -156,9 +155,6 @@ export class YamlGraphRepository implements GraphRepository {
       sourceSignature: currentSourceSignature,
     })
 
-    // Initialize the legacy mutation counter used by compatibility APIs.
-    cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
-
     // Anti-bypass: check for out-of-band modifications
     const projectDir = require("path").dirname(this.baseDir)
     try {
@@ -167,14 +163,16 @@ export class YamlGraphRepository implements GraphRepository {
         // Graph was modified outside SDD workflow — attach warning to graph metadata
         ;(graph.metadata as any).__tamper_warning = tamperResult.reason
       }
-    } catch {}
+    } catch {
+      ;(graph.metadata as any).__tamper_warning = "Graph integrity validation could not be completed"
+    }
 
     return structuredClone(graph)
   }
 
   getIndices(): GraphIndices {
     const cached = YamlGraphRepository.cache.get(this.graphPath)
-    if (cached) return cached.indices
+    if (cached) return GraphIndices.from(structuredClone(cached.graph))
 
     const graph = this.loadGraph()
     return GraphIndices.from(graph)
@@ -199,7 +197,9 @@ export class YamlGraphRepository implements GraphRepository {
     const projectDir = require("path").dirname(this.baseDir)
     try {
       recordLegitimateSave(projectDir, graph)
-    } catch {}
+    } catch (error) {
+      throw new Error("Graph saved but integrity state could not be recorded", { cause: error })
+    }
 
     // Keep an immutable cache snapshot.  Compute the dirty state before
     // replacing it; doing this afterwards compares the new graph to itself.
@@ -274,9 +274,6 @@ export class YamlGraphRepository implements GraphRepository {
     }
     */
 
-    // Update incremental hash
-    cacheMgr.initGraphHash(graph.nodes.length, graph.relationships.length)
-
     // A: Granular invalidation — only invalidate caches for changed types
     if (dirty.allChanged || dirty.dirtyTypes.size > 10) {
       // Too many types changed — full invalidation is faster
@@ -298,8 +295,7 @@ export class YamlGraphRepository implements GraphRepository {
     const cached = YamlGraphRepository.cache.get(this.graphPath)
     if (!cached) return false
     try {
-      const stat = require("fs").statSync(this.graphPath)
-      return stat.mtimeMs <= cached.lastModified
+      return fileSignature([this.graphPath]) === cached.sourceSignature
     } catch {
       return false
     }
@@ -394,14 +390,13 @@ export class YamlGraphRepository implements GraphRepository {
   getNodesByType(type: NodeType): AnyNode[] {
     // Check per-type cache first
     const cacheMgr = getCacheManager(require("path").dirname(this.baseDir))
-    const graphVersion = (() => { try { return this.loadGraph().metadata.updated_at } catch { return "" } })()
-    const versionNum = graphVersion ? new Date(graphVersion).getTime() : 0
-    const cached = cacheMgr.getCachedNodesByType(type, versionNum)
+    const currentFingerprint = (() => { try { return graphFingerprint(this.loadGraph()) } catch { return "" } })()
+    const cached = cacheMgr.getCachedNodesByType(type, currentFingerprint)
     if (cached) return cached
 
     const indices = this.getIndices()
     const nodes = indices.getNodesByType(type)
-    cacheMgr.setCachedNodesByType(type, nodes, versionNum)
+    cacheMgr.setCachedNodesByType(type, nodes, currentFingerprint)
     return nodes
   }
 

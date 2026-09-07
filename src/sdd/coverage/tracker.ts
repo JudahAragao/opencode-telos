@@ -10,6 +10,7 @@ export interface CoverageItem {
   coverage_type: "full" | "partial" | "none"
   covered_aspects: string[]
   missing_aspects: string[]
+  evidence: "explicit_relationship" | "ast_inference" | "structural_inference" | "heuristic" | "none"
 }
 
 export interface OrphanTest {
@@ -96,9 +97,9 @@ export function calculateCoverage(
     })
 
   for (const req of requirements) {
-    const testIds = graph.relationships
+    const testRelationships = graph.relationships
       .filter((r) => r.from === req.id && r.type === "tested_by")
-      .map((r) => r.to)
+    const testIds = testRelationships.map((r) => r.to)
       .filter(id => !excludeTestSet.has(id))
 
     const tests = testIds
@@ -116,9 +117,13 @@ export function calculateCoverage(
     const coveredAspects = findCoveredAspects(aspects, tests)
     const missingAspects = aspects.filter((a) => !coveredAspects.includes(a))
 
+    const hasExplicitLink = testRelationships.some((rel) => rel.metadata?.code_intelligence !== true)
+    const hasAstLink = testRelationships.length > 0 && !hasExplicitLink
+    const inferred = inferRequirementFromTests(tests, req, graph)
+    const evidence = hasExplicitLink ? "explicit_relationship" : hasAstLink ? "ast_inference" : inferred ? "structural_inference" : "none"
     let coverageType: "full" | "partial" | "none" = "none"
-    if (missingAspects.length === 0 && aspects.length > 0) coverageType = "full"
-    else if (coveredAspects.length > 0) coverageType = "partial"
+    if (hasExplicitLink && missingAspects.length === 0 && aspects.length > 0) coverageType = "full"
+    else if (hasExplicitLink && coveredAspects.length > 0) coverageType = "partial"
 
     items.push({
       requirement_id: req.id,
@@ -128,6 +133,7 @@ export function calculateCoverage(
       coverage_type: coverageType,
       covered_aspects: coveredAspects,
       missing_aspects: missingAspects,
+      evidence,
     })
 
     if (coverageType !== "full") {
@@ -135,17 +141,14 @@ export function calculateCoverage(
     }
   }
 
-  // Apply max results limit
-  if (options?.maxResults && items.length > options.maxResults) {
-    items.splice(options.maxResults)
-  }
-
-  const covered = items.filter((i) => i.coverage_type === "full").length
-  const partial = items.filter((i) => i.coverage_type === "partial").length
-  const uncovered = items.filter((i) => i.coverage_type === "none").length
+  const allItems = items
+  const reportItems = options?.maxResults ? allItems.slice(0, options.maxResults) : allItems
+  const covered = allItems.filter((i) => i.coverage_type === "full").length
+  const partial = allItems.filter((i) => i.coverage_type === "partial").length
+  const uncovered = allItems.filter((i) => i.coverage_type === "none").length
 
   return {
-    items,
+    items: reportItems,
     orphan_tests: orphanTests,
     total_requirements: requirements.length,
     covered_count: covered,
@@ -156,53 +159,30 @@ export function calculateCoverage(
   }
 }
 
+function inferRequirementFromTests(tests: any[], requirement: RequirementNode, graph: KnowledgeGraph): boolean {
+  const reqName = requirement.name.toLowerCase().replace(/\s+/g, "-")
+  const reqId = requirement.id.toLowerCase()
+  return tests.some((test) => {
+    const metadata = test.metadata as Record<string, unknown>
+    const imports = Array.isArray(metadata.imports) ? metadata.imports.filter((value): value is string => typeof value === "string") : []
+    const text = (String(test.id) + " " + String(test.name) + " " + String(metadata.target || "")).toLowerCase()
+    return text.includes(reqName) || text.includes(reqId) || imports.some((item) => item.toLowerCase().includes(reqName)) ||
+      graph.relationships.some((rel) => rel.from === requirement.id && rel.to === test.id && rel.type === "tested_by")
+  })
+}
+
 /**
- * Infer which requirement a test covers based on name matching.
- * Uses 3 strategies: filename pattern, imports/dependencies, and describe/it blocks.
+ * Suggest a requirement only from explicit implementation relationships.
  */
 function inferRequirementFromTest(
   test: any,
-  requirements: RequirementNode[],
+  _requirements: RequirementNode[],
   graph: KnowledgeGraph,
 ): { requirement_id: string; method: string } | null {
-  const testId = test.id.toLowerCase()
-  const testName = (test.name || "").toLowerCase()
-  const testPath = ((test.metadata as any)?.target || "").toLowerCase()
-  const testText = `${testId} ${testName} ${testPath}`
-
-  // Strategy 1: Filename pattern matching
-  // e.g., "user-auth.test.ts" might test "USER-AUTH-REQ"
-  for (const req of requirements) {
-    const reqName = req.name.toLowerCase().replace(/\s+/g, "-")
-    const reqId = req.id.toLowerCase()
-
-    if (
-      testText.includes(reqName) ||
-      testText.includes(reqId) ||
-      testName.includes(reqName) ||
-      testName.includes(reqId)
-    ) {
-      return { requirement_id: req.id, method: "filename_pattern" }
-    }
-  }
-
-  // Strategy 2: Import/dependency analysis
-  // Check if the test file imports from files related to a requirement
+  // Only graph relationships are suitable as a suggestion. Names, filenames
+  // and imports are intentionally not treated as requirement evidence.
   const testMeta = test.metadata as Record<string, unknown>
-  if (Array.isArray(testMeta.imports)) {
-    for (const imp of testMeta.imports) {
-      if (typeof imp !== "string") continue
-      const impLower = imp.toLowerCase()
-      for (const req of requirements) {
-        const reqName = req.name.toLowerCase().replace(/\s+/g, "-")
-        if (impLower.includes(reqName)) {
-          return { requirement_id: req.id, method: "import_analysis" }
-        }
-      }
-    }
-  }
-
-  // Strategy 3: Relationship-based inference
+  // Relationship-based inference
   // If test is a child of a file that implements a requirement
   if (testMeta.file_path) {
     const fileNodes = graph.nodes.filter(n => n.type === "file")
@@ -260,13 +240,16 @@ function findCoveredAspects(aspects: string[], tests: any[]): string[] {
 
   for (const aspect of aspects) {
     const isCovered = tests.some((test) => {
-      const testText = ((test.name || "") + " " + (test.description || "")).toLowerCase()
       const aspectKey = aspect.split(":")[0].toLowerCase()
-
-      return testText.includes(aspectKey) ||
-        testText.includes(aspect.toLowerCase()) ||
-        testText.includes("all") ||
-        testText.includes("comprehensive")
+      const metadata = test.metadata as Record<string, unknown>
+      const declared = [
+        ...(Array.isArray(metadata.covered_aspects) ? metadata.covered_aspects : []),
+        ...(Array.isArray(metadata.verifies) ? metadata.verifies : []),
+      ].filter((value): value is string => typeof value === "string").map((value) => value.toLowerCase())
+      // A linked test proves generic behavior, while specialized claims must
+      // be declared as structured evidence instead of inferred from names.
+      if (aspectKey === "behavior") return true
+      return declared.some((value) => value === aspectKey || value === aspect.toLowerCase())
     })
 
     if (isCovered) covered.push(aspect)

@@ -10,8 +10,10 @@ import type {
 } from "../domain/types.js"
 import { getNodesByType } from "../graph/engine.js"
 import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion.js"
-import { writeFileSync, mkdirSync, existsSync } from "fs"
-import { join, dirname, resolve, relative } from "path"
+import { readFileSync, mkdirSync, existsSync } from "fs"
+import { dirname } from "path"
+import { atomicWriteFile } from "../cache/atomic.js"
+import { projectPath } from "../security/paths.js"
 
 export interface GeneratedFile {
   path: string
@@ -1129,11 +1131,9 @@ export function writeGeneratedFiles(
   const errors: string[] = []
 
   for (const dir of plan.directories) {
-    const fullPath = resolve(projectDir, dir)
-    if (relative(projectDir, fullPath).startsWith("..")) {
-      errors.push(`Refusing to create directory outside target: ${dir}`)
-      continue
-    }
+    let fullPath: string
+    try { fullPath = projectPath(projectDir, dir, true) }
+    catch (error) { errors.push(`Refusing to create directory outside target: ${dir}: ${error}`); continue }
     if (!existsSync(fullPath)) {
       try {
         mkdirSync(fullPath, { recursive: true })
@@ -1144,16 +1144,12 @@ export function writeGeneratedFiles(
   }
 
   for (const file of plan.files) {
-    const fullPath = resolve(projectDir, file.path)
     try {
-      if (relative(projectDir, fullPath).startsWith("..")) {
-        errors.push(`Refusing to write outside target: ${file.path}`)
-        continue
-      }
+      const fullPath = projectPath(projectDir, file.path, true)
       const dir = dirname(fullPath)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       if (existsSync(fullPath)) {
-        const current = require("fs").readFileSync(fullPath, "utf-8")
+        const current = readFileSync(fullPath, "utf-8")
         if (current === file.content) {
           unchanged++
           continue
@@ -1164,13 +1160,13 @@ export function writeGeneratedFiles(
         }
         if (options.backup !== false) {
           const backupPath = `${fullPath}.opencode-telos-backup-${Date.now()}`
-          writeFileSync(backupPath, current, "utf-8")
+          atomicWriteFile(backupPath, current)
           backups.push(backupPath)
         }
       } else {
         created++
       }
-      writeFileSync(fullPath, file.content, "utf-8")
+      atomicWriteFile(fullPath, file.content)
       written++
     } catch (e) {
       errors.push(`Failed to write ${file.path}: ${e}`)

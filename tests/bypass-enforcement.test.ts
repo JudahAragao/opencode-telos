@@ -8,6 +8,7 @@ import {
   getWorkflowState,
   WORKFLOW_REQUIRED_TOOLS,
   WORKFLOW_EXEMPT_TOOLS,
+  workflowScope,
 } from "../src/sdd/enforcement/workflow-tracker"
 
 describe("Bypass Enforcement", () => {
@@ -16,6 +17,19 @@ describe("Bypass Enforcement", () => {
   })
 
   describe("Workflow State Tracker", () => {
+    it("isolates concurrent sessions in the same project", () => {
+      const first = workflowScope("/project", "session-a")
+      const second = workflowScope("/project", "session-b")
+      markEnforced("CHG-A", first)
+      expect(checkToolAccess("sdd.add_node", second).allowed).toBe(false)
+      expect(checkToolAccess("sdd.add_node", first).allowed).toBe(true)
+    })
+
+    it("blocks mutating composite actions while allowing their read actions", () => {
+      expect(checkToolAccess("sdd.graph_mutation", "composite-test", "add_node").allowed).toBe(false)
+      expect(checkToolAccess("sdd.graph_query", "composite-test", "list_nodes").allowed).toBe(true)
+    })
+
     it("starts in invalid state (no workflow)", () => {
       const state = getWorkflowState()
       expect(state.enforced).toBe(false)

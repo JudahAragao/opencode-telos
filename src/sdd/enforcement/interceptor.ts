@@ -1,5 +1,5 @@
 import type { KnowledgeGraph, ChangeNode } from "../domain/types.js"
-import { updateNode, getNodesByType } from "../graph/engine.js"
+import { updateNode, getNodesByType, getNode } from "../graph/engine.js"
 import { computeImpact } from "../graph/traverse.js"
 import { createChange, classifyApprovalLevel } from "../changes/manager.js"
 import { validateGraph } from "../validation/validator.js"
@@ -18,6 +18,8 @@ export interface EnforcementResult {
  * Options for controlling enforcement behavior.
  */
 export interface EnforcementOptions {
+  /** Project directory used for persisted graph integrity checks. */
+  projectDir?: string
   /** Skip impact analysis (faster for simple changes). */
   skipImpactAnalysis?: boolean
   /** Skip validation (if already validated recently). */
@@ -163,7 +165,7 @@ export function enforceSddFirst(
     if (cachedValidation && (Date.now() - cachedValidation.timestamp) < cacheMaxAge) {
       validation = cachedValidation
     } else {
-      validation = validateGraph(graph)
+      validation = validateGraph(graph, undefined, options?.projectDir)
       if (options?.validationCache) {
         options.validationCache.set(graphVersion, { ...validation, timestamp: Date.now() })
       }
@@ -206,12 +208,15 @@ export function enforceSddFirst(
     result.impact_summary = "Impact analysis skipped"
   }
 
-  // Step 9: All checks passed
+  // Step 9: All checks passed. AUTO changes may proceed immediately; REVIEW
+  // and APPROVAL changes remain draft until an explicit approval tool call.
   result.allowed = true
-  result.reason = `SDD-first workflow: Change ${changeNode.id} created and validated. Proceed with implementation.`
+  result.reason = approvalLevel === "AUTO"
+    ? `SDD-first workflow: Change ${changeNode.id} created and approved automatically. Proceed with implementation.`
+    : `SDD-first workflow: Change ${changeNode.id} created and validated. Explicit approval is required before implementation.`
   result.sdd_updated = true
 
-  updateNode(graph, changeNode.id, { status: "APPROVED" })
+  if (approvalLevel === "AUTO") updateNode(graph, changeNode.id, { status: "APPROVED" })
 
   return result
 }
@@ -220,7 +225,7 @@ export function enforceSddFirst(
  * Detect if a change affects files across different architecture layers
  * (e.g., frontend files + backend files).
  */
-function detectCrossLayerChange(files: string[], graph: KnowledgeGraph): boolean {
+function detectCrossLayerChange(files: string[], _graph: KnowledgeGraph): boolean {
   let hasFrontend = false
   let hasBackend = false
   let hasDatabase = false
@@ -337,8 +342,9 @@ export function enforceSmartBatch(
   if (result.allowed && result.change_id) {
     const graphVersion = graph.metadata.updated_at
     const cachedValidation = sharedValidationCache.get(graphVersion)
-    const validation = cachedValidation || validateGraph(graph)
-    if (validation.valid) {
+    const validation = cachedValidation || validateGraph(graph, undefined, options?.projectDir)
+    const change = result.change_id ? getNode(graph, result.change_id) as ChangeNode | undefined : undefined
+    if (validation.valid && change?.status === "APPROVED") {
       return { ...result, auto_completed: true }
     } else {
       return {

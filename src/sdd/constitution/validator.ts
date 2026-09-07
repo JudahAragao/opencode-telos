@@ -1,6 +1,5 @@
 import type { KnowledgeGraph, ConstitutionNode, AnyNode } from "../domain/types.js"
 import { getNodesByType } from "../graph/engine.js"
-import { GraphIndices } from "../graph/index.js"
 
 export interface ConstitutionViolation {
   principle_id: string
@@ -44,7 +43,6 @@ export function validateAgainstConstitution(
 ): ConstitutionResult {
   const constitutions = getNodesByType<ConstitutionNode>(graph, "constitution")
   const violations: ConstitutionViolation[] = []
-  const indices = GraphIndices.from(graph)
 
   if (constitutions.length === 0) {
     return { violations: [], score: 1, total_principles: 0, checked_nodes: 0 }

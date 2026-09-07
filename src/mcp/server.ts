@@ -13,7 +13,7 @@ export interface McpServerConfig {
 export function createMcpServer(projectDir: string) {
   const config: McpServerConfig = {
     name: "opencode-telos",
-    version: "2.0.0",
+    version: "1.0.2",
     description: "OpenCode Telos MCP Server",
   }
 
@@ -62,7 +62,7 @@ export function createMcpServer(projectDir: string) {
           return { content: [{ type: "text", text: formatDriftReport(drift) }] }
         }
         case "sdd_get_validation": {
-          const result = validateGraph(graph)
+          const result = validateGraph(graph, undefined, projectDir)
           return { content: [{ type: "text", text: formatValidationResult(result) }] }
         }
         case "sdd_get_handoff": {

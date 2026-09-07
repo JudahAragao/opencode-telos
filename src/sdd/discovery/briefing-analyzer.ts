@@ -1,5 +1,3 @@
-import type { KnowledgeGraph } from "../domain/types.js"
-
 // ─── Extracted Elements ────────────────────────────────────────────
 
 export interface ExtractedFeature {

@@ -9,6 +9,7 @@
  */
 
 import { tool, type ToolDefinition } from "@opencode-ai/plugin"
+import { sddDebug } from "../../sdd/log.js"
 import { createRepository, type GraphRepository } from "../../sdd/persistence/repository.js"
 import {
   getNodeIndexed,
@@ -23,18 +24,14 @@ import { bfsOutgoing, bfsBoth, bfsIncoming, getSubgraph, findPath } from "../../
 import {
   checkPermission,
   getUserRoleWithAuth,
-  addAuditEntry,
   getAuditLog,
   formatAuditLog,
   loadPermissions,
-  savePermissions,
-  getUserRole,
   setRole,
   getRequiredApprovals,
-  formatPermissionCheck,
 } from "../../sdd/permissions/access.js"
 import { createSnapshot, executeRollback, loadRollbackHistory, formatRollbackResult, formatRollbackHistory } from "../../sdd/rollback/manager.js"
-import { getSyncStatus, pullLatest, pushChanges, detectConflicts, mergeGraphs, formatSyncStatus } from "../../sdd/sync/git-sync.js"
+import { getSyncStatus, pullLatest, pushChanges, detectConflicts, mergeGraphs, resolveConflict, formatSyncStatus } from "../../sdd/sync/git-sync.js"
 import { computeGraphHealth } from "../../sdd/session/handoff.js"
 import { getCacheManager } from "../../sdd/cache/manager.js"
 import { detectConventions, formatConventions } from "../../sdd/code-quality/conventions.js"
@@ -43,13 +40,11 @@ import { analyzeComplexity, formatComplexityReport } from "../../sdd/code-qualit
 import { analyzeMetrics, formatMetricsReport } from "../../sdd/code-quality/metrics.js"
 import { detectCodeSmells, formatCodeSmellReport } from "../../sdd/code-quality/smells.js"
 import { analyzeDependencies, formatDependencyReport } from "../../sdd/code-quality/dependencies.js"
-import { detectConfigDrift, formatConfigDriftReport } from "../../sdd/patterns/config-drift.js"
-import { exportWorkflow, formatWorkflowExport } from "../../sdd/workflow/exporter.js"
 import { addToDriftWhitelist, removeFromDriftWhitelist, loadDriftWhitelist } from "../../sdd/drift/exclusion.js"
 import { parseSymbols, convertToSymbolNodes } from "../../sdd/code-quality/symbol-parser.js"
-import { validateGraph } from "../../sdd/validation/validator.js"
 import type { KnowledgeGraph, AnyNode, NodeType } from "../../sdd/domain/types.js"
 import { pruneGraph, formatPruneReport } from "../../sdd/graph/pruner.js"
+import { projectPath } from "../../sdd/security/paths.js"
 
 function getRepo(directory: string): GraphRepository {
   return createRepository(directory)
@@ -59,6 +54,24 @@ function loadOrEmpty(directory: string): KnowledgeGraph {
   const repo = getRepo(directory)
   if (repo.isInitialized()) return repo.loadGraph()
   return { project_id: "pending", version: "1", nodes: [], relationships: [], metadata: { created_at: "", updated_at: "", sdd_version: "1.0" } }
+}
+
+async function executeOriginalTool(name: string, args: Record<string, unknown>, ctx: any): Promise<string> {
+  const { createSddTools } = await import("../tools.js")
+  const definition = createSddTools()[name]
+  if (!definition) return `Error: Tool ${name} not found`
+  const result = await definition.execute(args as any, ctx)
+  return typeof result === "string" ? result : result.output
+}
+
+function parseJson(value?: string): Record<string, unknown> {
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 // ── Composite: sdd.graph_mutation ──────────────────────────────────
@@ -119,7 +132,7 @@ export function createGraphMutationTool(): ToolDefinition {
           graph.nodes.push(node)
 
           if (args.parent_id) {
-            try { addRelationship(graph, args.parent_id, nodeId, "contains") } catch {}
+            try { addRelationship(graph, args.parent_id, nodeId, "contains") } catch (error) { sddDebug("composite", `Failed to add parent relationship for ${nodeId}`) }
           }
 
           repo.saveGraph(graph)
@@ -307,12 +320,13 @@ export function createPermissionsTool(): ToolDefinition {
   return tool({
     description: "Gerenciar permissões, roles, audit log e configuração de acesso.",
     args: {
-      action: tool.schema.enum(["set_role", "check", "audit", "config", "role", "approval"]).describe("Operação a executar"),
+      action: tool.schema.enum(["set_role", "check", "audit", "config", "save_config", "role", "approval"]).describe("Operação a executar"),
       user: tool.schema.string().optional().describe("Nome do usuário"),
       role: tool.schema.string().optional().describe("Role a atribuir"),
       permission: tool.schema.string().optional().describe("Permissão a verificar"),
       change_id: tool.schema.string().optional().describe("ID da change"),
       limit: tool.schema.number().optional().describe("Limite de entradas no audit log"),
+      config_json: tool.schema.string().optional().describe("Configuração JSON para save_config"),
     },
     async execute(args, ctx) {
       const currentUser = process.env.USER || process.env.USERNAME || "current"
@@ -338,6 +352,10 @@ export function createPermissionsTool(): ToolDefinition {
           const config = loadPermissions(ctx.directory)
           return JSON.stringify(config, null, 2)
         }
+        case "save_config": {
+          if (!args.config_json) return "config_json is required"
+          return executeOriginalTool("sdd.save_permissions_config", { config_json: args.config_json }, ctx)
+        }
         case "role": {
           const role = getUserRoleWithAuth(ctx.directory, args.user || currentUser)
           return `User "${args.user || currentUser}" has role: **${role}**`
@@ -360,7 +378,7 @@ export function createSnapshotTool(): ToolDefinition {
   return tool({
     description: "Criar snapshots do grafo, rollback e histórico.",
     args: {
-      action: tool.schema.enum(["create", "rollback", "history"]).describe("Operação a executar"),
+      action: tool.schema.enum(["create", "rollback", "history", "list"]).describe("Operação a executar"),
       change_id: tool.schema.string().optional().describe("ID da change (para create)"),
       snapshot_id: tool.schema.string().optional().describe("ID do snapshot (para rollback)"),
     },
@@ -385,6 +403,9 @@ export function createSnapshotTool(): ToolDefinition {
           const history = loadRollbackHistory(ctx.directory)
           return formatRollbackHistory(history)
         }
+        case "list": {
+          return executeOriginalTool("sdd.list_snapshots", {}, ctx)
+        }
         default:
           return `Unknown action: ${args.action}`
       }
@@ -399,6 +420,8 @@ export function createSyncTool(): ToolDefinition {
     description: "Sincronizar grafo com repositório remoto: pull, push, conflitos, merge.",
     args: {
       action: tool.schema.enum(["status", "pull", "push", "conflicts", "merge"]).describe("Operação a executar"),
+      remote_graph_path: tool.schema.string().optional().describe("Caminho do grafo remoto para sync"),
+      auto_resolve: tool.schema.boolean().optional().describe("Resolver conflitos automaticamente"),
     },
     async execute(args, ctx) {
       switch (args.action) {
@@ -415,10 +438,24 @@ export function createSyncTool(): ToolDefinition {
           return `Push: ${result.success ? "✅" : "❌"}`
         }
         case "conflicts": {
-          return "Use sdd.detect_sync_conflicts in the original tools for conflict detection."
+          if (!args.remote_graph_path) return "remote_graph_path is required"
+          const repo = getRepo(ctx.directory)
+          if (!repo.isInitialized()) return "SDD not initialized."
+          const conflicts = detectConflicts(repo.loadGraph(), projectPath(ctx.directory, args.remote_graph_path))
+          if (conflicts.length === 0) return "No sync conflicts detected."
+          return ["## Sync Conflicts", ...conflicts.map(c => `- ${c.node_id}.${c.field}: ${JSON.stringify(c.local_value)} → ${JSON.stringify(c.remote_value)}`)].join("\n")
         }
         case "merge": {
-          return "Use sdd.merge_graphs in the original tools for graph merging."
+          if (!args.remote_graph_path) return "remote_graph_path is required"
+          const repo = getRepo(ctx.directory)
+          if (!repo.isInitialized()) return "SDD not initialized."
+          const local = repo.loadGraph()
+          const remote = JSON.parse((await import("fs")).readFileSync(projectPath(ctx.directory, args.remote_graph_path), "utf-8")) as KnowledgeGraph
+          const conflicts = detectConflicts(local, projectPath(ctx.directory, args.remote_graph_path))
+          const merged = mergeGraphs(local, remote, { auto_resolve: args.auto_resolve ?? false, field_priorities: {} })
+          repo.saveGraph(merged)
+          const resolved = conflicts.map(c => resolveConflict(c, "local"))
+          return `## Graph Merge Complete\n- Merged nodes: ${merged.nodes.length}\n- Conflicts resolved: ${resolved.length}`
         }
         default:
           return `Unknown action: ${args.action}`
@@ -532,35 +569,33 @@ export function createCodeQualityTool(): ToolDefinition {
     args: {
       action: tool.schema.enum([
         "complexity", "metrics", "smells", "dependencies",
-        "usage", "dead_code", "parse_symbols", "plan_implementation",
+        "usage", "dead_code", "remove_dead_code", "parse_symbols", "plan_implementation", "analyze_codebase",
       ]).describe("Operação a executar"),
       file_path: tool.schema.string().optional().describe("Caminho do arquivo"),
       feature_id: tool.schema.string().optional().describe("ID da feature"),
       files: tool.schema.string().optional().describe("Lista de arquivos separados por vírgula"),
+      dry_run: tool.schema.boolean().optional().describe("Apenas simular a remoção"),
     },
     async execute(args, ctx) {
       switch (args.action) {
         case "complexity": {
           if (!args.file_path) return "file_path is required"
           const { readFileSync } = await import("fs")
-          const { join } = await import("path")
-          const code = readFileSync(join(ctx.directory, args.file_path), "utf-8")
+          const code = readFileSync(projectPath(ctx.directory, args.file_path), "utf-8")
           const result = analyzeComplexity(code, args.file_path)
           return formatComplexityReport(result)
         }
         case "metrics": {
           if (!args.file_path) return "file_path is required"
           const { readFileSync } = await import("fs")
-          const { join } = await import("path")
-          const code = readFileSync(join(ctx.directory, args.file_path), "utf-8")
+          const code = readFileSync(projectPath(ctx.directory, args.file_path), "utf-8")
           const result = analyzeMetrics(code, args.file_path)
           return formatMetricsReport(result)
         }
         case "smells": {
           if (!args.file_path) return "file_path is required"
           const { readFileSync } = await import("fs")
-          const { join } = await import("path")
-          const code = readFileSync(join(ctx.directory, args.file_path), "utf-8")
+          const code = readFileSync(projectPath(ctx.directory, args.file_path), "utf-8")
           const result = detectCodeSmells(code, args.file_path)
           return formatCodeSmellReport(result)
         }
@@ -570,23 +605,33 @@ export function createCodeQualityTool(): ToolDefinition {
           return formatDependencyReport(result)
         }
         case "usage": {
-          return "Usage analysis: use sdd.verify_usage in the original tools."
+          const { createSddTools } = await import("../tools.js")
+          return String(await createSddTools()["sdd.verify_usage"].execute({}, ctx))
         }
         case "dead_code": {
-          return "Dead code detection: use sdd.find_dead_code in the original tools."
+          if (!args.file_path) return "file_path is required"
+          const { createSddTools } = await import("../tools.js")
+          return String(await createSddTools()["sdd.find_dead_code"].execute({ file: args.file_path }, ctx))
+        }
+        case "remove_dead_code": {
+          if (!args.file_path) return "file_path is required"
+          return executeOriginalTool("sdd.remove_dead_code", { file: args.file_path, dry_run: args.dry_run }, ctx)
         }
         case "parse_symbols": {
           if (!args.file_path) return "file_path is required"
           const { readFileSync } = await import("fs")
-          const { join } = await import("path")
-          const code = readFileSync(join(ctx.directory, args.file_path), "utf-8")
+          const code = readFileSync(projectPath(ctx.directory, args.file_path), "utf-8")
           const symbols = parseSymbols(code, args.file_path)
           const nodes = convertToSymbolNodes(symbols)
           return nodes.map(n => `- **${n.id}** (${n.type}): ${n.name}`).join("\n") || "No symbols found."
         }
         case "plan_implementation": {
           if (!args.feature_id || !args.files) return "feature_id and files are required"
-          return `Implementation plan for feature ${args.feature_id}: connect files via graph nodes.`
+          const { createSddTools } = await import("../tools.js")
+          return String(await createSddTools()["sdd.plan_implementation"].execute({ feature_id: args.feature_id, files: args.files }, ctx))
+        }
+        case "analyze_codebase": {
+          return executeOriginalTool("sdd.analyze_codebase", {}, ctx)
         }
         default:
           return `Unknown action: ${args.action}`
@@ -602,8 +647,9 @@ export function createEnterpriseTool(): ToolDefinition {
     description: "Workflows empresariais: migrations, experiments, feature flags, security, compliance, docs.",
     args: {
       action: tool.schema.enum([
-        "security_audit", "scalability", "compliance",
-        "monitoring", "docs", "onboarding",
+        "migration", "experiment", "flag", "tenant", "security_audit", "scalability",
+        "compliance", "monitoring", "dashboard", "incident", "sla", "cost", "docs",
+        "onboarding", "knowledge_transfer", "disaster_recovery", "config_drift", "workflow_export",
       ]).describe("Operação a executar"),
       params_json: tool.schema.string().optional().describe("Parâmetros como JSON"),
     },
@@ -611,6 +657,10 @@ export function createEnterpriseTool(): ToolDefinition {
       const graph = loadOrEmpty(ctx.directory)
 
       switch (args.action) {
+        case "migration": return executeOriginalTool("sdd.create_migration", parseJson(args.params_json), ctx)
+        case "experiment": return executeOriginalTool("sdd.create_experiment", parseJson(args.params_json), ctx)
+        case "flag": return executeOriginalTool("sdd.create_flag", parseJson(args.params_json), ctx)
+        case "tenant": return executeOriginalTool("sdd.create_tenant", parseJson(args.params_json), ctx)
         case "security_audit": {
           const { performSecurityAudit, formatSecurityAudit } = await import("../../sdd/analysis/security.js")
           const result = performSecurityAudit(graph)
@@ -642,6 +692,14 @@ export function createEnterpriseTool(): ToolDefinition {
           const { generateOnboardingGuide } = await import("../../sdd/workflows/onboarding.js")
           return generateOnboardingGuide(graph, {} as any)
         }
+        case "dashboard": return executeOriginalTool("sdd.generate_dashboard", parseJson(args.params_json), ctx)
+        case "incident": return executeOriginalTool("sdd.report_incident", parseJson(args.params_json), ctx)
+        case "sla": return executeOriginalTool("sdd.create_sla", parseJson(args.params_json), ctx)
+        case "cost": return executeOriginalTool("sdd.estimate_cost", parseJson(args.params_json), ctx)
+        case "knowledge_transfer": return executeOriginalTool("sdd.knowledge_transfer", parseJson(args.params_json), ctx)
+        case "disaster_recovery": return executeOriginalTool("sdd.disaster_recovery_plan", parseJson(args.params_json), ctx)
+        case "config_drift": return executeOriginalTool("sdd.config_drift", parseJson(args.params_json), ctx)
+        case "workflow_export": return executeOriginalTool("sdd.workflow_export", parseJson(args.params_json), ctx)
         default:
           return `Unknown action: ${args.action}`
       }
@@ -663,12 +721,14 @@ export function createDriftWhitelistTool(): ToolDefinition {
       switch (args.action) {
         case "add": {
           if (!args.file_path || !args.reason) return "file_path and reason are required"
+          projectPath(ctx.directory, args.file_path)
           addToDriftWhitelist(ctx.directory, args.file_path, args.reason)
           const whitelist = loadDriftWhitelist(ctx.directory)
           return `✅ Whitelisted: ${args.file_path} — Total: ${whitelist.entries.length}`
         }
         case "remove": {
           if (!args.file_path) return "file_path is required"
+          projectPath(ctx.directory, args.file_path)
           removeFromDriftWhitelist(ctx.directory, args.file_path)
           return `✅ Removed: ${args.file_path}`
         }

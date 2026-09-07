@@ -1,7 +1,9 @@
 import type { KnowledgeGraph } from "../domain/types.js"
-import { execSync } from "child_process"
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
+import { execFileSync } from "child_process"
+import { readFileSync, writeFileSync, existsSync, mkdirSync, openSync, closeSync, unlinkSync } from "fs"
 import { join, dirname } from "path"
+import { atomicWriteFile } from "../cache/atomic.js"
+import { graphFingerprint } from "../cache/fingerprint.js"
 
 export interface SyncResult {
   success: boolean
@@ -58,7 +60,7 @@ export function getSyncStatus(projectDir: string, options?: SyncStatusOptions): 
   if (globalCached && Date.now() - globalCached.timestamp < ttl) return globalCached.status
 
   try {
-    const branch = execSync("git rev-parse --abbrev-ref HEAD", {
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 5000,
@@ -67,29 +69,25 @@ export function getSyncStatus(projectDir: string, options?: SyncStatusOptions): 
     let ahead = 0
     let behind = 0
     if (!options?.skipAheadBehind) {
-      ahead = parseInt(
-        execSync("git rev-list --count @{u}..HEAD 2>/dev/null || echo 0", {
-          cwd: projectDir,
-          encoding: "utf-8",
-          timeout: 5000,
-        }).trim(),
-      )
-      behind = parseInt(
-        execSync("git rev-list --count HEAD..@{u} 2>/dev/null || echo 0", {
-          cwd: projectDir,
-          encoding: "utf-8",
-          timeout: 5000,
-        }).trim(),
-      )
+      try {
+        ahead = Number.parseInt(execFileSync("git", ["rev-list", "--count", "@{u}..HEAD"], {
+          cwd: projectDir, encoding: "utf-8", timeout: 5000,
+        }).trim(), 10) || 0
+      } catch { ahead = 0 }
+      try {
+        behind = Number.parseInt(execFileSync("git", ["rev-list", "--count", "HEAD..@{u}"], {
+          cwd: projectDir, encoding: "utf-8", timeout: 5000,
+        }).trim(), 10) || 0
+      } catch { behind = 0 }
     }
 
-    const status = execSync("git status --porcelain", {
+    const status = execFileSync("git", ["status", "--porcelain"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 5000,
     }).trim()
 
-    const hasRemote = execSync("git remote -v", {
+    const hasRemote = execFileSync("git", ["remote", "-v"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 5000,
@@ -137,17 +135,21 @@ export function acquireLock(projectDir: string, owner: string): boolean {
       if (lockAge < 300000) {
         return false
       }
+      unlinkSync(lockPath)
     } catch {
       // stale lock
+      try { unlinkSync(lockPath) } catch {}
     }
   }
 
-  writeFileSync(lockPath, JSON.stringify({
-    owner,
-    timestamp: new Date().toISOString(),
-  }), "utf-8")
-
-  return true
+  try {
+    const descriptor = openSync(lockPath, "wx", 0o600)
+    writeFileSync(descriptor, JSON.stringify({ owner, timestamp: new Date().toISOString() }), "utf-8")
+    closeSync(descriptor)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function releaseLock(projectDir: string): void {
@@ -155,7 +157,7 @@ export function releaseLock(projectDir: string): void {
   if (existsSync(lockPath)) {
     const lock = JSON.parse(readFileSync(lockPath, "utf-8"))
     if (lock.owner === process.env.USER || lock.owner === "current") {
-      writeFileSync(lockPath, "", "utf-8")
+      unlinkSync(lockPath)
     }
   }
 }
@@ -171,7 +173,7 @@ export function pullLatest(projectDir: string): SyncResult {
       return { success: true, action: "pull", details: "Already up to date" }
     }
 
-    execSync("git pull --no-edit", {
+    execFileSync("git", ["pull", "--no-edit"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 30000,
@@ -200,19 +202,19 @@ export function pushChanges(projectDir: string, message: string): SyncResult {
       return { success: false, action: "push", details: "No remote configured" }
     }
 
-    execSync("git add .sdd/", {
+    execFileSync("git", ["add", ".sdd/"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 10000,
     })
 
-    execSync(`git commit -m "${message}" --allow-empty`, {
+    execFileSync("git", ["commit", "-m", message, "--allow-empty"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 10000,
     })
 
-    execSync("git push", {
+    execFileSync("git", ["push"], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 30000,
@@ -259,7 +261,7 @@ export function detectConflicts(
     const remoteGraph = JSON.parse(remoteContent) as KnowledgeGraph
 
     // Check cache
-    const graphHash = `${localGraph.nodes.length}_${remoteGraph.nodes.length}_${localGraph.metadata.updated_at}`
+    const graphHash = `${graphFingerprint(localGraph)}:${graphFingerprint(remoteGraph)}`
     if (options?.conflictCache && options.conflictCache.graphHash === graphHash) {
       return options.conflictCache.conflicts
     }
@@ -352,6 +354,11 @@ export function mergeGraphs(
     }
   }
 
+  const relationshipIds = new Set(merged.relationships.map((relationship) => relationship.id))
+  for (const relationship of remote.relationships) {
+    if (!relationshipIds.has(relationship.id)) merged.relationships.push(relationship)
+  }
+
   merged.metadata.updated_at = new Date().toISOString()
 
   return merged
@@ -371,7 +378,7 @@ function saveSyncState(projectDir: string, state: { last_sync?: string }): void 
   const path = join(projectDir, SYNC_STATE_FILE)
   const dir = dirname(path)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(path, JSON.stringify(state, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify(state, null, 2))
 }
 
 export function formatSyncStatus(status: SyncStatus): string {

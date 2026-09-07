@@ -1,6 +1,6 @@
 import type { KnowledgeGraph, AnyNode, NodeType } from "../domain/types.js"
-import { getNodesByType } from "../graph/engine.js"
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
+import { readFileSync, existsSync, mkdirSync } from "fs"
+import { atomicWriteFile } from "../cache/atomic.js"
 import { join, dirname } from "path"
 
 const PATTERNS_FILE = ".sdd/patterns.json"
@@ -225,7 +225,7 @@ export function savePatterns(projectDir: string, patterns: LearnedPatterns): voi
   const path = join(projectDir, PATTERNS_FILE)
   const dir = dirname(path)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(path, JSON.stringify(patterns, null, 2), "utf-8")
+  atomicWriteFile(path, JSON.stringify(patterns, null, 2))
 }
 
 /**
