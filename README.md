@@ -1,78 +1,78 @@
 # OPENCODE TELOS
 
-Plugin de **Spec-Driven Development (SDD)** para o [OpenCode](https://github.com/anomalyco/opencode). Transforma o ambiente de desenvolvimento em um sistema conversacional baseado em Knowledge Graph, onde a especificação sempre vem antes do código.
+A **Spec-Driven Development (SDD)** plugin for [OpenCode](https://github.com/anomalyco/opencode). It turns the development environment into a conversational system based on a Knowledge Graph, where the specification always comes before the code.
 
-## O que faz
+## What it does
 
-- **Descoberta conversacional**: analisa seu briefing, detecta o que falta e faz perguntas com menus de seleção (via ferramenta `question` do OpenCode)
-- **Knowledge Graph**: mantém um grafo semântico como fonte de verdade do projeto
-- **Tech stack configurável**: detecta tecnologias mencionadas, usa conhecimento do AI para stacks não suportadas por templates
-- **Referências @**: leitura de arquivos `.md` para extrair especificações de stack
-- **Geração de código**: gera código para stacks suportadas (Express+React+SQLite) ou usa AI para stacks arbitrárias
-- **Enforcement SDD-first**: bloqueia modificações no código que não passaram pela especificação
-- **Change management**: toda mudança vira um Change node rastreável no grafo
-- **Impact analysis**: traversa o grafo para mostrar o que será afetado
-- **Drift detection**: detecta quando o código desviou da especificação
-- **Dashboard web**: visualização 3D do grafo em tempo real com 3d-force-graph
-- **Constitution**: define princípios obrigatórios, opcionais e desejados para o projeto
-- **Promise tracking**: rastreia promessas de especificação e detecta violações
-- **Quality scoring**: calcula score de qualidade (0-100%) com tendência
-- **Anti-pattern detection**: identifica nós gods, dependências circulares, especulação
-- **AST clone detection**: detecta código duplicado no projeto
-- **Contradiction detection**: identifica requisitos e regras conflitantes
-- **Test coverage tracking**: mede cobertura de testes por requisito
-- **Config drift detection**: detecta inconsistências em configs
-- **Session handoff**: gera pacote de estado para continuar trabalho
-- **Workflow export**: exporta estado do SDD como relatório estruturado
-- **Shell hooks**: instala hooks Git para integração SDD
-- **Brownfield scanning**: analisa projetos existentes para integração
-- **CI/CD Integration**: gera GitHub Actions, GitLab CI, Jenkins, Docker, CircleCI, Azure DevOps, AWS CodePipeline, Travis CI, NPM Publish, Docker Compose, Maven (Java), Python (pip), Go (GoReleaser) com validação SDD
-- **Multi-developer Sync**: sincronização via Git com detecção e resolução de conflitos
-- **Rollback**: 3 camadas de reversão (git → snapshot → backup)
-- **Permissions**: controle de acesso por roles (admin, architect, developer, viewer) com autenticação GitHub/GitLab
-- **Enterprise Workflows**: workflows automáticos para cenários enterprise:
-  - **Bug Fixing**: workflow com aprovação automática
-  - **Hotfix/Emergência**: bypass de enforcement + documentação retroativa
-  - **Refactoring**: verificação de dependências + testes obrigatórios
-  - **Deprecation**: plano de migração + notificações
-  - **Data Migration**: scripts de migração + rollback
-  - **A/B Testing**: experimentos com variantes
-  - **Feature Flags**: controle de rollout
-  - **Multi-tenancy**: isolamento de dados
-  - **Onboarding**: guia para novos desenvolvedores
-  - **Security Audit**: auditoria de segurança automatizada
-  - **Scalability Analysis**: análise de escalabilidade
-  - **Compliance**: validação regulatory (GDPR, HIPAA, SOC2)
-  - **Monitoring**: configuração de métricas e alertas
-  - **Incident Management**: gestão de incidentes
-  - **SLA Tracking**: rastreamento de acordos de nível de serviço
-  - **Cost Management**: estimativa de custos
-  - **Documentation**: geração de documentação
-  - **Knowledge Transfer**: transferência de conhecimento
-  - **Disaster Recovery**: plano de recuperação de desastres
+- **Conversational discovery**: analyzes your briefing, detects what is missing and asks questions with selection menus (via the OpenCode `question` tool)
+- **Knowledge Graph**: keeps a semantic graph as the source of truth for the project
+- **Configurable tech stack**: detects mentioned technologies, uses the AI's knowledge for stacks not supported by templates
+- **@ references**: reads `.md` files to extract stack specifications
+- **Code generation**: generates code for supported stacks (Express+React+SQLite) or uses AI for arbitrary stacks
+- **SDD-first enforcement**: blocks code modifications that did not go through the specification
+- **Change management**: every change becomes a trackable Change node in the graph
+- **Impact analysis**: traverses the graph to show what will be affected
+- **Drift detection**: detects when the code deviated from the specification
+- **Web dashboard**: real-time 3D graph visualization with 3d-force-graph
+- **Constitution**: defines mandatory, optional and preferred principles for the project
+- **Promise tracking**: tracks specification promises and detects violations
+- **Quality scoring**: calculates a quality score (0-100%) with trend
+- **Anti-pattern detection**: identifies god nodes, circular dependencies, speculation
+- **AST clone detection**: detects duplicated code in the project
+- **Contradiction detection**: identifies conflicting requirements and rules
+- **Test coverage tracking**: measures test coverage by requirement
+- **Config drift detection**: detects inconsistencies in configs
+- **Session handoff**: generates a state package to continue work
+- **Workflow export**: exports the SDD state as a structured report
+- **Shell hooks**: installs Git hooks for SDD integration
+- **Brownfield scanning**: analyzes existing projects for integration
+- **CI/CD Integration**: generates GitHub Actions, GitLab CI, Jenkins, Docker, CircleCI, Azure DevOps, AWS CodePipeline, Travis CI, NPM Publish, Docker Compose, Maven (Java), Python (pip), Go (GoReleaser) with SDD validation
+- **Multi-developer Sync**: Git-based synchronization with conflict detection and resolution
+- **Rollback**: 3 rollback layers (git → snapshot → backup)
+- **Permissions**: role-based access control (admin, architect, developer, viewer) with GitHub/GitLab authentication
+- **Enterprise Workflows**: automated workflows for enterprise scenarios:
+  - **Bug Fixing**: workflow with automatic approval
+  - **Hotfix/Emergency**: enforcement bypass + retrospective documentation
+  - **Refactoring**: dependency verification + mandatory tests
+  - **Deprecation**: migration plan + notifications
+  - **Data Migration**: migration scripts + rollback
+  - **A/B Testing**: experiments with variants
+  - **Feature Flags**: rollout control
+  - **Multi-tenancy**: data isolation
+  - **Onboarding**: guide for new developers
+  - **Security Audit**: automated security audit
+  - **Scalability Analysis**: scalability analysis
+  - **Compliance**: regulatory validation (GDPR, HIPAA, SOC2)
+  - **Monitoring**: metrics and alert configuration
+  - **Incident Management**: incident management
+  - **SLA Tracking**: service level agreement tracking
+  - **Cost Management**: cost estimation
+  - **Documentation**: documentation generation
+  - **Knowledge Transfer**: knowledge transfer
+  - **Disaster Recovery**: disaster recovery plan
 
-## Pré-requisitos
+## Prerequisites
 
-- [OpenCode](https://github.com/anomalyco/opencode) instalado
-- [Bun](https://bun.sh) (runtime do plugin)
+- [OpenCode](https://github.com/anomalyco/opencode) installed
+- [Bun](https://bun.sh) (plugin runtime)
 
-## Instalação
+## Installation
 
-### Opção 1: Via OpenCode CLI (recomendado)
+### Option 1: Via OpenCode CLI (recommended)
 
 ```bash
 opencode plugin add opencode-telos
 ```
 
-Isso instala o plugin automaticamente no seu OpenCode.
+This installs the plugin automatically in your OpenCode.
 
-### Opção 2: Via npm
+### Option 2: Via npm
 
 ```bash
 npm install -g opencode-telos
 ```
 
-Depois adicione no `opencode.json`:
+Then add it to your `opencode.json`:
 
 ```json
 {
@@ -80,15 +80,15 @@ Depois adicione no `opencode.json`:
 }
 ```
 
-### Opção 3: Plugin local
+### Option 3: Local plugin
 
-Clone ou copie a pasta do plugin para um diretório acessível:
+Clone or copy the plugin folder into an accessible directory:
 
 ```bash
 git clone https://github.com/JudahAragao/opencode-telos.git ~/.config/opencode/plugins/opencode-telos
 ```
 
-Depois adicione no `opencode.json`:
+Then add it to your `opencode.json`:
 
 ```json
 {
@@ -96,15 +96,15 @@ Depois adicione no `opencode.json`:
 }
 ```
 
-### Opção 4: Plugin no projeto
+### Option 4: Project-local plugin
 
-Copie a pasta `opencode-telos` para dentro do seu projeto:
+Copy the `opencode-telos` folder into your project:
 
 ```bash
-cp -r /caminho/opencode-telos ./opencode-telos
+cp -r /path/to/opencode-telos ./opencode-telos
 ```
 
-Depois adicione no `opencode.json`:
+Then add it to your `opencode.json`:
 
 ```json
 {
@@ -112,106 +112,125 @@ Depois adicione no `opencode.json`:
 }
 ```
 
-## Como funciona a interação
+## How the interaction works
 
-### Toggle SDD (liga/desliga)
+### SDD toggle (on/off)
 
-O plugin pode ser ligado ou desligado a qualquer momento:
+The plugin can be enabled or disabled at any time. The plugin registers a
+**command hub** on the `command.execute.before` hook: a single `sdd` command
+that routes to deterministic subcommands (executed by the plugin, without
+depending on the LLM to perform the action):
 
-| Comando | Efeito |
+| Command | Subcommand | Effect |
+|---|---|---|
+| `/sdd` | `panel` / `help` | Shows the panel with the available subcommands |
+| `/sdd on` | `on` / `enable` | Enables SDD enforcement (every change requires a spec) |
+| `/sdd off` | `off` / `disable` | Disables enforcement (you can code freely) |
+| `/sdd status` | `status` | Shows the current toggle state |
+| `/sdd cache_reset` | `cache_reset` | Clears caches without killing the session |
+
+> **Note:** because slash `/` commands in OpenCode are *prompt commands* by
+> definition, invoking them makes OpenCode **also trigger an LLM turn** after
+> the `command.execute.before` hook. The deterministic action itself
+> (enable/disable) is performed by the hook without depending on the model; the
+> extra turn is an inherent behavior of the OpenCode command flow.
+
+**Recommended way (no LLM turn):** the same operations are available as
+**tools/MCP**, called by the agent deterministically:
+
+| Tool | Effect |
 |---|---|
-| `/sdd on` | Ativa enforcement SDD (toda mudança precisa de spec) |
-| `/sdd off` | Desativa enforcement (pode codar livremente) |
-| `/sdd status` | Mostra estado atual |
+| `sdd.toggle` | Enables/disables enforcement |
+| `sdd.toggle_status` | Shows the current toggle state |
 
-Quando desativado:
-- O system prompt SDD não é injetado
-- Não há enforcement em writes/edits
-- O agente pode modificar código diretamente
+When disabled:
+- The SDD system prompt is not injected
+- There is no enforcement on writes/edits
+- The agent can modify code directly
 
-Quando ativado:
-- Workflow SDD-first obrigatório
-- Spec antes de código
-- Change nodes para toda modificação
+When enabled:
+- Mandatory SDD-first workflow
+- Spec before code
+- Change nodes for every modification
 
-Também disponível via tool: `sdd.toggle(enabled: true|false)`
+The toggle state is persisted in `.sdd/enabled` inside the project.
 
-### Passo 1: Descreva o projeto
+### Step 1: Describe the project
 
-Abra o OpenCode na pasta do seu projeto e descreva o que quer criar:
-
-```
-Quero criar um sistema de gerenciamento de tarefas.
-Cada usuário terá suas próprias tarefas com título, descrição e status.
-```
-
-O plugin automaticamente:
-
-1. Detecta que não existe SDD inicializado
-2. Roda `sdd.discover` analisando seu briefing
-3. Detecta: entidades (usuário, tarefa), domínio (task_management)
-4. Detecta tecnologias mencionadas (nenhuma ainda)
-5. Retorna perguntas estruturadas para a ferramenta `question`
-
-### Passo 2: Responda com menus de seleção
-
-O OpenCode exibe um menu para cada pergunta faltante:
+Open OpenCode in your project folder and describe what you want to create:
 
 ```
-? Qual framework será usado no frontend?
+I want to create a task management system.
+Each user will have their own tasks with title, description and status.
+```
+
+The plugin automatically:
+
+1. Detects that SDD is not initialized
+2. Runs `sdd.discover` analyzing your briefing
+3. Detects: entities (user, task), domain (task_management)
+4. Detects mentioned technologies (none yet)
+5. Returns structured questions for the `question` tool
+
+### Step 2: Answer with selection menus
+
+OpenCode displays a menu for each missing question:
+
+```
+? Which framework will be used on the frontend?
   > React
     Vue.js
     Angular
     Svelte
     Next.js
-    [Digite sua própria resposta]
+    [Type your own answer]
 ```
 
 ```
-? Qual framework será usado no backend?
+? Which framework will be used on the backend?
   > Express
     Fastify
     NestJS
     Django
     FastAPI
-    [Digite sua própria resposta]
+    [Type your own answer]
 ```
 
 ```
-? Qual banco de dados será utilizado?
+? Which database will be used?
   > SQLite
     PostgreSQL
     MySQL
     MongoDB
-    [Digite sua própria resposta]
+    [Type your own answer]
 ```
 
 ```
-? Como os usuários farão login no sistema?
-  > Email + Senha
+? How will users log in to the system?
+  > Email + Password
     Google OAuth
     JWT
-    Sem autenticação
-    [Digite sua própria resposta]
+    No authentication
+    [Type your own answer]
 ```
 
 ```
-? Como devem funcionar as exclusões no sistema?
-  > Hard delete (permanente)
-    Soft delete (reversível)
+? How should deletions work in the system?
+  > Hard delete (permanent)
+    Soft delete (reversible)
 ```
 
-Você seleciona uma opção ou digita sua própria resposta. O plugin atualiza o Knowledge Graph automaticamente.
+You select an option or type your own answer. The plugin updates the Knowledge Graph automatically.
 
-### Passo 3: Especifique a stack via arquivos .md (opcional)
+### Step 3: Specify the stack via .md files (optional)
 
-Se preferir definir a stack em um arquivo, crie um `.md` e referencie com `@`:
+If you prefer to define the stack in a file, create a `.md` and reference it with `@`:
 
 ```
-Quero um sistema de tarefas. @tech.md
+I want a task system. @tech.md
 ```
 
-Onde `tech.md` contém:
+Where `tech.md` contains:
 
 ```markdown
 ## Stack
@@ -221,365 +240,365 @@ Onde `tech.md` contém:
 - Auth: Clerk
 ```
 
-O plugin lê o arquivo, detecta as tecnologias e **não pergunta** sobre elas.
+The plugin reads the file, detects the technologies and **does not ask** about them.
 
-### Passo 4: Gere o código
+### Step 4: Generate the code
 
-Depois que a especificação estiver suficiente:
-
-```
-Gere o código do projeto
-```
-
-O plugin:
-
-- Se a stack tem templates built-in (Express+React+SQLite): gera os arquivos automaticamente
-- Se a stack é diferente: retorna uma especificação detalhada e o AI gera o código usando seu conhecimento sobre as tecnologias escolhidas
-
-### Passo 5: Modifique funcionalidades
+Once the specification is sufficient:
 
 ```
-Adicione um campo de prioridade nas tarefas com valores LOW, MEDIUM e HIGH
+Generate the project code
 ```
 
-O plugin **força** o workflow SDD:
+The plugin:
 
-1. `sdd.enforce` → classifica como "add_functionality"
-2. Cria um Change node (ex: CHG-001)
-3. Analisa impacto: entidade Task, API, testes
-4. Atualiza a especificação
-5. Valida o SDD
-6. Regenera o código afetado
-7. Completa o Change
+- If the stack has built-in templates (Express+React+SQLite): generates the files automatically
+- If the stack is different: returns a detailed specification and the AI generates the code using its knowledge of your chosen technologies
 
-### Passo 6: Mudanças arquiteturais
+### Step 5: Modify features
 
 ```
-Mude o banco de SQLite para PostgreSQL
+Add a priority field to tasks with LOW, MEDIUM and HIGH values
 ```
 
-O plugin **bloqueia** e pede aprovação explícita antes de prosseguir.
+The plugin **forces** the SDD workflow:
 
-### Passo 7: Verifique drift
+1. `sdd.enforce` → classifies as "add_functionality"
+2. Creates a Change node (e.g. CHG-001)
+3. Analyzes impact: Task entity, API, tests
+4. Updates the specification
+5. Validates the SDD
+6. Regenerates the affected code
+7. Completes the Change
+
+### Step 6: Architectural changes
 
 ```
-Verifique se há drift no projeto
+Change the database from SQLite to PostgreSQL
 ```
 
-O plugin compara o grafo com o código e reporta divergências.
+The plugin **blocks** and asks for explicit approval before proceeding.
 
-### Completar especificação manualmente
+### Step 7: Check drift
 
-Se achar que a IA não fez todas as perguntas, você pode:
-
-**Validar o que falta:**
 ```
-Valide o SDD e me diga o que está faltando na spec
-```
-O agente roda `sdd.validate` e lista erros/warnings (ex: entity sem campos, requirement sem task).
-
-**Rodar discovery de novo:**
-```
-Analise o SDD atual e faça todas as perguntas que faltam
-```
-O agente inspeciona o grafo com `sdd.inspect`, identifica gaps, e faz perguntas via `question`.
-
-**Verificar completude antes de gerar:**
-```
-Verifique se a spec está completa antes de gerar código
+Check if there is any drift in the project
 ```
 
-**Adicionar entidades/regras manualmente:**
-```
-Adicione uma entidade Tenant com campos id (uuid), name (string), created_at (timestamp)
-```
-O agente roda `sdd.add_node` direto.
+The plugin compares the graph with the code and reports divergences.
 
-**Adicionar relacionamento:**
+### Complete the specification manually
+
+If you think the AI did not ask all the questions, you can:
+
+**Validate what is missing:**
 ```
-Crie um relacionamento: Tenant contains User
+Validate the SDD and tell me what is missing in the spec
+```
+The agent runs `sdd.validate` and lists errors/warnings (e.g. entity without fields, requirement without task).
+
+**Run discovery again:**
+```
+Analyze the current SDD and ask all the missing questions
+```
+The agent inspects the graph with `sdd.inspect`, identifies gaps, and asks questions via `question`.
+
+**Check completeness before generating:**
+```
+Check if the spec is complete before generating code
 ```
 
-**Consultar estado atual:**
+**Add entities/rules manually:**
 ```
-Mostre o estado atual do SDD
+Add a Tenant entity with fields id (uuid), name (string), created_at (timestamp)
 ```
-O agente roda `sdd.inspect` mostrando stats, nós por tipo e distribuição de status.
+The agent runs `sdd.add_node` directly.
 
-## Ferramentas disponíveis
+**Add a relationship:**
+```
+Create a relationship: Tenant contains User
+```
 
-### Inicialização e Gestão do Grafo
+**Query the current state:**
+```
+Show the current SDD state
+```
+The agent runs `sdd.inspect` showing stats, nodes by type and status distribution.
 
-| Ferramenta | Descrição |
+## Available tools
+
+### Graph initialization and management
+
+| Tool | Description |
 |---|---|
-| `sdd.initialize` | Inicializa o SDD para o projeto |
-| `sdd.toggle_status` | Liga/desliga enforcement SDD |
-| `sdd.list_snapshots` | Lista snapshots disponíveis para rollback |
+| `sdd.initialize` | Initializes SDD for the project |
+| `sdd.toggle_status` | Enables/disables SDD enforcement |
+| `sdd.list_snapshots` | Lists snapshots available for rollback |
 
-### Navegação e Busca
+### Navigation and search
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.inspect` | Mostra estado atual do grafo |
-| `sdd.query_graph` | Busca nós por texto, tipo ou ID |
-| `sdd.list_nodes` | Lista nós por tipo |
-| `sdd.count_nodes` | Conta nós por tipo |
-| `sdd.get_nodes_by_status` | Lista nós filtrados por status |
-| `sdd.get_context` | Context pack para um nó |
-| `sdd.find_path` | Encontra caminho entre nós |
-| `sdd.analyze_impact` | Análise de impacto via traversal |
+| `sdd.inspect` | Shows the current state of the graph |
+| `sdd.query_graph` | Searches nodes by text, type or ID |
+| `sdd.list_nodes` | Lists nodes by type |
+| `sdd.count_nodes` | Counts nodes by type |
+| `sdd.get_nodes_by_status` | Lists nodes filtered by status |
+| `sdd.get_context` | Context pack for a node |
+| `sdd.find_path` | Finds a path between nodes |
+| `sdd.analyze_impact` | Impact analysis via traversal |
 
-### Graph Traversal
+### Graph traversal
 
-| Ferramenta | Descrição |
-|---||
-| `sdd.traverse_outgoing` | BFS seguindo arestas de saída |
-| `sdd.traverse_incoming` | BFS seguindo arestas de entrada |
-| `sdd.traverse_both` | BFS bidirecional |
-| `sdd.get_subgraph` | Extrai subgrafo a partir de um nó |
-
-### CRUD de Nós e Relacionamentos
-
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.add_node` | Adiciona feature, requirement, entity, etc. |
-| `sdd.update_node` | Atualiza campos de um nó existente |
-| `sdd.remove_node` | Remove um nó do grafo |
-| `sdd.add_relationship` | Cria relações entre nós |
-| `sdd.remove_relationship` | Remove um relacionamento |
+| `sdd.traverse_outgoing` | BFS following outgoing edges |
+| `sdd.traverse_incoming` | BFS following incoming edges |
+| `sdd.traverse_both` | Bidirectional BFS |
+| `sdd.get_subgraph` | Extracts a subgraph from a node |
 
-### Descoberta e Briefing
+### Node and relationship CRUD
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.discover` | Analisa briefing, retorna perguntas para a ferramenta `question` |
-| `sdd.update_from_answers` | Atualiza grafo com respostas |
+| `sdd.add_node` | Adds feature, requirement, entity, etc. |
+| `sdd.update_node` | Updates fields of an existing node |
+| `sdd.remove_node` | Removes a node from the graph |
+| `sdd.add_relationship` | Creates relationships between nodes |
+| `sdd.remove_relationship` | Removes a relationship |
 
-### Change Management
+### Discovery and briefing
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.create_change` | Cria Change com approval gates |
-| `sdd.approve_change` | Aprova uma mudança |
-| `sdd.complete_change` | Marca mudança como completa |
-| `sdd.pending_changes` | Lista mudanças pendentes |
+| `sdd.discover` | Analyzes briefing, returns questions for the `question` tool |
+| `sdd.update_from_answers` | Updates the graph with answers |
 
-### Validação e Qualidade
+### Change management
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.validate` | Valida integridade do SDD |
-| `sdd.constitution` | Gerencia constituição do projeto (princípios) |
-| `sdd.quality` | Calcula score de qualidade com tendência |
-| `sdd.contradictions` | Detecta contradições no grafo |
-| `sdd.verify_usage` | Verifica uso de funcionalidades SDD |
+| `sdd.create_change` | Creates a Change with approval gates |
+| `sdd.approve_change` | Approves a change |
+| `sdd.complete_change` | Marks a change as complete |
+| `sdd.pending_changes` | Lists pending changes |
 
-### Detecção de Drift
+### Validation and quality
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.detect_drift` | Detecta drift specification ↔ código |
-| `sdd.config_drift` | Detecta drift em configs |
-| `sdd.detect_sync_conflicts` | Detecta conflitos entre grafo local e remoto |
+| `sdd.validate` | Validates SDD integrity |
+| `sdd.constitution` | Manages the project constitution (principles) |
+| `sdd.quality` | Calculates the quality score with trend |
+| `sdd.contradictions` | Detects contradictions in the graph |
+| `sdd.verify_usage` | Verifies SDD feature usage |
 
-### Padrões e Anti-Patterns
+### Drift detection
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.anti_patterns` | Detecta padrões antiéticos no grafo |
-| `sdd.clone_detection` | Detecta código duplicado no projeto |
+| `sdd.detect_drift` | Detects specification ↔ code drift |
+| `sdd.config_drift` | Detects drift in configs |
+| `sdd.detect_sync_conflicts` | Detects conflicts between local and remote graphs |
 
-### Código e Geração
+### Patterns and anti-patterns
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.plan_implementation` | Gera plano de implementação |
-| `sdd.generate_code` | Gera código (templates ou via AI para stacks arbitrárias) |
-| `sdd.enforce` | Força workflow SDD-first |
-| `sdd.enforce_rules` | Mostra regras de enforcement |
-| `sdd.full_cycle` | Ciclo completo: enforce → validate → generate → sync |
+| `sdd.anti_patterns` | Detects anti-patterns in the graph |
+| `sdd.clone_detection` | Detects duplicated code in the project |
 
-### Qualidade de Código
+### Code and generation
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.analyze_complexity` | Analisa complexidade ciclomática e cognitiva |
-| `sdd.code_metrics` | Métricas de código (LOC, SLOC, nesting depth) |
-| `sdd.detect_smells` | Detecta code smells |
-| `sdd.analyze_dependencies` | Analisa grafo de dependências e coupling |
-| `sdd.find_dead_code` | Encontra código não utilizado |
-| `sdd.remove_dead_code` | Remove código morto identificado |
-| `sdd.parse_symbols` | Parseia símbolos (funções, classes, interfaces) |
+| `sdd.plan_implementation` | Generates an implementation plan |
+| `sdd.generate_code` | Generates code (templates or via AI for arbitrary stacks) |
+| `sdd.enforce` | Enforces the SDD-first workflow |
+| `sdd.enforce_rules` | Shows the enforcement rules |
+| `sdd.full_cycle` | Full cycle: enforce → validate → generate → sync |
 
-### Análise
+### Code quality
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.check_compliance` | Verificação de compliance (GDPR, LGPD, HIPAA, SOC2) |
-| `sdd.security_audit` | Auditoria de segurança |
-| `sdd.analyze_scalability` | Análise de escalabilidade |
+| `sdd.analyze_complexity` | Analyzes cyclomatic and cognitive complexity |
+| `sdd.code_metrics` | Code metrics (LOC, SLOC, nesting depth) |
+| `sdd.detect_smells` | Detects code smells |
+| `sdd.analyze_dependencies` | Analyzes the dependency graph and coupling |
+| `sdd.find_dead_code` | Finds unused code |
+| `sdd.remove_dead_code` | Removes identified dead code |
+| `sdd.parse_symbols` | Parses symbols (functions, classes, interfaces) |
 
-### Codebase Intelligence
+### Analysis
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.analyze_codebase` | Analisa codebase completa e cria nós de arquivo/símbolo |
+| `sdd.check_compliance` | Compliance check (GDPR, LGPD, HIPAA, SOC2) |
+| `sdd.security_audit` | Security audit |
+| `sdd.analyze_scalability` | Scalability analysis |
 
-### Sync e Colaboração
+### Codebase intelligence
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.sync_status` | Verifica status de sincronização com remote |
-| `sdd.sync_pull` | Puxa últimas mudanças do remote |
-| `sdd.sync_push` | Envia mudanças SDD para remote |
-| `sdd.merge_graphs` | Merge de dois grafos |
+| `sdd.analyze_codebase` | Analyzes the complete codebase and creates file/symbol nodes |
+
+### Sync and collaboration
+
+| Tool | Description |
+|---|---|
+| `sdd.sync_status` | Checks sync status with remote |
+| `sdd.sync_pull` | Pulls latest changes from remote |
+| `sdd.sync_push` | Pushes SDD changes to remote |
+| `sdd.merge_graphs` | Merges two graphs |
 
 ### Rollback
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.create_snapshot` | Cria snapshot antes de mudanças |
-| `sdd.rollback` | Reverte uma change (git → snapshot → backup) |
-| `sdd.rollback_history` | Histórico de rollbacks |
+| `sdd.create_snapshot` | Creates a snapshot before changes |
+| `sdd.rollback` | Rolls back a change (git → snapshot → backup) |
+| `sdd.rollback_history` | Rollback history |
 
-### Permissões
+### Permissions
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.load_permissions_config` | Carrega config de permissões |
-| `sdd.save_permissions_config` | Salva config de permissões |
-| `sdd.check_permission` | Verifica permissão de um usuário |
-| `sdd.check_change_approval` | Verifica se mudança precisa de aprovação |
-| `sdd.set_role` | Define role de um usuário |
-| `sdd.get_user_role` | Retorna role do usuário |
-| `sdd.audit_log` | Visualiza log de auditoria |
+| `sdd.load_permissions_config` | Loads the permissions config |
+| `sdd.save_permissions_config` | Saves the permissions config |
+| `sdd.check_permission` | Checks a user's permission |
+| `sdd.check_change_approval` | Checks whether a change requires approval |
+| `sdd.set_role` | Sets a user's role |
+| `sdd.get_user_role` | Returns a user's role |
+| `sdd.audit_log` | Views the audit log |
 
-### Enterprise Workflows
+### Enterprise workflows
 
-| Ferramenta | Descrição | Approval Level |
+| Tool | Description | Approval level |
 |---|---|---|
-| `sdd.bug_fix` | Workflow de bug fix completo | AUTO |
-| `sdd.hotfix` | Documentar hotfix retroativo | POST_HOC |
-| `sdd.refactoring` | Refactoring com verificação de dependências | REVIEW |
-| `sdd.deprecate` | Deprecation com plano de migração | APPROVAL |
-| `sdd.create_migration` | Migração de dados com rollback | APPROVAL |
-| `sdd.create_experiment` | Experimento A/B | REVIEW |
+| `sdd.bug_fix` | Full bug fix workflow | AUTO |
+| `sdd.hotfix` | Retrospective hotfix documentation | POST_HOC |
+| `sdd.refactoring` | Refactoring with dependency verification | REVIEW |
+| `sdd.deprecate` | Deprecation with migration plan | APPROVAL |
+| `sdd.create_migration` | Data migration with rollback | APPROVAL |
+| `sdd.create_experiment` | A/B experiment | REVIEW |
 | `sdd.create_flag` | Feature flag | AUTO |
 | `sdd.create_tenant` | Multi-tenancy | APPROVAL |
-| `sdd.onboard_developer` | Guia de onboarding | - |
-| `sdd.report_incident` | Reportar incidente | - |
-| `sdd.create_sla` | Criar SLA | - |
+| `sdd.onboard_developer` | Onboarding guide | - |
+| `sdd.report_incident` | Report an incident | - |
+| `sdd.create_sla` | Create an SLA | - |
 
-### Monitoramento e Observabilidade
+### Monitoring and observability
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.setup_monitoring` | Configuração de monitoramento |
-| `sdd.generate_dashboard` | Gerar dashboard de monitoramento |
+| `sdd.setup_monitoring` | Monitoring configuration |
+| `sdd.generate_dashboard` | Generate monitoring dashboard |
 
-### Documentação e Conhecimento
+### Documentation and knowledge
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.generate_docs` | Gerar documentação (API, user guide, dev guide, architecture) |
-| `sdd.knowledge_transfer` | Transferência de conhecimento |
-| `sdd.session_handoff` | Gera pacote de handoff da sessão |
-| `sdd.workflow_export` | Exporta estado do SDD como relatório |
+| `sdd.generate_docs` | Generate documentation (API, user guide, dev guide, architecture) |
+| `sdd.knowledge_transfer` | Knowledge transfer |
+| `sdd.session_handoff` | Generates a session handoff package |
+| `sdd.workflow_export` | Exports the SDD state as a report |
 
-### Custo e CICD
+### Cost and CI/CD
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.estimate_cost` | Estimativa de custos |
-| `sdd.generate_cicd` | Gera config CI/CD (GitHub, GitLab, Jenkins, Docker) |
-| `sdd.disaster_recovery_plan` | Plano de disaster recovery |
+| `sdd.estimate_cost` | Cost estimation |
+| `sdd.generate_cicd` | Generates CI/CD config (GitHub, GitLab, Jenkins, Docker) |
+| `sdd.disaster_recovery_plan` | Disaster recovery plan |
 
-### Infraestrutura
+### Infrastructure
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.install_hooks` | Instala hooks Git para SDD |
-| `sdd.brownfield_scan` | Analisa projeto existente |
-| `sdd.start_dashboard` | Inicia servidor web com visualização 3D do grafo |
-| `sdd.mcp_server_info` | Informações do servidor MCP |
-| `sdd.handle_mcp_tool` | Processa tool via protocolo MCP |
+| `sdd.install_hooks` | Installs Git hooks for SDD |
+| `sdd.brownfield_scan` | Analyzes an existing project |
+| `sdd.start_dashboard` | Starts the web server with 3D graph visualization |
+| `sdd.mcp_server_info` | MCP server information |
+| `sdd.handle_mcp_tool` | Processes a tool via the MCP protocol |
 
-### Promessas
+### Promises
 
-| Ferramenta | Descrição |
+| Tool | Description |
 |---|---|
-| `sdd.promises` | Rastreia promessas de especificação |
-| `sdd.coverage` | Mede cobertura de testes por requisito |
+| `sdd.promises` | Tracks specification promises |
+| `sdd.coverage` | Measures test coverage by requirement |
 
-## Tech Stack e Geração de Código
+## Tech stack and code generation
 
-### Stacks com templates built-in
+### Stacks with built-in templates
 
-O plugin gera código automaticamente para:
+The plugin generates code automatically for:
 
-| Camada | Tecnologias |
+| Layer | Technologies |
 |---|---|
-| Frontend | React + React Router + hooks customizados |
-| Backend | Express ou Fastify + rotas REST + controllers + services + repositories |
-| Database | SQLite, PostgreSQL ou MySQL (via drivers nativos) + schema SQL |
-| Testes | Bun test |
-| Tipos | TypeScript compartilhado |
+| Frontend | React + React Router + custom hooks |
+| Backend | Express or Fastify + REST routes + controllers + services + repositories |
+| Database | SQLite, PostgreSQL or MySQL (via native drivers) + SQL schema |
+| Tests | Bun test |
+| Types | Shared TypeScript |
 
-### Stacks arbitrárias (via AI)
+### Arbitrary stacks (via AI)
 
-Para qualquer outra combinação (Django, FastAPI, Rails, Go, etc.):
+For any other combination (Django, FastAPI, Rails, Go, etc.):
 
-1. O plugin detecta a stack do grafo
-2. Se não está no conjunto de templates built-in, retorna uma **spec prompt**
-3. A spec prompt lista entidades, endpoints e regras de negócio extraídas do grafo
-4. O AI gera o código completo usando seu conhecimento sobre as tecnologias escolhidas
-5. Você pode especificar a stack via briefing (`FastAPI com PostgreSQL`) ou via arquivo `@tech.md`
+1. The plugin detects the stack from the graph
+2. If it is not in the built-in template set, it returns a **spec prompt**
+3. The spec prompt lists entities, endpoints and business rules extracted from the graph
+4. The AI generates the complete code using its knowledge of your chosen technologies
+5. You can specify the stack via the briefing (`FastAPI with PostgreSQL`) or via a `@tech.md` file
 
-### Detecção automática
+### Automatic detection
 
-O plugin detecta automaticamente no briefing:
+The plugin automatically detects in the briefing:
 
 - **Frontend**: React, Vue, Angular, Svelte, Next.js, Nuxt, Tailwind, shadcn/ui, etc.
 - **Backend**: Express, Fastify, NestJS, Django, FastAPI, Flask, Rails, Laravel, Spring Boot, Go, Rust, etc.
 - **Database**: PostgreSQL, MySQL, SQLite, MongoDB, Redis, Supabase, Firebase, Turso, etc.
-- **Auth**: JWT, Google/GitHub OAuth, Clerk, Auth0, NextAuth, sessão/cookie, etc.
-- **Linguagem**: TypeScript, JavaScript, Python, Go, Rust, Java, Ruby
-- **Testes**: Jest, Vitest, Bun test, Cypress, Playwright, pytest, RSpec
+- **Auth**: JWT, Google/GitHub OAuth, Clerk, Auth0, NextAuth, session/cookie, etc.
+- **Language**: TypeScript, JavaScript, Python, Go, Rust, Java, Ruby
+- **Tests**: Jest, Vitest, Bun test, Cypress, Playwright, pytest, RSpec
 
-Tecnologias que já foram mencionadas **não são perguntadas novamente**.
+Technologies that have already been mentioned **are not asked again**.
 
-## Tipos de nós suportados
+## Supported node types
 
-| Tipo | Descrição |
+| Type | Description |
 |---|---|
-| `project` | O projeto |
-| `domain` | Domínio funcional |
-| `feature` | Funcionalidade |
-| `requirement` | Requisito |
-| `business_rule` | Regra de negócio |
-| `actor` | Usuário/sistema externo |
-| `entity` | Entidade de domínio |
-| `value_object` | Objeto de valor |
-| `flow` | Fluxo |
-| `use_case` | Caso de uso |
-| `architecture_component` | Componente arquitetural |
-| `module` | Módulo |
-| `api` | Interface API |
-| `endpoint` | Endpoint HTTP |
-| `database` | Banco de dados |
-| `table` | Tabela |
-| `field` | Campo |
-| `task` | Tarefa de implementação |
-| `test` | Teste |
-| `file` | Arquivo do código |
-| `symbol` | Função, classe, interface |
-| `change` | Mudança do sistema |
-| `decision` | Decisão arquitetural (ADR) |
-| `constraint` | Restrição |
-| `assumption` | Premissa registrada |
-| `constitution` | Princípios do projeto (must/should/may) |
+| `project` | The project |
+| `domain` | Functional domain |
+| `feature` | Feature |
+| `requirement` | Requirement |
+| `business_rule` | Business rule |
+| `actor` | External user/system |
+| `entity` | Domain entity |
+| `value_object` | Value object |
+| `flow` | Flow |
+| `use_case` | Use case |
+| `architecture_component` | Architectural component |
+| `module` | Module |
+| `api` | API interface |
+| `endpoint` | HTTP endpoint |
+| `database` | Database |
+| `table` | Table |
+| `field` | Field |
+| `task` | Implementation task |
+| `test` | Test |
+| `file` | Code file |
+| `symbol` | Function, class, interface |
+| `change` | System change |
+| `decision` | Architectural decision (ADR) |
+| `constraint` | Constraint |
+| `assumption` | Recorded assumption |
+| `constitution` | Project principles (must/should/may) |
 
-## Tipos de relações
+## Relationship types
 
 ```
 contains, depends_on, requires, implements, implemented_by,
@@ -589,200 +608,200 @@ contradicts, supersedes, replaces, blocked_by, belongs_to,
 owned_by, triggered_by, flows_to
 ```
 
-## Fluxo de enforcement
+## Enforcement flow
 
-Toda modificação segue obrigatoriamente. **O hook bloqueia programaticamente** qualquer Write/Edit em arquivos fonte que não tenha um Change node aprovado:
+Every modification must follow it. **The hook blocks programmatically** any Write/Edit to source files that does not have an approved Change node:
 
 ```
-USUÁRIO: "Adicione X"
+USER: "Add X"
     ↓
-Write/Edit interceptado pelo hook
+Write/Edit intercepted by the hook
     ↓
-Hook verifica: arquivo fonte? SDD inicializado? Change aprovado cobrindo esse arquivo?
+Hook checks: source file? SDD initialized? Approved Change covering this file?
     ↓
-Se NÃO tem Change aprovado → ERRO: operação bloqueada
+If there is NO approved Change → ERROR: operation blocked
     ↓
-Agente é forçado a seguir o workflow SDD:
+The agent is forced to follow the SDD workflow:
     ↓
-sdd.enforce → classifica a mudança
+sdd.enforce → classifies the change
     ↓
-sdd.discover → coleta informações faltantes
+sdd.discover → collects missing information
     ↓
-question → menus de seleção para o usuário
+question → selection menus for the user
     ↓
-sdd.update_from_answers → atualiza grafo
+sdd.update_from_answers → updates the graph
     ↓
-sdd.create_change → cria Change node
+sdd.create_change → creates a Change node
     ↓
-sdd.approve_change → aprova o Change
+sdd.approve_change → approves the Change
     ↓
-Write/Edit → operação liberada pelo hook
+Write/Edit → operation released by the hook
     ↓
-sdd.generate_code → gera/atualiza código
+sdd.generate_code → generates/updates code
     ↓
-sdd.complete_change → marca como completa
+sdd.complete_change → marks as complete
 ```
 
-**O que é bloqueado:** qualquer operação de escrita em arquivos `.ts`, `.js`, `.py`, `.go`, `.rs`, `.java`, `.rb`, `.vue`, `.svelte` (fora de `node_modules`, `.sdd/`, `dist/`, `build/`).
+**What is blocked:** any write operation on `.ts`, `.js`, `.py`, `.go`, `.rs`, `.java`, `.rb`, `.vue`, `.svelte` files (outside `node_modules`, `.sdd/`, `dist/`, `build/`).
 
-**O que NÃO é bloqueado:** arquivos de config (`package.json`, `tsconfig.json`), `.env`, arquivos `.sdd/`, arquivos fora do projeto.
+**What is NOT blocked:** config files (`package.json`, `tsconfig.json`), `.env`, `.sdd/` files, files outside the project.
 
-**O que acontece quando bloqueado:** o agente recebe uma mensagem de erro descrevendo exatamente o que precisa fazer (enforce → approve → retry).
+**What happens when blocked:** the agent receives an error message describing exactly what it needs to do (enforce → approve → retry).
 
-## Autenticação e Roles
+## Authentication and roles
 
-### Como funcionam as roles
+### How roles work
 
-O sistema de permissões funciona em 3 níveis:
+The permissions system works on 3 levels:
 
-**1. Remote Detection (automático)**
-- Plugin detecta automaticamente o repositório remoto (GitHub/GitLab)
-- Se detectar, usa a API para verificar permissões do usuário
-- Se não detectar ou não tiver token → **todos têm acesso admin**
+**1. Remote Detection (automatic)**
+- The plugin automatically detects the remote repository (GitHub/GitLab)
+- If detected, it uses the API to check the user's permissions
+- If not detected or no token → **everyone has admin access**
 
-**2. Roles disponíveis**
-| Role | Permissões |
+**2. Available roles**
+| Role | Permissions |
 |---|---|
-| `admin` | Tudo: criar, aprovar, modificar constituição, rollback, gerenciar permissões |
-| `architect` | Criar, aprovar features/requirements, aprovar arquitetura, decisões |
-| `developer` | Criar, aprovar features/requirements |
-| `viewer` | Apenas visualização |
+| `admin` | Everything: create, approve, modify constitution, rollback, manage permissions |
+| `architect` | Create/approve features/requirements, approve architecture, decisions |
+| `developer` | Create/approve features/requirements |
+| `viewer` | View only |
 
-**3. Fallback automático**
-- Sem repositório remoto → todos são admin
-- Sem token de autenticação → todos são admin
-- Token inválido → fallback para admin
-- Usuário não encontrado no remote → verifica role local
+**3. Automatic fallback**
+- No remote repository → everyone is admin
+- No auth token → everyone is admin
+- Invalid token → fallback to admin
+- User not found on remote → checks local role
 
-### Configuração do token
+### Token configuration
 
 **GitHub:**
 ```bash
-export GITHUB_TOKEN=ghp_seutokenaqui
+export GITHUB_TOKEN=ghp_yourtokenhere
 ```
 
 **GitLab:**
 ```bash
-export GITLAB_TOKEN=glpat-seutokenaqui
+export GITLAB_TOKEN=glpat-yourtokenhere
 ```
 
-O token precisa ter permissões de leitura de colaboradores:
+The token needs collaborator-read permissions:
 - GitHub: `repo` scope
 - GitLab: `read_api` scope
 
-### Verificar status
+### Check status
 
 ```
 sdd.remote_status
 ```
 
-Mostra se o remote está configurado e se o token está presente.
+Shows whether the remote is configured and whether the token is present.
 
-### Exemplo de uso
+### Usage example
 
 ```
-# Verificar permissão de um usuário
+# Check a user's permission
 sdd.check_permission(user: "joao", permission: "approve_architecture")
 
-# Definir role manualmente (local)
+# Set a role manually (local)
 sdd.set_role(user: "maria", role: "architect")
 
-# Verificar status do remote
+# Check remote status
 sdd.remote_status
 ```
 
-## Enterprise Workflows
+## Enterprise workflows
 
-O plugin detecta automaticamente cenários enterprise e sugere workflows específicos:
+The plugin automatically detects enterprise scenarios and suggests specific workflows:
 
-### Detecção Automática
+### Automatic detection
 
-Quando você digita algo como:
-- "Corrija o bug no login" → Detecta **bug fix** e sugere `sdd.bug_fix`
-- "Emergência: sistema fora do ar" → Detecta **hotfix** e desabilita enforcement
-- "Refatore o módulo de auth" → Detecta **refactoring** e sugere `sdd.refactoring`
-- "Deprecie a rota /api/v1" → Detecta **deprecation** e sugere `sdd.deprecate`
-- "Migre os dados da tabela users" → Detecta **migration** e sugere `sdd.create_migration`
-- "Crie um experimento A/B" → Detecta **A/B testing** e sugere `sdd.create_experiment`
-- "Adicione feature flag" → Detecta **feature flag** e sugere `sdd.create_flag`
-- "Multi-tenancy ao sistema" → Detecta **multi-tenancy** e sugere `sdd.create_tenant`
-- "Onboarding para novo dev" → Detecta **onboarding** e sugere `sdd.onboard_developer`
-- "Faça auditoria de segurança" → Detecta **security** e sugere `sdd.security_audit`
-- "Analise escalabilidade" → Detecta **scalability** e sugere `sdd.analyze_scalability`
-- "Verifique compliance com GDPR" → Detecta **compliance** e sugere `sdd.check_compliance`
-- "Configure monitoramento" → Detecta **monitoring** e sugere `sdd.setup_monitoring`
-- "Reporte incidente" → Detecta **incident** e sugere `sdd.report_incident`
-- "Crie SLA de 99.9%" → Detecta **SLA** e sugere `sdd.create_sla`
-- "Estime custos" → Detecta **cost** e sugere `sdd.estimate_cost`
-- "Gere documentação" → Detecta **documentation** e sugere `sdd.generate_docs`
-- "Transferência de conhecimento" → Detecta **knowledge** e sugere `sdd.knowledge_transfer`
-- "Plano de disaster recovery" → Detecta **disaster** e sugere `sdd.disaster_recovery_plan`
+When you type something like:
+- "Fix the login bug" → Detects **bug fix** and suggests `sdd.bug_fix`
+- "Emergency: system is down" → Detects **hotfix** and disables enforcement
+- "Refactor the auth module" → Detects **refactoring** and suggests `sdd.refactoring`
+- "Deprecate the /api/v1 route" → Detects **deprecation** and suggests `sdd.deprecate`
+- "Migrate the users table data" → Detects **migration** and suggests `sdd.create_migration`
+- "Create an A/B experiment" → Detects **A/B testing** and suggests `sdd.create_experiment`
+- "Add a feature flag" → Detects **feature flag** and suggests `sdd.create_flag`
+- "Add multi-tenancy to the system" → Detects **multi-tenancy** and suggests `sdd.create_tenant`
+- "Onboarding for a new dev" → Detects **onboarding** and suggests `sdd.onboard_developer`
+- "Run a security audit" → Detects **security** and suggests `sdd.security_audit`
+- "Analyze scalability" → Detects **scalability** and suggests `sdd.analyze_scalability`
+- "Check GDPR compliance" → Detects **compliance** and suggests `sdd.check_compliance`
+- "Set up monitoring" → Detects **monitoring** and suggests `sdd.setup_monitoring`
+- "Report an incident" → Detects **incident** and suggests `sdd.report_incident`
+- "Create a 99.9% SLA" → Detects **SLA** and suggests `sdd.create_sla`
+- "Estimate costs" → Detects **cost** and suggests `sdd.estimate_cost`
+- "Generate documentation" → Detects **documentation** and suggests `sdd.generate_docs`
+- "Knowledge transfer" → Detects **knowledge** and suggests `sdd.knowledge_transfer`
+- "Disaster recovery plan" → Detects **disaster** and suggests `sdd.disaster_recovery_plan`
 
-### Tools Disponíveis
+### Available tools
 
-| Tool | Descrição | Approval Level |
+| Tool | Description | Approval level |
 |---|---|---|
-| `sdd.bug_fix` | Workflow de bug fix completo | AUTO |
-| `sdd.hotfix` | Documentar hotfix retroativo | POST_HOC |
-| `sdd.refactoring` | Refactoring com verificação de dependências | REVIEW |
-| `sdd.deprecate` | Deprecation com plano de migração | APPROVAL |
-| `sdd.create_migration` | Migração de dados com rollback | APPROVAL |
-| `sdd.create_experiment` | Experimento A/B | REVIEW |
+| `sdd.bug_fix` | Full bug fix workflow | AUTO |
+| `sdd.hotfix` | Retrospective hotfix documentation | POST_HOC |
+| `sdd.refactoring` | Refactoring with dependency verification | REVIEW |
+| `sdd.deprecate` | Deprecation with migration plan | APPROVAL |
+| `sdd.create_migration` | Data migration with rollback | APPROVAL |
+| `sdd.create_experiment` | A/B experiment | REVIEW |
 | `sdd.create_flag` | Feature flag | AUTO |
 | `sdd.create_tenant` | Multi-tenancy | APPROVAL |
-| `sdd.onboard_developer` | Guia de onboarding | - |
-| `sdd.security_audit` | Auditoria de segurança | - |
-| `sdd.analyze_scalability` | Análise de escalabilidade | - |
-| `sdd.check_compliance` | Verificação de compliance (GDPR, LGPD, HIPAA, SOC2, PCI_DSS, ISO27001) | - |
-| `sdd.setup_monitoring` | Configuração de monitoramento | - |
-| `sdd.generate_dashboard` | Gerar dashboard de monitoramento | - |
-| `sdd.report_incident` | Reportar incidente | - |
-| `sdd.create_sla` | Criar SLA | - |
-| `sdd.estimate_cost` | Estimativa de custos | - |
-| `sdd.generate_docs` | Gerar documentação | - |
-| `sdd.knowledge_transfer` | Transferência de conhecimento | - |
-| `sdd.disaster_recovery_plan` | Plano de disaster recovery | - |
+| `sdd.onboard_developer` | Onboarding guide | - |
+| `sdd.security_audit` | Security audit | - |
+| `sdd.analyze_scalability` | Scalability analysis | - |
+| `sdd.check_compliance` | Compliance check (GDPR, LGPD, HIPAA, SOC2, PCI_DSS, ISO27001) | - |
+| `sdd.setup_monitoring` | Monitoring configuration | - |
+| `sdd.generate_dashboard` | Generate monitoring dashboard | - |
+| `sdd.report_incident` | Report an incident | - |
+| `sdd.create_sla` | Create an SLA | - |
+| `sdd.estimate_cost` | Cost estimation | - |
+| `sdd.generate_docs` | Generate documentation | - |
+| `sdd.knowledge_transfer` | Knowledge transfer | - |
+| `sdd.disaster_recovery_plan` | Disaster recovery plan | - |
 
-### Exemplos de Uso
+### Usage examples
 
 ```bash
-# Bug fix (aprovação automática)
-sdd.bug_fix(description: "Login retorna 500", files: ["src/auth.ts"], severity: "high")
+# Bug fix (automatic approval)
+sdd.bug_fix(description: "Login returns 500", files: ["src/auth.ts"], severity: "high")
 
-# Hotfix (emergência)
-# 1. Enforcement é desabilitado automaticamente
-# 2. Aplique a correção
-# 3. Documente retroativamente:
-sdd.hotfix(description: "Sistema fora do ar", files: ["src/server.ts"], urgency: "critical")
+# Hotfix (emergency)
+# 1. Enforcement is disabled automatically
+# 2. Apply the fix
+# 3. Document retroactively:
+sdd.hotfix(description: "System is down", files: ["src/server.ts"], urgency: "critical")
 
 # Refactoring
-sdd.refactoring(target: "auth", description: "Extrair validação", type: "extract", files: ["src/auth.ts"])
+sdd.refactoring(target: "auth", description: "Extract validation", type: "extract", files: ["src/auth.ts"])
 
 # Deprecation
 sdd.deprecate(target: "/api/v1/users", removal_date: "2025-12-31", endpoints: ["/api/v1/users"])
 
 # Migration
-sdd.create_migration(source: "users_v1", target: "users_v2", description: "Adicionar campo email")
+sdd.create_migration(source: "users_v1", target: "users_v2", description: "Add email field")
 
 # A/B Testing
 sdd.create_experiment(
-  hypothesis: "Novo botão aumenta conversão",
+  hypothesis: "New button increases conversion",
   variants: [
-    { name: "control", description: "Botão azul", traffic_percentage: 50 },
-    { name: "variant", description: "Botão verde", traffic_percentage: 50 }
+    { name: "control", description: "Blue button", traffic_percentage: 50 },
+    { name: "variant", description: "Green button", traffic_percentage: 50 }
   ],
   metric: "conversion_rate",
   duration: 14
 )
 
 # Feature Flag
-sdd.create_flag(name: "new_dashboard", description: "Novo dashboard", rollout: 10)
+sdd.create_flag(name: "new_dashboard", description: "New dashboard", rollout: 10)
 
 # Multi-tenancy
-sdd.create_tenant(name: "empresa_acme", type: "shared_database", isolation: "row")
+sdd.create_tenant(name: "acme_corp", type: "shared_database", isolation: "row")
 
 # Onboarding
-sdd.onboard_developer(developer_name: "João")
+sdd.onboard_developer(developer_name: "John")
 
 # Security Audit
 sdd.security_audit()
@@ -798,7 +817,7 @@ sdd.check_compliance(standard: "LGPD")
 sdd.setup_monitoring()
 
 # Incident Management
-sdd.report_incident(title: "Sistema fora do ar", severity: "SEV1", impact: "Todos os usuários afetados")
+sdd.report_incident(title: "System is down", severity: "SEV1", impact: "All users affected")
 
 # SLA
 sdd.create_sla(name: "Uptime", metric: "availability", target: 99.9, period: "monthly")
@@ -819,109 +838,135 @@ sdd.disaster_recovery_plan()
 sdd.generate_dashboard(type: "overview")
 ```
 
-## Estrutura do projeto
+## Project structure
 
 ```
 src/
-├ index.ts                          # Entry point do plugin
+├ index.ts                              # Plugin entry point (synchronous init — no HTTP await)
+├ server-entry.ts                       # "./server" subpath with utilities (createMcpServer, dashboard, analyzeCodebase)
 ├ sdd/
-│  ├── domain/types.ts              # 38 tipos de nós + relações + grafos
-│  ├── graph/engine.ts              # CRUD do Knowledge Graph
-│  ├── graph/traverse.ts            # BFS, impact analysis, pathfinding
-│  ├── persistence/yaml.ts          # Repositórios YAML + snapshots
-│  ├── discovery/briefing.ts        # Análise de briefing + detecção de tech stack + perguntas
-│  ├── changes/manager.ts           # Change management + approval gates
-│  ├── validation/validator.ts      # Validação estrutural/semântica
-│  ├── drift/detector.ts            # Detecção de drift
-│  ├── drift/signals.ts             # Sinais avançados de drift
-│  ├── enforcement/interceptor.ts   # Força workflow SDD-first
-│  ├── codegen/generator.ts         # Templates built-in + spec prompt para AI
-│  ├── toggle/state.ts              # Liga/desliga enforcement SDD
-│  ├── constitution/validator.ts    # Validação de princípios
-│  ├── promises/tracker.ts          # Rastreamento de promessas
-│  ├── quality/scorer.ts            # Score de qualidade com tendência
-│  ├── session/handoff.ts           # Handoff de sessão
-│  ├── patterns/anti-patterns.ts    # Detecção de anti-padrões
-│  ├── patterns/ast-clones.ts       # Detecção de clones AST
-│  ├── patterns/contradictions.ts   # Detecção de contradições
-│  ├── patterns/config-drift.ts     # Detecção de drift em configs
-│  ├── coverage/tracker.ts          # Cobertura de testes
-│  ├── workflow/exporter.ts         # Exportação de workflow
-│  ├── brownfield/scanner.ts        # Análise de projetos existentes
-│  ├── cicd/generators.ts           # Geração CI/CD (GitHub, GitLab, Jenkins, Docker)
-│  ├── sync/git-sync.ts             # Sincronização Git + conflitos
-│  ├── rollback/manager.ts          # Rollback 3 camadas (git → snapshot → backup)
-│  ├── permissions/access.ts        # Controle de acesso + auditoria
-│  ├── workflows/
-│  │   ├── bug-fix.ts               # Workflow de bug fix
-│  │   ├── hotfix.ts                # Workflow de hotfix
-│  │   ├── refactoring.ts           # Workflow de refactoring
-│  │   ├── deprecation.ts           # Workflow de deprecation
-│  │   ├── data-migration.ts        # Workflow de migração de dados
-│  │   ├── ab-testing.ts            # Workflow de A/B testing
-│  │   ├── feature-flags.ts         # Workflow de feature flags
-│  │   ├── multi-tenancy.ts         # Workflow de multi-tenancy
-│  │   └── onboarding.ts            # Workflow de onboarding
-│  ├── analysis/
-│  │   ├── security.ts              # Auditoria de segurança
-│  │   ├── scalability.ts           # Análise de escalabilidade
-│  │   └── compliance.ts            # Validação regulatory
-│  ├── monitoring/
-│  │   └── setup.ts                 # Configuração de monitoramento
-│  ├── incidents/
-│  │   └── manager.ts               # Gestão de incidentes
-│  ├── sla/
-│  │   └── tracker.ts               # Rastreamento de SLA
-│  ├── cost/
-│  │   └── estimator.ts             # Estimativa de custos
-│  ├── documentation/
-│  │   └── generator.ts             # Geração de documentação
-│  ├── knowledge/
-│  │   └── transfer.ts              # Transferência de conhecimento
-│  ├── disaster/
-│  │   └── recovery.ts              # Plano de disaster recovery
-│  └── transactions/manager.ts      # Transações lógicas
+│  ├── domain/types.ts                  # Node types + relationships + graphs
+│  ├── graph/                           # Knowledge Graph CRUD and navigation
+│  │   ├── engine.ts                      # Engines / integrity
+│  │   ├── traverse.ts                    # BFS, impact analysis, pathfinding
+│  │   ├── integrity.ts / integrity-guard.ts / pruner.ts
+│  ├── persistence/                     # Storage backends
+│  │   ├── yaml.ts                        # YAML repositories + snapshots
+│  │   ├── sqlite.ts                      # SQLite backend (1000+ nodes)
+│  │   └── repository.ts                  # Repository abstraction
+│  ├── discovery/                       # Briefing analysis + questions
+│  │   ├── briefing.ts                     # Briefing analysis
+│  │   ├── briefing-analyzer.ts            # Tech stack detection
+│  │   ├── adaptive.ts                     # Adaptive discovery
+│  │   └── graph-builder.ts                # Graph construction
+│  ├── changes/manager.ts               # Change management + approval gates
+│  ├── validation/                      # Structural/semantic validation
+│  │   ├── validator.ts                    # Main validator
+│  │   ├── smart-validator.ts              # Smart per-subsystem validation
+│  │   ├── executable.ts / coverage-index.ts
+│  ├── drift/                           # Drift detection
+│  │   ├── detector.ts                     # Spec ↔ code drift
+│  │   ├── signals.ts                      # Advanced drift signals
+│  │   └── exclusion.ts                    # Drift whitelist
+│  ├── enforcement/interceptor.ts       # Enforces the SDD-first workflow
+│  │   └── workflow-tracker.ts             # Per-session workflow tracking
+│  ├── codegen/generator.ts             # Built-in templates + spec prompt for AI
+│  ├── toggle/state.ts                  # SDD enforcement on/off
+│  ├── cache/                           # Cache (memory + persistent + lock)
+│  │   ├── manager.ts / atomic.ts / fingerprint.ts / snapshot-store.ts
+│  ├── constitution/validator.ts        # Principle validation
+│  ├── promises/                        # Promise tracking
+│  │   ├── tracker.ts / classifier.ts
+│  ├── quality/scorer.ts                # Quality score with trend
+│  ├── session/handoff.ts               # Session handoff
+│  ├── patterns/                        # Anti-pattern detection
+│  │   ├── anti-patterns.ts / ast-clones.ts / contradictions.ts / config-drift.ts / learner.ts
+│  ├── coverage/tracker.ts              # Test coverage
+│  ├── workflow/exporter.ts             # Workflow export
+│  ├── brownfield/scanner.ts            # Existing project analysis
+│  ├── cicd/generators.ts               # CI/CD generation (GitHub, GitLab, Jenkins, Docker)
+│  ├── sync/git-sync.ts                 # Git sync + conflicts
+│  ├── rollback/manager.ts              # 3-layer rollback (git → snapshot → backup)
+│  ├── permissions/access.ts            # Access control + audit
+│  ├── migrations/                      # SDD migrations
+│  │   ├── fixes.ts / index.ts / migration-runner.ts
+│  ├── code-quality/                    # Code quality
+│  │   ├── complexity.ts / metrics.ts / smells.ts / dependencies.ts
+│  │   ├── symbol-parser.ts / usage-tracker.ts / import-analyzer.ts / conventions.ts / utils.ts
+│  ├── workflows/                       # Enterprise workflows
+│  │   ├── bug-fix.ts / hotfix.ts / refactoring.ts / deprecation.ts / data-migration.ts
+│  │   ├── ab-testing.ts / feature-flags.ts / multi-tenancy.ts / onboarding.ts
+│  ├── analysis/                        # Audits
+│  │   ├── security.ts / scalability.ts / compliance.ts
+│  ├── monitoring/                      # Monitoring
+│  │   ├── setup.ts / telemetry.ts
+│  ├── incidents/manager.ts             # Incident management
+│  ├── sla/tracker.ts                   # SLA tracking
+│  ├── cost/estimator.ts                # Cost estimation
+│  ├── documentation/generator.ts       # Documentation generation
+│  ├── knowledge/transfer.ts            # Knowledge transfer
+│  ├── disaster/recovery.ts             # Disaster recovery plan
+│  ├── transactions/manager.ts          # Logical transactions
+│  ├── project-dir.ts                   # Project directory resolution (rejects "/")
+│  └── log.ts                           # Plugin debug log
 ├ opencode/
-│  ├── tools.ts                     # 95 ferramentas para o agente
-│  ├── hooks.ts                     # Hooks do OpenCode
-│  ├── system-prompt.ts             # Instruções SDD + integração question tool
-│  └── shell-hooks.ts               # Hooks Git para SDD
+│  ├── tools.ts                         # Tools for the agent
+│  ├── hooks.ts                         # OpenCode hooks (including cache restore with try/catch)
+│  ├── command.ts                       # "sdd" command hub (command.execute.before)
+│  ├── system-prompt.ts                 # SDD instructions + question tool integration
+│  ├── shell-hooks.ts                   # Git hooks for SDD
+│  ├── router/                          # Semantic tool routing
+│  │   ├── index.ts / categories.ts / intent-classifier.ts / semantic-nudge.ts / state-gate.ts
+│  │   ├── tool-embeddings.ts / tool-registry.ts / tool-taxonomy.ts / tools-composite.ts
+│  │   └── graph-state-snapshot.ts
+│  └── workflows/                       # Opencode workflow executor
+│      ├── index.ts / chains.ts / executor.ts / tools-workflow.ts / types.ts
 ├ mcp/
-│  └── server.ts                    # Servidor MCP
+│  └── server.ts                        # MCP server
 ├ code-intelligence/
-│  └── analyzer.ts                  # Análise de código (AST básico)
+│  ├── analyzer.ts                      # Code analysis
+│  └── ast/                             # AST (tree-sitter + fallback)
+│      ├── index.ts / cache.ts / common.ts / component.ts / fallback.ts / ir.ts / metrics.ts
+│      └── registry.ts / tree-sitter.ts / typescript.ts
 └ server/
-   └── server.ts                    # Dashboard web (API + UI)
+   ├── server.ts                        # Web dashboard (API + UI)
+   └── events.ts                        # Dashboard events
 ```
 
-## Estrutura `.sdd/`
+## `.sdd/` structure
 
-Quando inicializado, o plugin cria:
+When initialized, the plugin creates:
 
 ```
 .sdd/
-├ graph.yaml              # O Knowledge Graph completo
-├ enabled                 # Estado do toggle (JSON: {enabled, changed_at})
-├ nodes/                  # Nós individuais (futuro)
-├ relationships/          # Relações (futuro)
-├ changes/                # Histórico de mudanças
-├ snapshots/              # Snapshots do estado
-└ transactions/           # Transações lógicas
+├ graph.yaml              # The complete Knowledge Graph
+├ enabled                 # Toggle state (JSON: {enabled, changed_at})
+├ nodes/                  # Individual nodes (future)
+├ relationships/          # Relationships (future)
+├ changes/                # Change history
+├ snapshots/              # State snapshots
+└ transactions/           # Logical transactions
 ```
 
-## Desenvolvimento
+## Development
 
 ```bash
-# Instalar dependências
+# Install dependencies
 bun install
 
-# Verificar tipos
+# Verify types
 bun run typecheck
 
-# Rodar testes
+# Compile (generates dist/)
+bun run build
+
+# Lint (noUnusedLocals/noUnusedParameters)
+bun run lint
+
+# Run tests
 bun test
 ```
 
-## Licença
+## License
 
 MIT
