@@ -715,6 +715,15 @@ export function createSddHooks(projectDir: string): Hooks {
     "tool.definition": async (input, output) => {
       if (!isSddEnabled(projectDir)) return
 
+      // Expose the new command hub. When the command `sdd` is typed, the
+      // runtime calls command.execute.before and the plugin routes it.
+      if (input.toolID === "sdd" || input.toolID === "sdd-panel") {
+        output.description = [
+          "SDD command hub. Available: `sdd on`, `sdd off`, `sdd status`, `sdd cache_reset`, `sdd panel`.",
+          "Toggle/status/cache_reset are deterministic and do not require the LLM.",
+        ].join("\n")
+      }
+
       // Inject SDD enforcement warning into run_terminal_command description
       if (input.toolID === "run_terminal_command") {
         const warning = [
