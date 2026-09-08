@@ -4,6 +4,3 @@ declare const _default: {
     server: Plugin;
 };
 export default _default;
-export { createMcpServer } from "./mcp/server.js";
-export { SddDashboardServer } from "./server/server.js";
-export { analyzeCodebase } from "./code-intelligence/analyzer.js";

@@ -3,29 +3,12 @@ import { createSddHooks } from "./opencode/hooks.js";
 import { resolveProjectDir } from "./sdd/project-dir.js";
 import { sddDebug } from "./sdd/log.js";
 const SddPlugin = async (_ctx) => {
-    // Resolve the project directory using the OpenCode SDK API (most reliable)
-    // and fall back to context fields.
-    let projectDir;
-    try {
-        const pathResp = await _ctx.client.path.get();
-        const pathData = pathResp.data || pathResp;
-        if (pathData?.directory && pathData.directory !== "/") {
-            projectDir = pathData.directory;
-            sddDebug("plugin", `Resolved project dir via client.path.get(): ${projectDir}`);
-        }
-        if (!projectDir && pathData?.worktree && pathData.worktree !== "/") {
-            projectDir = pathData.worktree;
-            sddDebug("plugin", `Resolved project dir via client.path.get() worktree: ${projectDir}`);
-        }
-    }
-    catch (err) {
-        sddDebug("plugin", `client.path.get() failed: ${err}`);
-    }
-    // Fallback to resolveProjectDir with context fields
-    if (!projectDir || projectDir === "/") {
-        projectDir = resolveProjectDir(_ctx.directory, _ctx.worktree);
-        sddDebug("plugin", `Resolved project dir via fallback: ${projectDir}`);
-    }
+    // Plugin init runs before the HTTP server is ready, so we must NOT await any
+    // client.* call here (it never resolves and hangs startup).
+    // resolveProjectDir resolves ctx.directory -> ctx.worktree -> process.cwd(),
+    // rejecting "/" which is what global installs pass for directory.
+    const projectDir = resolveProjectDir(_ctx.directory, _ctx.worktree);
+    sddDebug("plugin", `Resolved project dir: ${projectDir}`);
     // Ensure core plugins see the same resolved directory.
     // The intent is that tools, hooks, and state all operate on one project root
     // so that .sdd/ and toggle state live inside the project.
@@ -42,6 +25,3 @@ export default {
     id: "opencode-telos",
     server: SddPlugin,
 };
-export { createMcpServer } from "./mcp/server.js";
-export { SddDashboardServer } from "./server/server.js";
-export { analyzeCodebase } from "./code-intelligence/analyzer.js";

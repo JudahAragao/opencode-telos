@@ -192,8 +192,13 @@ export function createSddHooks(projectDir) {
             const repo = createRepository(projectDir);
             if (repo.isInitialized()) {
                 // Restore persistent cache from disk (cross-session)
-                const cacheMgr = getCacheManager(projectDir);
-                cacheMgr.restoreFromPersistentCache();
+                try {
+                    const cacheMgr = getCacheManager(projectDir);
+                    cacheMgr.restoreFromPersistentCache();
+                }
+                catch (error) {
+                    sddDebug("hooks", "Failed to restore persistent cache");
+                }
                 output.system.push(SDD_CORE_SYSTEM_PROMPT);
                 output.system.push(getToolsForSession(projectDir, "").formattedMessage);
                 // Tool Registry: injeta tools relevantes para o estado atual do grafo

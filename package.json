@@ -1,6 +1,6 @@
 {
   "name": "opencode-telos",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "OpenCode Telos - Spec-Driven Development plugin with Knowledge Graph enforcement",
   "license": "MIT",
   "files": [
@@ -31,8 +31,8 @@
       "default": "./dist/index.js"
     },
     "./server": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/server-entry.d.ts",
+      "default": "./dist/server-entry.js"
     }
   },
   "scripts": {
