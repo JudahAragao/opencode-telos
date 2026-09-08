@@ -28,6 +28,7 @@ import { buildSddContextPack } from "./system-prompt.js"
 import { generateProject, writeGeneratedFiles, detectTechStack } from "../sdd/codegen/generator.js"
 import { enforceSddFirst, classifyChangeRequest, buildEnforcementPrompt, getSddEnforcementRules } from "../sdd/enforcement/interceptor.js"
 import { isSddEnabled, setToggleState, getToggleState } from "../sdd/toggle/state.js"
+import { join as joinPath } from "path"
 import { validateAgainstConstitution, formatConstitutionResult } from "../sdd/constitution/validator.js"
 import { extractPromises, getPromiseReport, verifyPromise, markPromiseViolated, formatPromiseReport } from "../sdd/promises/tracker.js"
 import { findUnverifiablePromises } from "../sdd/promises/classifier.js"
@@ -1736,14 +1737,18 @@ export function createSddTools(): Record<string, ToolDefinition> {
         enabled: tool.schema.boolean().optional().describe("true to enable, false to disable. Omit to toggle."),
       },
       async execute(args, ctx) {
-        const current = isSddEnabled(ctx.directory)
+        // Accept an explicit directory from the tool caller (e.g. resource call),
+        // but default to the context-directory-based resolution the same way hooks do.
+        const dir = (ctx as any).projectDir || ctx.directory
+        const current = isSddEnabled(dir)
         const newState = args.enabled !== undefined ? args.enabled : !current
-        const state = setToggleState(ctx.directory, newState)
+        const state = setToggleState(dir, newState)
 
         if (!state.enabled) {
-          resetWorkflowState(workflowScope(ctx.directory, ctx.sessionID))
+          resetWorkflowState(workflowScope(dir, ctx.sessionID))
         }
 
+        const togglePath = joinPath(dir, ".sdd", "enabled")
         const status = state.enabled ? "🟢 ENABLED" : "🔴 DISABLED"
         const lines = [
           `## SDD Enforcement: ${status}`,
@@ -1753,6 +1758,8 @@ export function createSddTools(): Record<string, ToolDefinition> {
             : "SDD enforcement is off. You can make code changes freely.",
           "",
           `Changed at: ${state.changed_at}`,
+          "",
+          `Toggle written to: ${togglePath}`,
           "",
           "Commands: `/sdd on`, `/sdd off`, `/sdd status`",
         ]
@@ -3556,12 +3563,15 @@ export function createSddTools(): Record<string, ToolDefinition> {
       description: "Check the current SDD toggle status.",
       args: {},
       async execute(_args, ctx) {
-        const state = getToggleState(ctx.directory)
+        const dir = (ctx as any).projectDir || ctx.directory
+        const state = getToggleState(dir)
         const status = state.enabled ? "🟢 ON" : "🔴 OFF"
+        const togglePath = joinPath(dir, ".sdd", "enabled")
         return [
           `## SDD Toggle Status`,
           `**Status:** ${status}`,
           `**Last Changed:** ${state.changed_at}`,
+          `**Toggle file:** ${togglePath}`,
           "",
           "Commands: `/sdd on`, `/sdd off`, `/sdd status`",
         ].join("\n")

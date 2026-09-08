@@ -5,8 +5,6 @@ import { resolveProjectDir } from "./sdd/project-dir.js"
 import { sddDebug } from "./sdd/log.js"
 
 const SddPlugin: Plugin = async (_ctx) => {
-  const tools = createSddTools()
-
   // Resolve the project directory using the OpenCode SDK API (most reliable)
   // and fall back to context fields.
   let projectDir: string | undefined
@@ -31,7 +29,14 @@ const SddPlugin: Plugin = async (_ctx) => {
     sddDebug("plugin", `Resolved project dir via fallback: ${projectDir}`)
   }
 
+  // Ensure core plugins see the same resolved directory.
+  // The intent is that tools, hooks, and state all operate on one project root
+  // so that .sdd/ and toggle state live inside the project.
+  const ctxWithProjectDir: any = _ctx
+  ctxWithProjectDir.projectDir = projectDir
+
   const hooks = createSddHooks(projectDir)
+  const tools = createSddTools()
 
   return {
     tool: tools,

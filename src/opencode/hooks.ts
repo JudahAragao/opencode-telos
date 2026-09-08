@@ -15,6 +15,7 @@ import { hasPendingMigrations } from "../sdd/migrations/index.js"
 import { graphFingerprint, sourceFingerprint } from "../sdd/cache/fingerprint.js"
 import { sddDebug } from "../sdd/log.js"
 import { projectPath } from "../sdd/security/paths.js"
+import { join as joinPath } from "path"
 
 const SDD_FILE_PATTERNS = [
   /\.ts$/,
@@ -260,25 +261,25 @@ export function createSddHooks(projectDir: string): Hooks {
         const text = part.text.trim()
 
         // Detect /sdd commands
-        if (text === "/sdd on") {
+        if (text === "/sdd on" || text === "/sdd-on" || text.startsWith("/sdd on ") || text.startsWith("/sdd-on ")) {
           const state = setToggleState(projectDir, true)
           systemInjected = false
-          part.text = `✅ SDD enforcement **enabled** at ${state.changed_at}.\n\nSpec-Driven Development is now active. All code changes will go through the SDD workflow.`
+          part.text = `✅ SDD enforcement **enabled** at ${state.changed_at}.\n\nToggle written to: ${joinPath(projectDir, ".sdd", "enabled")}\n\nSpec-Driven Development is now active. All code changes will go through the SDD workflow.`
           return
         }
 
-        if (text === "/sdd off") {
+        if (text === "/sdd off" || text === "/sdd-off" || text.startsWith("/sdd off ") || text.startsWith("/sdd-off ")) {
           const state = setToggleState(projectDir, false)
           systemInjected = false
           resetWorkflowState(workflowScope(projectDir, input.sessionID))
-          part.text = `⏸️ SDD enforcement **disabled** at ${state.changed_at}.\n\nYou can now make code changes freely without SDD workflow. Use \`/sdd on\` to re-enable.`
+          part.text = `⏸️ SDD enforcement **disabled** at ${state.changed_at}.\n\nToggle written to: ${joinPath(projectDir, ".sdd", "enabled")}\n\nYou can now make code changes freely without SDD workflow. Use \`/sdd on\` to re-enable.`
           return
         }
 
-        if (text === "/sdd status") {
+        if (text === "/sdd status" || text === "/sdd-status" || text.startsWith("/sdd status ") || text.startsWith("/sdd-status ")) {
           const state = getToggleState(projectDir)
           const status = state.enabled ? "🟢 ON" : "🔴 OFF"
-          part.text = `SDD Status: ${status}\nLast changed: ${state.changed_at}\n\nCommands: \`/sdd on\`, \`/sdd off\`, \`/sdd status\`, \`/sdd cache reset\``
+          part.text = `SDD Status: ${status}\nLast changed: ${state.changed_at}\nToggle file: ${joinPath(projectDir, ".sdd", "enabled")}\n\nCommands: \`/sdd on\`, \`/sdd off\`, \`/sdd status\`, \`/sdd cache reset\``
           return
         }
 
