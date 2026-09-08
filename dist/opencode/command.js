@@ -3,6 +3,58 @@ import { resetWorkflowState, workflowScope, } from "../sdd/enforcement/workflow-
 import { getCacheManager } from "../sdd/cache/manager.js";
 import { join as joinPath } from "path";
 import { sddDebug } from "../sdd/log.js";
+/**
+ * Command hub interativo para SDD.
+ *
+ * O plugin registra um handler no hook `command.execute.before`.
+ * Quando o OpenCode vê um comando `sdd <subcommand>` (ou `sdd:<subcommand>`),
+ * antes de qualquer execução, o hook intercepta e executa a ação correspondente
+ * de forma determinística — sem depender do LLM.
+ *
+ * Essa é a "tela interativa nova" nesse estágio: um único atalho `sdd` que
+ * roteia para os subcomandos comuns. O atalho `sdd` pode ser invocado como
+ * `/sdd`, `/sdd on`, `/sdd status`, `/sdd cache_reset` (ou qualquer forma
+ * que o runtime normalize como um command `sdd`).
+ *
+ * "Exibir na tela inicial" é, na prática, registros de comando. O sistema
+ * do OpenCode já reconhece comandos setup (ex: via `~/.config/opencode/command/`),
+ * e o plugin pode anexar uma mensagem de ajuda ao detectar um command
+ * desconhecido/auxiliar. Aqui deixamos essa mensagem disponível e usamos
+ * o roteamento determinístico.
+ */
+export const SDD_COMMAND_NAME = "sdd";
+export const SDD_COMMAND_DESCRIPTION = "SDD command hub: enable/disable enforcement, show status, or reset caches (deterministic, no file changes).";
+/**
+ * Template registered via `config(cfg).command` so `/sdd` shows up in the
+ * command preview without the user having to create `.md` files.
+ *
+ * The deterministic action is already executed by `command.execute.before`.
+ * OpenCode still dispatches an LLM turn after the hook (no `noReply` in
+ * @opencode-ai/plugin 1.18). This template constrains that turn to only echo
+ * the plugin result — no tool calls, no file changes, no workflow mutation.
+ */
+export const SDD_COMMAND_TEMPLATE = [
+    "You are the interactive hub for the opencode-telos SDD plugin.",
+    "",
+    "The requested command has already been executed deterministically by the plugin. Its result is already present in the conversation and must be returned as-is. Do NOT re-run, alter, or transform it.",
+    "",
+    "REQUIRED BEHAVIOR:",
+    "- Do NOT call any tools.",
+    "- Do NOT modify, create, or delete any files.",
+    "- Do NOT create, approve, or complete any SDD change.",
+    "- Do NOT ask the user for clarification or additional input.",
+    "- Reply ONLY with the result produced by the plugin, keeping its formatting and content intact.",
+    "",
+    "If the plugin produced no result, reply with a short summary of the available subcommands:",
+    "- `sdd on` — enable SDD enforcement",
+    "- `sdd off` — disable SDD enforcement",
+    "- `sdd status` — show the current toggle state",
+    "- `sdd cache_reset` — reset SDD caches",
+    "- `sdd` (panel) — show this command panel",
+    "",
+    "User input:",
+    "$ARGUMENTS",
+].join("\n");
 function parseCommand(raw) {
     const trimmed = raw.trim();
     const word = trimmed.split(/\s+/)[0] ?? trimmed;
@@ -110,6 +162,17 @@ function sddPanel(projectDir, input) {
  */
 export function createSddCommandHooks(projectDir) {
     return {
+        config: async (cfg) => {
+            // Registra o command `sdd` programaticamente. Isso faz `/sdd` aparecer
+            // no preview de comandos do TUI sem o usuário criar arquivos `.md`.
+            cfg.command = cfg.command ?? {};
+            if (!cfg.command.sdd) {
+                cfg.command.sdd = {
+                    template: SDD_COMMAND_TEMPLATE,
+                    description: SDD_COMMAND_DESCRIPTION,
+                };
+            }
+        },
         "command.execute.before": async (input, output) => {
             sddDebug("command", `command.execute.before called: ${input.command} (${input.arguments})`);
             // Reconhece comandos com nomes como:
@@ -118,11 +181,13 @@ export function createSddCommandHooks(projectDir) {
             //   sdd off / sdd-off   -> disable
             //   sdd status          -> status
             //   sdd cache_reset     -> reset
-            const normalized = input.command.trim().toLowerCase();
-            if (!normalized.startsWith("sdd"))
+            // O runtime pode entregar o comando como `command` + `arguments`
+            // separados (ex: command="sdd", arguments="on") ou já concatenados
+            // (ex: command="/sdd on"). Normalizamos ambas as formas.
+            const raw = `${input.command} ${input.arguments ?? ""}`.replace(/^[/\s]+/, "").trim().toLowerCase();
+            if (!raw.startsWith("sdd"))
                 return;
-            const parts = normalized.split(/\s+/);
-            const primary = parts[0];
+            const parts = raw.split(/\s+/);
             const subRaw = parts.slice(1).join(" ").trim().toLowerCase();
             const sub = subRaw.replace(/^[:\-_]/, "").trim();
             let text;

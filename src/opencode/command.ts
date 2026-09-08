@@ -28,6 +28,42 @@ import { sddDebug } from "../sdd/log.js"
  * o roteamento determinístico.
  */
 
+export const SDD_COMMAND_NAME = "sdd"
+export const SDD_COMMAND_DESCRIPTION =
+  "SDD command hub: enable/disable enforcement, show status, or reset caches (deterministic, no file changes)."
+
+/**
+ * Template registered via `config(cfg).command` so `/sdd` shows up in the
+ * command preview without the user having to create `.md` files.
+ *
+ * The deterministic action is already executed by `command.execute.before`.
+ * OpenCode still dispatches an LLM turn after the hook (no `noReply` in
+ * @opencode-ai/plugin 1.18). This template constrains that turn to only echo
+ * the plugin result — no tool calls, no file changes, no workflow mutation.
+ */
+export const SDD_COMMAND_TEMPLATE = [
+  "You are the interactive hub for the opencode-telos SDD plugin.",
+  "",
+  "The requested command has already been executed deterministically by the plugin. Its result is already present in the conversation and must be returned as-is. Do NOT re-run, alter, or transform it.",
+  "",
+  "REQUIRED BEHAVIOR:",
+  "- Do NOT call any tools.",
+  "- Do NOT modify, create, or delete any files.",
+  "- Do NOT create, approve, or complete any SDD change.",
+  "- Do NOT ask the user for clarification or additional input.",
+  "- Reply ONLY with the result produced by the plugin, keeping its formatting and content intact.",
+  "",
+  "If the plugin produced no result, reply with a short summary of the available subcommands:",
+  "- `sdd on` — enable SDD enforcement",
+  "- `sdd off` — disable SDD enforcement",
+  "- `sdd status` — show the current toggle state",
+  "- `sdd cache_reset` — reset SDD caches",
+  "- `sdd` (panel) — show this command panel",
+  "",
+  "User input:",
+  "$ARGUMENTS",
+].join("\n")
+
 export interface SddCommandInput {
   command: string
   sessionID: string
@@ -155,6 +191,18 @@ function sddPanel(projectDir: string, input: SddCommandInput): string {
  */
 export function createSddCommandHooks(projectDir: string): Hooks {
   return {
+    config: async (cfg) => {
+      // Registra o command `sdd` programaticamente. Isso faz `/sdd` aparecer
+      // no preview de comandos do TUI sem o usuário criar arquivos `.md`.
+      cfg.command = cfg.command ?? {}
+      if (!cfg.command.sdd) {
+        cfg.command.sdd = {
+          template: SDD_COMMAND_TEMPLATE,
+          description: SDD_COMMAND_DESCRIPTION,
+        }
+      }
+    },
+
     "command.execute.before": async (input, output) => {
       sddDebug("command", `command.execute.before called: ${input.command} (${input.arguments})`)
 
@@ -164,11 +212,13 @@ export function createSddCommandHooks(projectDir: string): Hooks {
       //   sdd off / sdd-off   -> disable
       //   sdd status          -> status
       //   sdd cache_reset     -> reset
-      const normalized = input.command.trim().toLowerCase()
-      if (!normalized.startsWith("sdd")) return
+      // O runtime pode entregar o comando como `command` + `arguments`
+      // separados (ex: command="sdd", arguments="on") ou já concatenados
+      // (ex: command="/sdd on"). Normalizamos ambas as formas.
+      const raw = `${input.command} ${input.arguments ?? ""}`.replace(/^[/\s]+/, "").trim().toLowerCase()
+      if (!raw.startsWith("sdd")) return
 
-      const parts = normalized.split(/\s+/)
-      const primary = parts[0]
+      const parts = raw.split(/\s+/)
       const subRaw = parts.slice(1).join(" ").trim().toLowerCase()
       const sub = subRaw.replace(/^[:\-_]/, "").trim()
 

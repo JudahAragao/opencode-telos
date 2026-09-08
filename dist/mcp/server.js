@@ -6,7 +6,7 @@ import { generateHandoff, formatHandoffPack } from "../sdd/session/handoff.js";
 export function createMcpServer(projectDir) {
     const config = {
         name: "opencode-telos",
-        version: "1.1.7",
+        version: "1.1.8",
         description: "OpenCode Telos MCP Server",
     };
     return {

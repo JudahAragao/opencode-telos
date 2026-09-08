@@ -1,6 +1,7 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin"
 import { createSddTools } from "./opencode/tools.js"
 import { createSddHooks } from "./opencode/hooks.js"
+import { createSddCommandHooks } from "./opencode/command.js"
 import { resolveProjectDir } from "./sdd/project-dir.js"
 import { sddDebug } from "./sdd/log.js"
 
@@ -19,11 +20,13 @@ const SddPlugin: Plugin = async (_ctx) => {
   ctxWithProjectDir.projectDir = projectDir
 
   const hooks = createSddHooks(projectDir)
+  const commandHooks = createSddCommandHooks(projectDir)
   const tools = createSddTools()
 
   return {
     tool: tools,
     ...hooks,
+    ...commandHooks,
   }
 }
 

@@ -13,7 +13,7 @@ export interface McpServerConfig {
 export function createMcpServer(projectDir: string) {
   const config: McpServerConfig = {
     name: "opencode-telos",
-    version: "1.1.7",
+    version: "1.1.8",
     description: "OpenCode Telos MCP Server",
   }
 
