@@ -39,6 +39,30 @@ import type { Part } from "@opencode-ai/sdk";
 export interface SddCommandOutput {
     parts: Part[];
 }
+export interface SddCommandResult {
+    matched: boolean;
+    text: string;
+}
+/**
+ * Execute an SDD command deterministically (no LLM involved) and return its
+ * result text. Side effects (toggle write, cache reset, workflow reset) are
+ * applied here; the caller decides when that is appropriate.
+ */
+export declare function runSddCommand(projectDir: string, rawInput: string, sessionID?: string): SddCommandResult;
+/**
+ * Detect a user message that is (or renders) an SDD command and normalize it
+ * to the canonical `sdd <sub>` form:
+ *   - raw command form: `/sdd on`, `sdd on`, `sdd-on`, `sdd:on`, `sdd`
+ *   - template-rendered form produced by the registered `sdd` command
+ * Returns undefined when the text is not an SDD command message.
+ */
+export declare function extractSddCommandText(text: string): string | undefined;
+/**
+ * Produce (and cache) the deterministic result for an SDD command message so
+ * the model receives the same text on every LLM turn without repeating the
+ * side effect. Executes the command on first sight for a given message id.
+ */
+export declare function renderSddCommandMessage(projectDir: string, raw: string, messageID: string | undefined, sessionID?: string): string;
 /**
  * Detecta comandos SDD e os executa de forma determinística.
  *

@@ -2,11 +2,11 @@ import { createRepository } from "../sdd/persistence/repository.js";
 import { SDD_CORE_SYSTEM_PROMPT, buildSddContextPack } from "./system-prompt.js";
 import { validateGraph } from "../sdd/validation/validator.js";
 import { getPendingChanges } from "../sdd/changes/manager.js";
-import { isSddEnabled, setToggleState, getToggleState } from "../sdd/toggle/state.js";
+import { isSddEnabled } from "../sdd/toggle/state.js";
 import { checkPermission, getUserRoleWithAuth, addAuditEntry } from "../sdd/permissions/access.js";
 import { createSnapshot } from "../sdd/rollback/manager.js";
 import { getCacheManager } from "../sdd/cache/manager.js";
-import { checkToolAccess, resetWorkflowState, getWorkflowState, markSpecUpdated, workflowScope } from "../sdd/enforcement/workflow-tracker.js";
+import { checkToolAccess, getWorkflowState, markSpecUpdated, workflowScope } from "../sdd/enforcement/workflow-tracker.js";
 import { formatNudgeInput } from "./router/semantic-nudge.js";
 import { getToolsForSession } from "./router/tool-registry.js";
 import { invalidateSnapshotCache } from "./router/graph-state-snapshot.js";
@@ -14,7 +14,7 @@ import { hasPendingMigrations } from "../sdd/migrations/index.js";
 import { graphFingerprint, sourceFingerprint } from "../sdd/cache/fingerprint.js";
 import { sddDebug } from "../sdd/log.js";
 import { projectPath } from "../sdd/security/paths.js";
-import { join as joinPath } from "path";
+import { extractSddCommandText, renderSddCommandMessage } from "./command.js";
 const SDD_FILE_PATTERNS = [
     /\.ts$/,
     /\.tsx$/,
@@ -251,53 +251,43 @@ export function createSddHooks(projectDir) {
                 systemInjected = true;
             }
         },
-        "chat.message": async (input, output) => {
+        "chat.message": async (_input, output) => {
             if (!output.parts)
+                return;
+            if (!isSddEnabled(projectDir))
                 return;
             for (const part of output.parts) {
                 if (part.type !== "text")
                     continue;
-                const text = part.text.trim();
-                // Detect /sdd commands
-                if (text === "/sdd on" || text === "/sdd-on" || text.startsWith("/sdd on ") || text.startsWith("/sdd-on ")) {
-                    const state = setToggleState(projectDir, true);
-                    systemInjected = false;
-                    part.text = `✅ SDD enforcement **enabled** at ${state.changed_at}.\n\nToggle written to: ${joinPath(projectDir, ".sdd", "enabled")}\n\nSpec-Driven Development is now active. All code changes will go through the SDD workflow.`;
-                    return;
-                }
-                if (text === "/sdd off" || text === "/sdd-off" || text.startsWith("/sdd off ") || text.startsWith("/sdd-off ")) {
-                    const state = setToggleState(projectDir, false);
-                    systemInjected = false;
-                    resetWorkflowState(workflowScope(projectDir, input.sessionID));
-                    part.text = `⏸️ SDD enforcement **disabled** at ${state.changed_at}.\n\nToggle written to: ${joinPath(projectDir, ".sdd", "enabled")}\n\nYou can now make code changes freely without SDD workflow. Use \`/sdd on\` to re-enable.`;
-                    return;
-                }
-                if (text === "/sdd status" || text === "/sdd-status" || text.startsWith("/sdd status ") || text.startsWith("/sdd-status ")) {
-                    const state = getToggleState(projectDir);
-                    const status = state.enabled ? "🟢 ON" : "🔴 OFF";
-                    part.text = `SDD Status: ${status}\nLast changed: ${state.changed_at}\nToggle file: ${joinPath(projectDir, ".sdd", "enabled")}\n\nCommands: \`/sdd on\`, \`/sdd off\`, \`/sdd status\`, \`/sdd cache reset\``;
-                    return;
-                }
-                // H: /sdd cache reset — full cache reset without killing the process
-                if (text === "/sdd cache reset") {
-                    const cacheMgr = getCacheManager(projectDir);
-                    const result = cacheMgr.fullReset();
-                    const lines = ["## 🧹 Cache Reset Complete"];
-                    lines.push(`- Memory cache: ${result.cleared.memory ? "✅ cleared" : "⏭️ skipped"}`);
-                    lines.push(`- Persistent cache: ${result.cleared.disk ? "✅ cleared" : "⏭️ no file"}`);
-                    lines.push(`- Graph snapshot: ${result.cleared.snapshot ? "✅ cleared" : "⏭️ no snapshot"}`);
-                    lines.push(`- Lock file: ${result.cleared.lock ? "✅ released" : "⏭️ no lock"}`);
-                    lines.push(`\nInvalidation version: ${cacheMgr.getInvalidationVersion()}`);
-                    lines.push("\nThe next tool call will recompute fresh results.");
-                    part.text = lines.join("\n");
-                    return;
-                }
                 // Semantic nudge — replaces regex-based pattern detection
-                if (isSddEnabled(projectDir)) {
-                    const nudge = formatNudgeInput(text);
-                    if (nudge) {
-                        part.text += `\n\n${nudge}`;
-                    }
+                const nudge = formatNudgeInput(part.text.trim());
+                if (nudge) {
+                    part.text += `\n\n${nudge}`;
+                }
+            }
+        },
+        // `/sdd ...` commands are executed deterministically by the plugin
+        // (see createSddCommandHooks). OpenCode 1.18 has no way to skip the LLM
+        // turn after command.execute.before, so the command's result must reach
+        // the model. This hook rewrites the command message to the deterministic
+        // result text — the model only ever sees the outcome, never the raw
+        // command, so it cannot re-execute or "investigate" it.
+        "experimental.chat.messages.transform": async (_input, output) => {
+            for (const entry of output.messages) {
+                if (entry.info.role !== "user")
+                    continue;
+                const text = entry.parts
+                    .filter((p) => p.type === "text")
+                    .map((p) => p.text)
+                    .join("\n");
+                if (!text.trim())
+                    continue;
+                const raw = extractSddCommandText(text);
+                if (!raw)
+                    continue;
+                const firstText = entry.parts.find((p) => p.type === "text");
+                if (firstText?.type === "text") {
+                    firstText.text = renderSddCommandMessage(projectDir, raw, entry.info.id, "chat.messages.transform");
                 }
             }
         },
