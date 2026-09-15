@@ -95,11 +95,24 @@ describe("validateFunctionalEvidence", () => {
     expect(result.gaps.length).toBeGreaterThan(0)
   })
 
-  test("returns true when no affected requirements", () => {
+  // G1: ausência de requisito afetado não é mais aprovação por vacuidade.
+  // Sem declaração explícita o Change não tem evidência avaliável.
+  test("returns false when no affected requirements and no declaration", () => {
     const graph = createGraph("test")
     addNode(graph, { id: "CHG-1", type: "change", name: "Test", status: "DRAFT", version: 1, metadata: { affected_nodes: [] }, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     const result = validateFunctionalEvidence(graph, "CHG-1")
+    expect(result.verified).toBe(false)
+    expect(result.applicable).toBe(false)
+    expect(result.gaps.length).toBeGreaterThan(0)
+  })
+
+  test("returns true only with an explicit no_requirement_impact declaration", () => {
+    const graph = createGraph("test")
+    addNode(graph, { id: "CHG-1", type: "change", name: "Test", status: "DRAFT", version: 1, metadata: { affected_nodes: [], no_requirement_impact: true }, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    const result = validateFunctionalEvidence(graph, "CHG-1")
     expect(result.verified).toBe(true)
+    expect(result.applicable).toBe(false)
+    expect(result.gaps).toEqual([])
   })
 
   test("returns false when requirement has no tested_by link", () => {

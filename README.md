@@ -127,6 +127,7 @@ depending on the LLM to perform the action):
 | `/sdd on` | `on` / `enable` | Enables SDD enforcement (every change requires a spec) |
 | `/sdd off` | `off` / `disable` | Disables enforcement (you can code freely) |
 | `/sdd status` | `status` | Shows the current toggle state |
+| `/sdd renew` | `renew` | Renews the validity window of the active workflow, keeping the same Change |
 | `/sdd viz` | `viz` / `viz start` | Starts the Knowledge Graph dashboard (3D, real time) in the background |
 | `/sdd viz stop` | `viz stop` | Stops the dashboard |
 | `/sdd viz status` | `viz status` | Shows the dashboard URL |
@@ -386,10 +387,32 @@ The agent runs `sdd.inspect` showing stats, nodes by type and status distributio
 
 | Tool | Description |
 |---|---|
-| `sdd.create_change` | Creates a Change with approval gates |
-| `sdd.approve_change` | Approves a change |
-| `sdd.complete_change` | Marks a change as complete |
+| `sdd.create_change` | Creates a Change with approval gates (refuses to create one without `affected_files`) |
+| `sdd.approve_change` | Approves a change (refuses a Change with no declared scope) |
+| `sdd.verify_implementation` | Runs the declared scripts + the requirement→test evidence, and binds the report to the Change's files |
+| `sdd.complete_change` | Marks a change as complete, only when every gate passes |
+| `sdd.renew_workflow` | Renews the active workflow window, keeping the same Change and its verification report |
 | `sdd.pending_changes` | Lists pending changes |
+
+### Completion gate (trava B)
+
+`sdd.complete_change` only completes a Change when **all** of these hold:
+
+1. the executable verification passed — or was explicitly waived with `acknowledge_no_scripts=true` in a project that declares no script;
+2. the requirement→test evidence holds, or the Change declares `no_requirement_impact=true`;
+3. no verification check failed;
+4. the project fingerprint still matches (any code/config change invalidates the report);
+5. the declared `affected_files` still exist with the same content hashes (`verifyScopedFiles`);
+6. the Change references at least one node that exists in the graph (spec evidence).
+
+`force=true` remains an explicit, audited override — it is not a shortcut. The blocked message lists exactly which condition failed.
+
+### Workflow window
+
+An active workflow is valid for 30 minutes (`SDD_WORKFLOW_TTL_MS` overrides it).
+When it expires mid-task, `sdd.renew_workflow` (or `/sdd renew`) extends the window
+for the **same** Change, preserving the verification report. Calling `sdd.enforce`
+again would create a new Change and orphan the previous one.
 
 ### Validation and quality
 
@@ -639,15 +662,18 @@ question → selection menus for the user
     ↓
 sdd.update_from_answers → updates the graph
     ↓
-sdd.create_change → creates a Change node
+sdd.create_change → creates a Change node (needs affected_files)
     ↓
 sdd.approve_change → approves the Change
     ↓
-Write/Edit → operation released by the hook
+Write/Edit → operation released by the hook for files covered by the Change
     ↓
 sdd.generate_code → generates/updates code
     ↓
-sdd.complete_change → marks as complete
+sdd.verify_implementation → scripts + requirement→test evidence + file hashes
+    ↓
+sdd.complete_change → completes only when every gate passes
+    (if the 30-min window expires: sdd.renew_workflow keeps the same Change)
 ```
 
 **What is blocked:** any write operation on `.ts`, `.js`, `.py`, `.go`, `.rs`, `.java`, `.rb`, `.vue`, `.svelte` files (outside `node_modules`, `.sdd/`, `dist/`, `build/`).

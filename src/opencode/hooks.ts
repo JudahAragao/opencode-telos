@@ -695,8 +695,8 @@ export function createSddHooks(projectDir: string): Hooks {
       // runtime calls command.execute.before and the plugin routes it.
       if (input.toolID === "sdd" || input.toolID === "sdd-panel") {
         output.description = [
-          "SDD command hub. Available: `sdd on`, `sdd off`, `sdd status`, `sdd viz`, `sdd cache_reset`, `sdd panel`.",
-          "Toggle/status/viz/cache_reset are deterministic and do not require the LLM.",
+          "SDD command hub. Available: `sdd on`, `sdd off`, `sdd status`, `sdd renew`, `sdd viz`, `sdd cache_reset`, `sdd panel`.",
+          "Toggle/status/renew/viz/cache_reset are deterministic and do not require the LLM.",
         ].join("\n")
       }
 

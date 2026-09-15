@@ -12,6 +12,14 @@ export interface ChangeProposal {
     affected_files: string[];
     affected_tests: string[];
     implementation_tasks: string[];
+    /**
+     * Declaração explícita de que o Change não altera comportamento especificado.
+     * Sem isso (e sem requisito afetado) a evidência funcional não é avaliável e
+     * a conclusão do Change fica bloqueada.
+     */
+    no_requirement_impact?: boolean;
+    /** Auditoria de aprovação sem `affected_files` declarados. */
+    files_scope_acknowledged?: boolean;
 }
 export declare function classifyApprovalLevel(proposal: ChangeProposal, graph: KnowledgeGraph): ApprovalLevel;
 export interface ChangeCreationOptions {
@@ -37,6 +45,32 @@ export interface CompletionCheckResult {
         source_node_id: string;
     }>;
 }
+export interface ChangePreflight {
+    /** Impedimentos que tornam o Change inutilizável se não forem corrigidos. */
+    blockers: string[];
+    /** Pontos que degradam a trava mas ainda permitem seguir. */
+    warnings: string[];
+}
+/**
+ * Preflight de escopo do Change (G3).
+ *
+ * Cobre o buraco que deixava o fluxo travar *depois* de o agente já ter criado
+ * o Change: sem `affected_files` o hook de escrita nunca libera nenhum arquivo
+ * (Write/Edit respondem "not covered by an approved SDD Change"), e sem
+ * requisito afetado (ou `no_requirement_impact`) a evidência funcional fica
+ * inavaliável. Ambos são detectáveis no momento da criação/aprovação — melhor
+ * avisar aí do que descobrir no meio da implementação.
+ */
+export declare function preflightChangeScope(graph: KnowledgeGraph, changeId: string): ChangePreflight;
+/**
+ * Evidência de spec na conclusão (G7).
+ *
+ * Um Change que não toca nenhum nó do grafo não tem como provar que a
+ * implementação corresponde à especificação: ele passaria pela trava apenas com
+ * "a suíte está verde". Exige vínculo com o grafo ou uma declaração explícita
+ * de que não há impacto em comportamento especificado.
+ */
+export declare function checkSpecEvidence(graph: KnowledgeGraph, changeId: string): CompletionCheckResult;
 /**
  * Check if a change can be completed. Blocks if there are pending promises
  * on nodes affected by the change that haven't been verified.

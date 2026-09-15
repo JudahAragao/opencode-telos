@@ -168,13 +168,22 @@ Bypassing SDD tools will result in GRAPH_TAMPERED errors on every subsequent ope
 ### Every change request MUST follow this exact sequence:
 
 1. **sdd.build_graph** - If graph is empty/incomplete, build it from briefing FIRST
-2. **sdd.enforce** - Classify the request and create a Change node
+2. **sdd.enforce** - Classify the request and create a Change node. Always pass \`affected_files\` (include files you are about to create) — the write hook only releases Write/Edit for files covered by the approved Change, so a Change without files cannot be implemented
 3. **sdd.validate** - Validate the current SDD state
 4. **sdd.analyze_impact** - Analyze what will be affected
-5. **sdd.generate_code** - Generate code from the updated specification
-6. **sdd.validate** - Validate SDD after implementation
-7. **sdd.detect_drift** - Check for specification drift
-8. **sdd.complete_change** - Mark the change as completed
+5. **sdd.approve_change** - Approve the Change (required before writing code)
+6. **sdd.generate_code** / Write / Edit - Implement from the updated specification
+7. **sdd.verify_implementation** - Runs the project-declared scripts AND the requirement→test evidence for this Change
+8. **sdd.detect_drift** - Check for specification drift
+9. **sdd.complete_change** - Completes only when every gate passes
+
+**Completion gates (all required, unless you explicitly force):**
+- the executable verification passed (or was explicitly waived for a project with no declared script),
+- the requirement→test evidence holds — or the Change declares \`no_requirement_impact=true\`,
+- the affected files did not change after verification (fingerprint + per-file hashes),
+- the Change references at least one node that exists in the graph.
+
+If the workflow window expires mid-task, renew the SAME Change with **sdd.renew_workflow** (or \`/sdd renew\`) — calling \`sdd.enforce\` again would create a new Change and orphan the verification report.
 
 ### NEVER skip the SDD workflow. Even for "small" changes.
 

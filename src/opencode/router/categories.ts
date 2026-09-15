@@ -68,6 +68,7 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
 
   // ── Workflow ────────────────────────────────────────────────────
   "sdd.enforce": ["workflow"],
+  "sdd.renew_workflow": ["workflow", "admin"],
   "sdd.enforce_rules": ["workflow", "info"],
   "sdd.full_cycle": ["workflow", "implementation"],
   "sdd.create_change": ["workflow"],

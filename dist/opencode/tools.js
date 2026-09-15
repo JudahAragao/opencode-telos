@@ -4,7 +4,7 @@ import { getNeighbors } from "../sdd/graph/engine.js";
 import { createGraph, addNode, getNode, addRelationship, removeRelationship, getRelationships, updateNode, removeNode, getNodeIndexed, getNodesByTypeIndexed, getNodesByStatusIndexed, getOutgoingIndexed, getIncomingIndexed, searchNodesIndexed, getGraphStatsIndexed, } from "../sdd/graph/engine.js";
 import { bfsOutgoing, bfsBoth, bfsIncoming, computeImpact, findPath, getSubgraph } from "../sdd/graph/traverse.js";
 import { analyzeBriefing, generateDiscoveryQuestions, updateGraphFromAnswers, formatDiscoverySummary } from "../sdd/discovery/briefing.js";
-import { createChange, classifyApprovalLevel, approveChange, getPendingChanges, failChange, getChangeHistory, formatImpactReport } from "../sdd/changes/manager.js";
+import { createChange, classifyApprovalLevel, approveChange, getPendingChanges, failChange, getChangeHistory, formatImpactReport, preflightChangeScope, checkSpecEvidence } from "../sdd/changes/manager.js";
 import { validateGraph, formatValidationResult } from "../sdd/validation/validator.js";
 import { detectDrift, formatDriftReport } from "../sdd/drift/detector.js";
 import { buildSddContextPack } from "./system-prompt.js";
@@ -34,9 +34,9 @@ import { createMcpServer } from "../mcp/server.js";
 import { startSharedDashboard, getSharedDashboardUrl, resolveDashboardPort } from "../server/server.js";
 import { readJson } from "../sdd/persistence/yaml.js";
 import { getCacheManager } from "../sdd/cache/manager.js";
-import { markEnforced, markApproved, markValidated, markCompleted, resetWorkflowState, workflowScope } from "../sdd/enforcement/workflow-tracker.js";
+import { markEnforced, markApproved, markValidated, markCompleted, resetWorkflowState, workflowScope, renewWorkflow, workflowRemainingMs, workflowTtlMs } from "../sdd/enforcement/workflow-tracker.js";
 import { validateSmart } from "../sdd/validation/smart-validator.js";
-import { validateExecutableProject, validateFunctionalEvidence, saveExecutableValidation, loadExecutableValidation, isExecutableValidationCurrent } from "../sdd/validation/executable.js";
+import { validateExecutableProject, validateFunctionalEvidence, saveExecutableValidation, loadExecutableValidation, isExecutableValidationCurrent, computeScopedFileHashes, verifyScopedFiles } from "../sdd/validation/executable.js";
 import { getTelemetrySummary, recordFeedback, recordTelemetry } from "../sdd/monitoring/telemetry.js";
 import { ValidationIndex } from "../sdd/validation/coverage-index.js";
 import { detectAllSignals, formatDriftSignals } from "../sdd/drift/signals.js";
@@ -91,6 +91,36 @@ function attachResponseCache(tools) {
         };
     }
     return tools;
+}
+/**
+ * Condições obrigatórias para concluir um Change (trava B).
+ *
+ * Devolve a lista de condições que FALHARAM, cada uma com o motivo acionável,
+ * em vez de um único "BLOCKED" genérico — o agente precisa saber o que corrigir.
+ */
+function completionGateFailures(projectDir, graph, changeId) {
+    const failures = [];
+    const execution = loadExecutableValidation(projectDir, changeId);
+    if (!execution) {
+        return ["No verification report for this Change. Run `sdd.verify_implementation` after the last code change."];
+    }
+    if (!execution.verified) {
+        failures.push("Executable verification did not pass (or was not explicitly waived for a project with no declared script).");
+    }
+    if (execution.functional_verified !== true) {
+        const gaps = execution.functional_gaps?.length ? ` Gaps: ${execution.functional_gaps.join(" ")}` : "";
+        failures.push(`Requirement→test evidence is unsatisfied.${gaps}`);
+    }
+    if (!execution.passed)
+        failures.push("At least one verification check failed.");
+    if (!isExecutableValidationCurrent(projectDir, execution)) {
+        failures.push("The project changed after verification (fingerprint mismatch). Re-run `sdd.verify_implementation`.");
+    }
+    failures.push(...verifyScopedFiles(projectDir, execution).gaps);
+    const spec = checkSpecEvidence(graph, changeId);
+    if (!spec.allowed)
+        failures.push(spec.reason);
+    return failures;
 }
 /**
  * Invalidate cache for specific node types after a mutation.
@@ -436,11 +466,16 @@ export function createSddTools() {
         }),
         "sdd.create_change": tool({
             description: "Create a Change node in the SDD Knowledge Graph. Represents a modification " +
-                "to the system specification. Automatically performs impact analysis.",
+                "to the system specification. Automatically performs impact analysis. " +
+                "Requires `affected_files`: without them the write hook rejects every Write/Edit for this Change.",
             args: {
                 title: tool.schema.string().describe("Change title"),
                 reason: tool.schema.string().describe("Reason for the change"),
                 affected_node_ids: tool.schema.string().optional().describe("Comma-separated list of affected node IDs"),
+                affected_files: tool.schema.string().optional().describe("Comma-separated file paths this change will write (include files to be created)"),
+                affected_tests: tool.schema.string().optional().describe("Comma-separated test node IDs covering this change"),
+                no_requirement_impact: tool.schema.boolean().optional().describe("Set true when the change alters no specified behaviour (no requirement node affected)"),
+                acknowledge_no_files: tool.schema.boolean().optional().describe("Explicitly create the Change without affected_files (recorded for audit; Write/Edit will stay blocked)"),
                 new_nodes_json: tool.schema.string().optional().describe("JSON array of new nodes to create"),
                 modified_nodes_json: tool.schema.string().optional().describe('JSON array of {id, updates} for modified nodes'),
             },
@@ -450,8 +485,25 @@ export function createSddTools() {
                     return "SDD not initialized.";
                 const graph = repo.loadGraph();
                 const affectedIds = args.affected_node_ids
-                    ? args.affected_node_ids.split(",").map((s) => s.trim())
+                    ? args.affected_node_ids.split(",").map((s) => s.trim()).filter(Boolean)
                     : [];
+                const affectedFiles = args.affected_files
+                    ? args.affected_files.split(",").map((s) => s.trim()).filter(Boolean)
+                    : [];
+                const affectedTests = args.affected_tests
+                    ? args.affected_tests.split(",").map((s) => s.trim()).filter(Boolean)
+                    : [];
+                // ── Preflight (G3): sem affected_files o Change é inutilizável ──
+                if (affectedFiles.length === 0 && args.acknowledge_no_files !== true) {
+                    return [
+                        `## Change NOT created — scope incomplete`,
+                        "",
+                        "`affected_files` is empty. The write hook only allows Write/Edit on files covered by an approved Change, so a Change without files can never release implementation.",
+                        "",
+                        "Re-run with `affected_files` (comma-separated paths, including files you are about to create).",
+                        "If this change genuinely writes no file (documentation-only, graph-only), pass `acknowledge_no_files=true` to record that decision.",
+                    ].join("\n");
+                }
                 let newNodes = [];
                 if (args.new_nodes_json) {
                     try {
@@ -470,45 +522,49 @@ export function createSddTools() {
                         return "Invalid JSON in modified_nodes_json";
                     }
                 }
-                const change = createChange(graph, {
+                const proposal = {
                     title: args.title,
                     reason: args.reason,
                     affected_node_ids: affectedIds,
                     new_nodes: newNodes,
                     modified_nodes: modifiedNodes,
                     removed_node_ids: [],
-                    affected_files: [],
-                    affected_tests: [],
+                    affected_files: affectedFiles,
+                    affected_tests: affectedTests,
                     implementation_tasks: [],
-                });
+                    no_requirement_impact: args.no_requirement_impact === true,
+                    files_scope_acknowledged: args.acknowledge_no_files === true,
+                };
+                const change = createChange(graph, proposal);
                 repo.saveGraph(graph);
                 invalidateCacheForMutation(ctx.directory, ["change"], ["created_by"]);
                 // Create a transaction to track this change lifecycle
                 const txManager = new TransactionManager(ctx.directory);
                 const tx = txManager.createTransaction(change.id);
-                const approvalLevel = classifyApprovalLevel({
-                    title: args.title,
-                    reason: args.reason,
-                    affected_node_ids: affectedIds,
-                    new_nodes: newNodes,
-                    modified_nodes: modifiedNodes,
-                    removed_node_ids: [],
-                    affected_files: [],
-                    affected_tests: [],
-                    implementation_tasks: [],
-                }, graph);
-                return [
+                const approvalLevel = classifyApprovalLevel(proposal, graph);
+                const preflight = preflightChangeScope(graph, change.id);
+                const lines = [
                     `Change created: **${change.id}**: ${args.title}`,
                     `**Approval Level:** ${approvalLevel}`,
                     `**Status:** ${change.status}`,
                     `**Transaction:** ${tx.id}`,
+                    `**Affected files:** ${affectedFiles.length > 0 ? affectedFiles.join(", ") : "(none declared)"}`,
                     "",
                     approvalLevel === "APPROVAL"
                         ? "⚠️ This change requires explicit approval before implementation."
                         : approvalLevel === "REVIEW"
                             ? "This change should be reviewed before implementation."
                             : "This change can proceed automatically.",
-                ].join("\n");
+                ];
+                if (preflight.warnings.length > 0) {
+                    lines.push("", "### ⚠️ Preflight warnings");
+                    for (const warning of preflight.warnings)
+                        lines.push(`- ${warning}`);
+                }
+                if (args.acknowledge_no_files === true && affectedFiles.length === 0) {
+                    lines.push("", "⚠️ `acknowledge_no_files=true` recorded: Write/Edit remain blocked for this Change.");
+                }
+                return lines.join("\n");
             },
         }),
         "sdd.discover": tool({
@@ -889,15 +945,36 @@ export function createSddTools() {
             },
         }),
         "sdd.approve_change": tool({
-            description: "Approve a pending change in the SDD graph.",
+            description: "Approve a pending change in the SDD graph. Refuses a Change with no affected_files unless acknowledge_no_files is set, because such a Change can never release a Write/Edit.",
             args: {
                 change_id: tool.schema.string().describe("Change node ID (e.g., CHG-001)"),
+                acknowledge_no_files: tool.schema.boolean().optional().describe("Approve even though the Change declares no affected_files (recorded for audit)"),
             },
             async execute(args, ctx) {
                 const repo = getRepo(ctx.directory);
                 if (!repo.isInitialized())
                     return "SDD not initialized.";
                 const graph = repo.loadGraph();
+                // ── Preflight (G3): aprovar um Change sem escopo de arquivos trava a
+                // escrita para sempre. Aprovação é o gate, então o bloqueio fica aqui. ──
+                const preflight = preflightChangeScope(graph, args.change_id);
+                if (preflight.blockers.length > 0 && args.acknowledge_no_files !== true) {
+                    try {
+                        addAuditEntry(ctx.directory, process.env.USER || process.env.USERNAME || "current", "sdd.approve_change", args.change_id, "denied", "Change declares no affected_files");
+                    }
+                    catch (error) {
+                        sddDebug("tools", `Failed to audit preflight denial for ${args.change_id}`);
+                    }
+                    return [
+                        `## Approval BLOCKED: ${args.change_id} has no declared scope`,
+                        "",
+                        ...preflight.blockers.map((blocker) => `- ${blocker}`),
+                        ...preflight.warnings.map((warning) => `- ${warning}`),
+                        "",
+                        "Fix: start the Change again with `sdd.enforce` / `sdd.create_change` passing `affected_files`.",
+                        "Or pass `acknowledge_no_files=true` to approve anyway (audited) — Write/Edit will stay blocked for this Change.",
+                    ].join("\n");
+                }
                 // ENFORCEMENT: prevent self-approval
                 const changeNode = graph.nodes.find((n) => n.type === "change" && n.id === args.change_id);
                 if (changeNode) {
@@ -918,6 +995,12 @@ export function createSddTools() {
                 }
                 try {
                     approveChange(graph, args.change_id);
+                    if (args.acknowledge_no_files === true && preflight.blockers.length > 0) {
+                        const node = graph.nodes.find((n) => n.id === args.change_id);
+                        if (node) {
+                            node.metadata = { ...node.metadata, files_scope_acknowledged: true };
+                        }
+                    }
                     repo.saveGraph(graph);
                     invalidateCacheForMutation(ctx.directory, ["change"], ["approved_by"]);
                     markApproved(workflowScope(ctx.directory, ctx.sessionID));
@@ -952,9 +1035,16 @@ export function createSddTools() {
                 const graph = repo.loadGraph();
                 try {
                     if (!args.force) {
-                        const execution = loadExecutableValidation(ctx.directory, args.change_id);
-                        if (!execution?.verified || execution.functional_verified !== true || !execution.passed || !isExecutableValidationCurrent(ctx.directory, execution)) {
-                            return `## Change ${args.change_id} Completion BLOCKED\n\nRun sdd.verify_implementation successfully after the last code change. Use force=true only for an explicit override.`;
+                        const failures = completionGateFailures(ctx.directory, graph, args.change_id);
+                        if (failures.length > 0) {
+                            return [
+                                `## Change ${args.change_id} Completion BLOCKED`,
+                                "",
+                                "Failing conditions:",
+                                ...failures.map((failure) => `- ${failure}`),
+                                "",
+                                "Fix them and retry. `force=true` is an explicit, audited override — not a shortcut.",
+                            ].join("\n");
                         }
                     }
                     const { completeChangeWithPromiseCheck } = await import("../sdd/changes/manager.js");
@@ -999,35 +1089,57 @@ export function createSddTools() {
             },
         }),
         "sdd.verify_implementation": tool({
-            description: "Run declared formatter, lint, typecheck, tests and git diff checks after implementation. A successful report is required before completing a Change.",
+            description: "Run declared formatter, lint, typecheck, tests and git diff checks after implementation, plus the requirement→test evidence for this Change. A successful report is required before completing the Change.",
             args: {
                 change_id: tool.schema.string().describe("Approved Change node ID being verified"),
+                acknowledge_no_scripts: tool.schema.boolean().optional().describe("Explicitly waive executable verification when the project declares no verification script (recorded in the report)"),
+                waiver_reason: tool.schema.string().optional().describe("Why executable verification is being waived (recorded in the report)"),
             },
             async execute(args, ctx) {
                 const startedAt = Date.now();
-                const result = validateExecutableProject(ctx.directory);
                 const repo = getRepo(ctx.directory);
-                const functional = repo.isInitialized()
-                    ? validateFunctionalEvidence(repo.loadGraph(), args.change_id)
-                    : { verified: false, gaps: ["SDD graph is not initialized"] };
+                if (!repo.isInitialized())
+                    return "## Executable Verification: BLOCKED\n\nSDD graph is not initialized. Run sdd.initialize first.";
+                const graph = repo.loadGraph();
+                const change = graph.nodes.find((node) => node.id === args.change_id && node.type === "change");
+                if (!change)
+                    return `## Executable Verification: BLOCKED\n\nChange ${args.change_id} was not found in the graph.`;
+                const result = validateExecutableProject(ctx.directory, {
+                    acknowledgeNoScripts: args.acknowledge_no_scripts === true,
+                    waiverReason: args.waiver_reason,
+                });
+                const functional = validateFunctionalEvidence(graph, args.change_id);
                 result.functional_verified = functional.verified;
                 result.functional_gaps = functional.gaps;
+                result.functional_applicable = functional.applicable;
+                result.functional_requirements = functional.requirements;
+                result.no_requirement_impact = change.metadata.no_requirement_impact === true;
+                // G6/G8: vincula o laudo aos arquivos declarados pelo Change, para que
+                // a conclusão possa rejeitar arquivos não verificados ou alterados.
+                result.scoped_files = computeScopedFileHashes(ctx.directory, change.metadata.affected_files || []);
                 saveExecutableValidation(ctx.directory, args.change_id, result);
                 recordTelemetry(ctx.directory, {
                     name: "executable_verification",
                     duration_ms: Date.now() - startedAt,
-                    metadata: { change_id: args.change_id, passed: result.passed, verified: result.verified, functional_verified: result.functional_verified },
+                    metadata: { change_id: args.change_id, passed: result.passed, verified: result.verified, functional_verified: result.functional_verified, waived: result.verification_waived === true },
                 });
-                const lines = [`## Executable Verification: ${result.passed && result.verified ? "PASSED" : "BLOCKED"}`];
+                const lines = [`## Executable Verification: ${result.passed && result.verified && result.functional_verified ? "PASSED" : "BLOCKED"}`];
                 for (const check of result.checks)
                     lines.push(`- ${check.status.toUpperCase()}: ${check.name}${check.output ? ` — ${check.output.slice(0, 300)}` : ""}`);
-                if (!result.verified)
-                    lines.push("No executable verification script was available; configure project scripts before completing the Change.");
+                if (result.verification_waived) {
+                    lines.push(`- ⚠️ WAIVED: ${result.waiver_reason}`);
+                }
+                else if (!result.verified) {
+                    lines.push("No executable verification script was available; declare project scripts (or rerun with `acknowledge_no_scripts=true` to record an audited waiver) before completing the Change.");
+                }
+                lines.push("", `**Requirement→test evidence:** ${functional.applicable ? (functional.verified ? (functional.requirements?.length ? `verified (${(functional.requirements || []).join(", ")})` : "verified") : "unsatisfied") : (result.no_requirement_impact ? "not applicable (declared by the Change)" : "not applicable — but must be declared")}`);
                 if (!result.functional_verified) {
                     lines.push("Functional evidence is incomplete:");
                     for (const gap of result.functional_gaps || [])
                         lines.push(`- ${gap}`);
                 }
+                const scoped = result.scoped_files || [];
+                lines.push("", `**Verified files:** ${scoped.length > 0 ? scoped.map((entry) => `${entry.path}${entry.sha256 ? "" : " (missing)"}`).join(", ") : "(none — write some code first and declare affected_files)"}`);
                 return lines.join("\n");
             },
         }),
@@ -1391,6 +1503,36 @@ export function createSddTools() {
             args: {},
             async execute() {
                 return getSddEnforcementRules();
+            },
+        }),
+        "sdd.renew_workflow": tool({
+            description: "Renew the validity window of the ACTIVE SDD workflow, keeping the SAME Change and its verification report. " +
+                "Use this when a long task outlives the window, instead of calling sdd.enforce again (which creates a new, unrelated Change).",
+            args: {
+                change_id: tool.schema.string().optional().describe("Active Change ID; a different Change is refused unless it is started with sdd.enforce"),
+            },
+            async execute(args, ctx) {
+                const scope = workflowScope(ctx.directory, ctx.sessionID);
+                const result = renewWorkflow(args.change_id, scope);
+                if (!result.renewed) {
+                    return [
+                        "## SDD Workflow Renewal: NOT RENEWED",
+                        "",
+                        result.reason || "Unknown reason.",
+                        "",
+                        "`sdd.enforce` starts a NEW Change; renewal only extends the workflow already in place.",
+                    ].join("\n");
+                }
+                const ttlMinutes = Math.round(workflowTtlMs() / 60000);
+                const remaining = Math.round(workflowRemainingMs(scope) / 60000);
+                return [
+                    `## SDD Workflow Renewed (${result.changeId})`,
+                    "",
+                    `**Valid again for:** ${ttlMinutes} min (${remaining} min remaining)`,
+                    `**Expires at:** ${result.expiresAt ? new Date(result.expiresAt).toISOString() : "n/a"}`,
+                    "",
+                    "The active Change and its verification report are preserved — re-run `sdd.verify_implementation` only if the code changed after the last verification.",
+                ].join("\n");
             },
         }),
         "sdd.full_cycle": tool({

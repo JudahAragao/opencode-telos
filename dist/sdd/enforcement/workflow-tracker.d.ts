@@ -40,11 +40,37 @@ export declare function markDiscovering(discovering: boolean, scope?: string): v
 export declare function markSpecUpdated(scope?: string): void;
 /** Mark that the change was completed (resets state) */
 export declare function markCompleted(scope?: string): void;
+/**
+ * Janela de validade de um workflow ativo.
+ *
+ * Uma tarefa longa (refactor amplo, migração) estourava o prazo de 30 min no
+ * meio da implementação e invalidava o laudo de verificação já gravado; a única
+ * saída era repetir `sdd.enforce`, que cria um Change NOVO e deixa o anterior
+ * órfão. `sdd.renew_workflow` / `/sdd renew` renova a janela do MESMO Change,
+ * preservando o laudo. Override: `SDD_WORKFLOW_TTL_MS`.
+ */
+export declare function workflowTtlMs(): number;
 /** Check if workflow is in a valid state for graph mutations */
 export declare function isWorkflowValid(scope?: string): {
     valid: boolean;
     reason?: string;
 };
+/** Tempo restante da janela do workflow, em ms (0 quando não há workflow ativo). */
+export declare function workflowRemainingMs(scope?: string): number;
+export interface WorkflowRenewResult {
+    renewed: boolean;
+    changeId: string | null;
+    /** Epoch ms em que a janela (possivelmente renovada) expira; null sem workflow ativo. */
+    expiresAt: number | null;
+    reason?: string;
+}
+/**
+ * Renova a janela do workflow ativo preservando o MESMO Change — e portanto o
+ * laudo de verificação em `.sdd/verification/<changeId>.json`, que continuaria
+ * válido porque nada do código mudou. Sem workflow ativo, ou com um changeId
+ * diferente do ativo, recusa em vez de criar silenciosamente outro workflow.
+ */
+export declare function renewWorkflow(changeId?: string, scope?: string): WorkflowRenewResult;
 /** Get current workflow state (read-only) */
 export declare function getWorkflowState(scope?: string): Readonly<WorkflowState>;
 /**

@@ -113,6 +113,23 @@ export function markCompleted(scope = DEFAULT_SCOPE): void {
   state.specUpdated = false
 }
 
+const DEFAULT_WORKFLOW_TTL_MS = 30 * 60 * 1000
+
+/**
+ * Janela de validade de um workflow ativo.
+ *
+ * Uma tarefa longa (refactor amplo, migração) estourava o prazo de 30 min no
+ * meio da implementação e invalidava o laudo de verificação já gravado; a única
+ * saída era repetir `sdd.enforce`, que cria um Change NOVO e deixa o anterior
+ * órfão. `sdd.renew_workflow` / `/sdd renew` renova a janela do MESMO Change,
+ * preservando o laudo. Override: `SDD_WORKFLOW_TTL_MS`.
+ */
+export function workflowTtlMs(): number {
+  const fromEnv = Number(process.env.SDD_WORKFLOW_TTL_MS)
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv
+  return DEFAULT_WORKFLOW_TTL_MS
+}
+
 /** Check if workflow is in a valid state for graph mutations */
 export function isWorkflowValid(scope = DEFAULT_SCOPE): { valid: boolean; reason?: string } {
   const state = getMutableState(scope)
@@ -123,16 +140,56 @@ export function isWorkflowValid(scope = DEFAULT_SCOPE): { valid: boolean; reason
     }
   }
 
-  // Allow a 30-minute window for workflow completion
-  const maxAge = 30 * 60 * 1000
-  if (Date.now() - state.enforcedAt > maxAge) {
+  const ttl = workflowTtlMs()
+  if (Date.now() - state.enforcedAt > ttl) {
     return {
       valid: false,
-      reason: "SDD workflow expired (>30 min). Call sdd.enforce again.",
+      reason:
+        `SDD workflow expired after ${Math.round(ttl / 60000)} min. ` +
+        `Renew the SAME change with \`sdd.renew_workflow\` (change_id: ${state.changeId ?? "n/a"}) to keep its verification report, ` +
+        "or call `sdd.enforce` to start a new Change.",
     }
   }
 
   return { valid: true }
+}
+
+/** Tempo restante da janela do workflow, em ms (0 quando não há workflow ativo). */
+export function workflowRemainingMs(scope = DEFAULT_SCOPE): number {
+  const state = getMutableState(scope)
+  if (!state.enforced) return 0
+  return Math.max(0, state.enforcedAt + workflowTtlMs() - Date.now())
+}
+
+export interface WorkflowRenewResult {
+  renewed: boolean
+  changeId: string | null
+  /** Epoch ms em que a janela (possivelmente renovada) expira; null sem workflow ativo. */
+  expiresAt: number | null
+  reason?: string
+}
+
+/**
+ * Renova a janela do workflow ativo preservando o MESMO Change — e portanto o
+ * laudo de verificação em `.sdd/verification/<changeId>.json`, que continuaria
+ * válido porque nada do código mudou. Sem workflow ativo, ou com um changeId
+ * diferente do ativo, recusa em vez de criar silenciosamente outro workflow.
+ */
+export function renewWorkflow(changeId?: string, scope = DEFAULT_SCOPE): WorkflowRenewResult {
+  const state = getMutableState(scope)
+  if (!state.enforced || !state.changeId) {
+    return { renewed: false, changeId: null, expiresAt: null, reason: "No SDD workflow is active. Call sdd.enforce first to create a Change." }
+  }
+  if (changeId && changeId !== state.changeId) {
+    return {
+      renewed: false,
+      changeId: state.changeId,
+      expiresAt: state.enforcedAt + workflowTtlMs(),
+      reason: `The active workflow belongs to ${state.changeId}, not ${changeId}. Renewing a different Change would not carry its verification report; call sdd.enforce to start a new one.`,
+    }
+  }
+  state.enforcedAt = Date.now()
+  return { renewed: true, changeId: state.changeId, expiresAt: state.enforcedAt + workflowTtlMs() }
 }
 
 /** Get current workflow state (read-only) */
@@ -208,6 +265,8 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
   // active workflow would make it impossible to enable SDD through the tool.
   "sdd.toggle",
   "sdd.toggle_status",
+  // Renovação da janela: preserva o Change ativo em vez de criar um novo.
+  "sdd.renew_workflow",
   "sdd.constitution",
   // Session and export
   "sdd.session_handoff",

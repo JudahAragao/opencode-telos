@@ -24,6 +24,7 @@ const ALWAYS_VISIBLE = new Set([
     // Workflow entry points: exempt from the enforcement policy and required to
     // start a Change in ANY graph state, so they must never be hidden.
     "sdd.enforce",
+    "sdd.renew_workflow",
     "sdd.update_from_answers",
 ]);
 /** Tools de composits que são sempre visíveis */
@@ -193,6 +194,8 @@ Sem um Change ativo, as tools que mutam o grafo são recusadas pelo hook. Sequê
 3. \`sdd.approve_change\` — aprova o Change
 4. escrever código (\`sdd.generate_code\` ou Write/Edit)
 5. \`sdd.verify_implementation\` → \`sdd.complete_change\`
+
+Se a janela expirar no meio da tarefa, use \`sdd.renew_workflow\` (ou \`/sdd renew\`) para estender o MESMO Change e preservar o laudo — \`sdd.enforce\` criaria um Change novo. Aprovar um Change sem \`affected_files\` é recusado porque nenhum Write/Edit seria liberado.
 `.trim();
 /**
  * Como escolher a tool: a lista anunciada é o catálogo completo, então a

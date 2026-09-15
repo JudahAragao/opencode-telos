@@ -1,7 +1,7 @@
 import type { KnowledgeGraph, ChangeNode } from "../domain/types.js"
 import { updateNode, getNodesByType, getNode } from "../graph/engine.js"
 import { computeImpact } from "../graph/traverse.js"
-import { createChange, classifyApprovalLevel } from "../changes/manager.js"
+import { createChange, classifyApprovalLevel, preflightChangeScope } from "../changes/manager.js"
 import { validateGraph } from "../validation/validator.js"
 
 export interface EnforcementResult {
@@ -152,6 +152,15 @@ export function enforceSddFirst(
     return result
   }
 
+  // Step 6b: preflight de escopo (G3). Sem `affected_files` o hook de escrita
+  // recusa TODO Write/Edit ("not covered by an approved SDD Change"), então um
+  // Change assim não pode ser auto-aprovado: ficaria aprovado e mesmo assim
+  // inútil, e o problema só apareceria no meio da implementação.
+  const scopePreflight = preflightChangeScope(graph, changeNode.id)
+  if (scopePreflight.blockers.length > 0) {
+    result.blocking_reasons = [...(result.blocking_reasons || []), ...scopePreflight.blockers]
+  }
+
   // Step 7: Validate SDD
   if (options?.skipValidation) {
     result.validation_passed = true // Assume valid if skipped
@@ -210,13 +219,17 @@ export function enforceSddFirst(
 
   // Step 9: All checks passed. AUTO changes may proceed immediately; REVIEW
   // and APPROVAL changes remain draft until an explicit approval tool call.
+  const autoApprovable = approvalLevel === "AUTO" && scopePreflight.blockers.length === 0
+
   result.allowed = true
-  result.reason = approvalLevel === "AUTO"
+  result.reason = autoApprovable
     ? `SDD-first workflow: Change ${changeNode.id} created and approved automatically. Proceed with implementation.`
-    : `SDD-first workflow: Change ${changeNode.id} created and validated. Explicit approval is required before implementation.`
+    : scopePreflight.blockers.length > 0
+      ? `SDD-first workflow: Change ${changeNode.id} created but NOT approved — ${scopePreflight.blockers[0]}`
+      : `SDD-first workflow: Change ${changeNode.id} created and validated. Explicit approval is required before implementation.`
   result.sdd_updated = true
 
-  if (approvalLevel === "AUTO") updateNode(graph, changeNode.id, { status: "APPROVED" })
+  if (autoApprovable) updateNode(graph, changeNode.id, { status: "APPROVED" })
 
   return result
 }
@@ -347,10 +360,15 @@ export function enforceSmartBatch(
     if (validation.valid && change?.status === "APPROVED") {
       return { ...result, auto_completed: true }
     } else {
+      const scopeBlockers = change ? preflightChangeScope(graph, change.id).blockers : []
       return {
         ...result,
         auto_completed: false,
-        reason: `Change created but validation failed: ${validation.errors.length} error(s). Fix spec before implementing.`,
+        reason: !validation.valid
+          ? `Change created but validation failed: ${validation.errors.length} error(s). Fix spec before implementing.`
+          : scopeBlockers.length > 0
+            ? `Change ${change?.id ?? result.change_id} was left in draft because its scope is incomplete. ${scopeBlockers.join(" ")}`
+            : `Change ${change?.id ?? result.change_id} was created but left in draft because it requires explicit approval.`,
       }
     }
   }

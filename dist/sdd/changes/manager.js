@@ -74,6 +74,8 @@ export function createChange(graph, proposal, options) {
             affected_files: proposal.affected_files,
             affected_tests: proposal.affected_tests,
             implementation_tasks: proposal.implementation_tasks,
+            no_requirement_impact: proposal.no_requirement_impact === true,
+            ...(proposal.files_scope_acknowledged ? { files_scope_acknowledged: true } : {}),
             origin: "CONVERSATION",
             transaction_id: `TX-${Date.now()}`,
         },
@@ -100,6 +102,62 @@ export function approveChange(graph, changeId) {
     if (!node || node.type !== "change")
         throw new Error(`Change ${changeId} not found`);
     updateNode(graph, changeId, { status: "APPROVED" });
+}
+/**
+ * Preflight de escopo do Change (G3).
+ *
+ * Cobre o buraco que deixava o fluxo travar *depois* de o agente já ter criado
+ * o Change: sem `affected_files` o hook de escrita nunca libera nenhum arquivo
+ * (Write/Edit respondem "not covered by an approved SDD Change"), e sem
+ * requisito afetado (ou `no_requirement_impact`) a evidência funcional fica
+ * inavaliável. Ambos são detectáveis no momento da criação/aprovação — melhor
+ * avisar aí do que descobrir no meio da implementação.
+ */
+export function preflightChangeScope(graph, changeId) {
+    const change = getNode(graph, changeId);
+    if (!change || change.type !== "change") {
+        return { blockers: [`Change ${changeId} was not found in the graph.`], warnings: [] };
+    }
+    const blockers = [];
+    const warnings = [];
+    const metadata = change.metadata;
+    if (metadata.affected_files.length === 0) {
+        blockers.push(`Change ${changeId} declares no affected files, so the write hook will reject every Write/Edit "(not covered by an approved SDD Change)". ` +
+            "Pass `affected_files` (comma-separated paths, including files you are about to create) to `sdd.enforce`/`sdd.create_change`.");
+    }
+    const declaredNodes = (metadata.affected_nodes || []).filter((id) => getNode(graph, id) !== undefined);
+    if (declaredNodes.length === 0 && metadata.no_requirement_impact !== true) {
+        warnings.push(`Change ${changeId} affects no requirement node in the graph, so requirement→test evidence cannot be evaluated. ` +
+            "Declare the affected nodes (`affected_entities` / `affected_node_ids`), or set `no_requirement_impact=true` if this change does not alter specified behaviour.");
+    }
+    return { blockers, warnings };
+}
+/**
+ * Evidência de spec na conclusão (G7).
+ *
+ * Um Change que não toca nenhum nó do grafo não tem como provar que a
+ * implementação corresponde à especificação: ele passaria pela trava apenas com
+ * "a suíte está verde". Exige vínculo com o grafo ou uma declaração explícita
+ * de que não há impacto em comportamento especificado.
+ */
+export function checkSpecEvidence(graph, changeId) {
+    const change = getNode(graph, changeId);
+    if (!change || change.type !== "change") {
+        return { allowed: false, reason: `Change ${changeId} not found`, pending_promises: [] };
+    }
+    if (change.metadata.no_requirement_impact === true) {
+        return { allowed: true, reason: "", pending_promises: [] };
+    }
+    const linked = (change.metadata.affected_nodes || []).filter((id) => getNode(graph, id) !== undefined);
+    if (linked.length === 0) {
+        return {
+            allowed: false,
+            reason: `Change ${changeId} has no specification evidence: it references no node that exists in the graph. ` +
+                "Update the spec (sdd.add_node / sdd.update_node / sdd.build_graph) or set no_requirement_impact=true when the change genuinely alters no specified behaviour.",
+            pending_promises: [],
+        };
+    }
+    return { allowed: true, reason: "", pending_promises: [] };
 }
 /**
  * Check if a change can be completed. Blocks if there are pending promises

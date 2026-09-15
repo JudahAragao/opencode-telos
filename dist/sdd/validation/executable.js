@@ -3,15 +3,36 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { execFileSync } from "child_process";
 import { atomicWriteFile } from "../cache/atomic.js";
+/**
+ * Avalia a evidência funcional do Change (requisito → teste).
+ *
+ * G1: ausência de requisito afetado NÃO é aprovação. Antes isso retornava
+ * `verified: true`, o que anulava a trava sempre que o agente omitisse o escopo.
+ * Agora exige uma declaração explícita (`no_requirement_impact`) para o caso
+ * legítimo de mudança que não altera comportamento especificado.
+ */
 export function validateFunctionalEvidence(graph, changeId) {
     const change = graph.nodes.find((node) => node.id === changeId && node.type === "change");
     if (!change)
-        return { verified: false, gaps: [`Change ${changeId} was not found in the graph`] };
+        return { verified: false, applicable: false, requirements: [], gaps: [`Change ${changeId} was not found in the graph`] };
     const metadata = change.metadata;
     const affected = new Set(metadata.affected_nodes || []);
     const requirements = graph.nodes.filter((node) => node.type === "requirement" && affected.has(node.id));
-    if (requirements.length === 0)
-        return { verified: true, gaps: [] };
+    if (requirements.length === 0) {
+        if (metadata.no_requirement_impact === true) {
+            return { verified: true, applicable: false, requirements: [], gaps: [] };
+        }
+        return {
+            verified: false,
+            applicable: false,
+            requirements: [],
+            gaps: [
+                `Change ${changeId} declares no affected requirement node, so requirement→test evidence cannot be evaluated.`,
+                "Declare the affected requirements (affected_entities / affected_node_ids) during sdd.enforce, or set no_requirement_impact=true to state that this change does not alter specified behaviour.",
+            ],
+        };
+    }
+    const requirementIds = requirements.map((requirement) => requirement.id);
     const allowedTests = new Set(metadata.affected_tests || []);
     const gaps = [];
     for (const requirement of requirements) {
@@ -43,7 +64,7 @@ export function validateFunctionalEvidence(graph, changeId) {
             }
         }
     }
-    return { verified: gaps.length === 0, gaps };
+    return { verified: gaps.length === 0, applicable: true, requirements: requirementIds, gaps };
 }
 function detectPackageManager(projectDir) {
     if (existsSync(join(projectDir, "pnpm-lock.yaml")))
@@ -110,9 +131,32 @@ function declaredVerifications(projectDir) {
     }
     return checks;
 }
+/**
+ * Diretórios que nunca entram no fingerprint: artefatos, dependências e
+ * armazenamento interno do SDD.
+ *
+ * G5: dot-entries NÃO são mais ignorados em bloco. Antes qualquer nome
+ * começando com "." era pulado, então mudar `.eslintrc*`, `.prettierrc*`,
+ * `.editorconfig` ou `.github/**` depois de verificar mantinha o laudo
+ * "atual" — exatamente o drift que a trava existe para impedir.
+ */
 const IGNORED_DIRECTORIES = new Set([
     ".git", ".sdd", "node_modules", "dist", "build", "coverage", ".turbo",
+    ".next", ".nuxt", ".cache", ".venv", ".pnpm-store",
+    "venv", "target", "__pycache__",
 ]);
+/** Arquivos irrelevantes para o fingerprint. */
+const IGNORED_FILE_NAMES = new Set([".DS_Store", "Thumbs.db"]);
+/**
+ * `.env` guarda segredo local, não fonte: só o exemplo versionado é hasheado.
+ */
+function isIgnoredFile(name) {
+    if (IGNORED_FILE_NAMES.has(name))
+        return true;
+    if (name === ".env.example")
+        return false;
+    return name === ".env" || name.startsWith(".env.");
+}
 const CHECK_TIMEOUT_MS = 120_000;
 function runCheckedCommand(command, args, cwd) {
     try {
@@ -148,14 +192,12 @@ export function computeProjectFingerprint(projectDir) {
             return;
         }
         for (const entry of entries) {
-            if (entry.name.startsWith(".") && entry.name !== ".env.example")
-                continue;
             if (entry.isDirectory()) {
                 if (!IGNORED_DIRECTORIES.has(entry.name))
                     visit(join(directory, entry.name));
                 continue;
             }
-            if (entry.isFile())
+            if (entry.isFile() && !isIgnoredFile(entry.name))
                 files.push(join(directory, entry.name));
         }
     };
@@ -174,7 +216,7 @@ export function computeProjectFingerprint(projectDir) {
     return hash.digest("hex");
 }
 /** Run only project-declared verification scripts; never invent a package manager command. */
-export function validateExecutableProject(projectDir) {
+export function validateExecutableProject(projectDir, options) {
     const checks = [];
     const packagePath = join(projectDir, "package.json");
     if (existsSync(packagePath)) {
@@ -212,14 +254,65 @@ export function validateExecutableProject(projectDir) {
     // git diff --check is useful hygiene, but it is not executable evidence.
     // At least one project-declared verification script must pass; skipped
     // optional scripts do not count as failures.
-    const verified = declaredChecks.length > 0 && declaredChecks.every((check) => check.status === "passed");
+    const hasExecutableEvidence = declaredChecks.length > 0 && declaredChecks.every((check) => check.status === "passed");
+    // G4: sem script declarado, a dispensa precisa ser explícita e fica gravada
+    // no laudo (verification_waived + waiver_reason) em vez de virar force=true.
+    const waived = !hasExecutableEvidence && declaredChecks.length === 0 && options?.acknowledgeNoScripts === true;
     return {
         passed: checks.every((check) => check.status !== "failed"),
-        verified,
+        verified: hasExecutableEvidence || waived,
         checks,
         created_at: new Date().toISOString(),
         project_fingerprint: computeProjectFingerprint(projectDir),
+        ...(waived
+            ? {
+                verification_waived: true,
+                waiver_reason: options?.waiverReason || "No project-declared verification script was available; waiver explicitly acknowledged.",
+            }
+            : {}),
     };
+}
+/**
+ * Hash dos arquivos declarados como afetados pelo Change (G6/G8).
+ * `sha256: null` registra que o arquivo declarado não existia na verificação.
+ */
+export function computeScopedFileHashes(projectDir, files) {
+    return files.map((file) => {
+        const absolute = join(projectDir, file);
+        if (!existsSync(absolute))
+            return { path: file, sha256: null };
+        try {
+            return { path: file, sha256: createHash("sha256").update(readFileSync(absolute)).digest("hex") };
+        }
+        catch {
+            return { path: file, sha256: null };
+        }
+    });
+}
+/**
+ * Confere se os arquivos declarados pelo Change são exatamente os que foram
+ * verificados (G8) e se nada mudou neles desde então (G6).
+ */
+export function verifyScopedFiles(projectDir, result) {
+    const scoped = result.scoped_files;
+    if (!scoped) {
+        return { ok: false, gaps: ["Verification report carries no change scope; re-run sdd.verify_implementation."] };
+    }
+    if (scoped.length === 0) {
+        return { ok: false, gaps: ["The Change declares no affected files, so no implementation could be verified against it."] };
+    }
+    const gaps = [];
+    for (const entry of scoped) {
+        if (entry.sha256 === null) {
+            gaps.push(`Declared file "${entry.path}" did not exist when the change was verified.`);
+            continue;
+        }
+        const current = computeScopedFileHashes(projectDir, [entry.path])[0];
+        if (!current || current.sha256 !== entry.sha256) {
+            gaps.push(`Declared file "${entry.path}" changed after verification.`);
+        }
+    }
+    return { ok: gaps.length === 0, gaps };
 }
 export function isExecutableValidationCurrent(projectDir, result) {
     return Boolean(result.project_fingerprint) && result.project_fingerprint === computeProjectFingerprint(projectDir);

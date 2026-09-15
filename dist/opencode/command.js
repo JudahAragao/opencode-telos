@@ -1,5 +1,5 @@
 import { setToggleState, getToggleState } from "../sdd/toggle/state.js";
-import { resetWorkflowState, workflowScope, } from "../sdd/enforcement/workflow-tracker.js";
+import { resetWorkflowState, workflowScope, renewWorkflow, workflowTtlMs, getWorkflowState, } from "../sdd/enforcement/workflow-tracker.js";
 import { getCacheManager } from "../sdd/cache/manager.js";
 import { startSharedDashboard, stopSharedDashboard, getSharedDashboardUrl, resolveDashboardPort, } from "../server/server.js";
 import { join as joinPath } from "path";
@@ -86,6 +86,9 @@ export function runSddCommand(projectDir, rawInput, sessionID = "unknown") {
     else if (sub === "status") {
         text = sddStatus(projectDir);
     }
+    else if (sub === "renew") {
+        text = sddRenew(projectDir, input);
+    }
     else if (sub === "cache_reset" || sub === "cachereset" || sub === "cache reset") {
         text = sddCacheReset(projectDir);
     }
@@ -102,7 +105,7 @@ export function runSddCommand(projectDir, rawInput, sessionID = "unknown") {
  * Anchored full-text match so normal prose that merely contains "sdd" is
  * never treated as a command.
  */
-const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|cache[_\s-]*reset|viz(?:[\s:_-]+(?:start|stop|status))?))?$/i;
+const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|renew|cache[_\s-]*reset|viz(?:[\s:_-]+(?:start|stop|status))?))?$/i;
 /**
  * Detect a user message that is (or renders) an SDD command and normalize it
  * to the canonical `sdd <sub>` form:
@@ -150,6 +153,7 @@ function commandNotFound(projectDir, _input) {
         "- `sdd on` / `sdd:on`            — Enable SDD enforcement.",
         "- `sdd off` / `sdd:off`           — Disable SDD enforcement.",
         "- `sdd status` / `sdd:status`     — Show current SDD toggle.",
+        "- `sdd renew`                     — Renew the active workflow window (keeps the same Change).",
         "- `sdd viz`                       — Start the Knowledge Graph dashboard.",
         "- `sdd viz stop`                  — Stop the dashboard.",
         "- `sdd viz status`                — Show the dashboard URL.",
@@ -192,7 +196,35 @@ function sddStatus(projectDir) {
         "",
         `Toggle file: ${joinPath(projectDir, ".sdd", "enabled")}`,
         "",
-        "Commands: `/sdd on`, `/sdd off`, `/sdd status`, `/sdd viz`, `/sdd cache_reset`",
+        "Commands: `/sdd on`, `/sdd off`, `/sdd status`, `/sdd renew`, `/sdd viz`, `/sdd cache_reset`",
+    ].join("\n");
+}
+/**
+ * `/sdd renew` — renova a janela do workflow ativo preservando o Change atual
+ * (e o laudo de verificação já gravado). É o caminho para tarefas que passam
+ * dos 30 min sem precisar repetir `sdd.enforce` e criar um Change órfão.
+ */
+function sddRenew(projectDir, input) {
+    const scope = workflowScope(projectDir, input.sessionID);
+    const active = getWorkflowState(scope);
+    const result = renewWorkflow(undefined, scope);
+    if (!result.renewed) {
+        return [
+            "## SDD Workflow: NOT RENEWED",
+            "",
+            result.reason || "Unknown reason.",
+            "",
+            "Start a workflow with `sdd.enforce` (or the `sdd.enforce` tool) before renewing.",
+        ].join("\n");
+    }
+    return [
+        `## SDD Workflow Renewed (${result.changeId})`,
+        "",
+        `**Valid again for:** ${Math.round(workflowTtlMs() / 60000)} min`,
+        `**Expires at:** ${result.expiresAt ? new Date(result.expiresAt).toISOString() : "n/a"}`,
+        `**Approved:** ${active.approved ? "yes" : "no"}`,
+        "",
+        "The active Change and its verification report are preserved.",
     ].join("\n");
 }
 function sddCacheReset(projectDir) {
@@ -229,6 +261,7 @@ function sddPanel(projectDir, _input) {
         "- `sdd on`       — Enable SDD enforcement (deterministic).",
         "- `sdd off`      — Disable SDD enforcement (deterministic).",
         "- `sdd status`   — Show current toggle state.",
+        "- `sdd renew`    — Renew the active workflow window (keeps the same Change).",
         "- `sdd viz`      — Start the Knowledge Graph dashboard (deterministic).",
         "- `sdd viz stop` — Stop the dashboard.",
         "- `sdd cache_reset` — Clear caches without killing the session.",
@@ -320,6 +353,7 @@ export function createSddCommandHooks(projectDir) {
             //   sdd on / sdd-on     -> enable
             //   sdd off / sdd-off   -> disable
             //   sdd status          -> status
+            //   sdd renew           -> renew the active workflow window
             //   sdd cache_reset     -> reset
             // O runtime pode entregar o comando como `command` + `arguments`
             // separados (ex: command="sdd", arguments="on") ou já concatenados

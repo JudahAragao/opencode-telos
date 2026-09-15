@@ -335,6 +335,17 @@ export interface ChangeNode extends Node {
     affected_files: string[]
     affected_tests: string[]
     implementation_tasks: string[]
+    /**
+     * Declaração explícita de que o Change não altera comportamento
+     * especificado (nenhum nó `requirement` afetado). Sem isso, a evidência
+     * funcional não pode ser avaliada e a conclusão fica bloqueada (G1).
+     */
+    no_requirement_impact?: boolean
+    /**
+     * Registro auditável de que o Change foi aprovado sem `affected_files`
+     * declarados (o hook de escrita não vai liberar nenhum arquivo nesse caso).
+     */
+    files_scope_acknowledged?: boolean
     origin?: string
     transaction_id?: string
     auto_archived?: boolean
