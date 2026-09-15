@@ -3,10 +3,11 @@ import { calculateQualityScore, formatQualityReport } from "../sdd/quality/score
 import { detectDrift, formatDriftReport } from "../sdd/drift/detector.js";
 import { validateGraph, formatValidationResult } from "../sdd/validation/validator.js";
 import { generateHandoff, formatHandoffPack } from "../sdd/session/handoff.js";
+import { PLUGIN_VERSION } from "../version.js";
 export function createMcpServer(projectDir) {
     const config = {
         name: "opencode-telos",
-        version: "1.1.12",
+        version: PLUGIN_VERSION,
         description: "OpenCode Telos MCP Server",
     };
     return {

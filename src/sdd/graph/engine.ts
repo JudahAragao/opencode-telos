@@ -7,18 +7,19 @@ import type {
   NodeStatus,
 } from "../domain/types.js"
 import { GraphIndices } from "./index.js"
+import { GRAPH_SCHEMA_VERSION } from "../../version.js"
 
 export function createGraph(projectId: string): KnowledgeGraph {
   const now = new Date().toISOString()
   return {
-    version: "1.0.0",
+    version: GRAPH_SCHEMA_VERSION,
     project_id: projectId,
     nodes: [],
     relationships: [],
     metadata: {
       created_at: now,
       updated_at: now,
-      sdd_version: "1.0.0",
+      sdd_version: GRAPH_SCHEMA_VERSION,
     },
   }
 }

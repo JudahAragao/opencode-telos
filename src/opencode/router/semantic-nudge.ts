@@ -18,8 +18,12 @@ export interface NudgeResult {
   suggestions: Array<{ tool: string; confidence: number }>
 }
 
-/** Minimum lexical relevance for a suggestion. BM25 scores are unbounded. */
-const CONFIDENCE_THRESHOLD = 0.35
+/**
+ * Relevância relativa mínima para sugerir uma tool, medida contra o melhor
+ * match da consulta (0..1). O score bruto do BM25 é ilimitado, então comparar
+ * contra um limiar absoluto não tinha significado.
+ */
+const MIN_RELATIVE_RELEVANCE = 0.5
 
 /** Máximo de sugestões */
 const MAX_SUGGESTIONS = 3
@@ -31,20 +35,31 @@ const MAX_SUGGESTIONS = 3
  * @returns NudgeResult com hints e sugestões
  */
 export function calculateSemanticNudge(userInput: string): NudgeResult {
+  const query = userInput.trim()
+  if (query.length === 0) return { hints: [], suggestions: [] }
+
   const toolEmbeddings = getCachedToolEmbeddings()
   const topLevelTools = toolEmbeddings.filter((tool) => !tool.name.includes(":"))
-  const ranked = rankSimilarity(userInput, topLevelTools.map((tool) => ({
+  const ranked = rankSimilarity(query, topLevelTools.map((tool) => ({
     label: tool.name,
     text: `${tool.name} ${tool.description}`,
   })))
-  const byName = new Map(topLevelTools.map((tool) => [tool.name, tool]))
-  const scores = ranked
-    .filter((item) => item.score >= CONFIDENCE_THRESHOLD)
-    .map((item) => ({ tool: byName.get(item.label)!, score: item.score }))
+  if (ranked.length === 0) return { hints: [], suggestions: [] }
 
-  // Ordenar por score e pegar top-N
-  scores.sort((a, b) => b.score - a.score)
-  const topScores = scores.slice(0, MAX_SUGGESTIONS)
+  // Normaliza o BM25 contra o melhor match para obter uma confiança 0..1
+  // comparável entre consultas (antes era reportado como "350% de confiança").
+  const bestScore = ranked.reduce((max, item) => (item.score > max ? item.score : max), 0)
+  if (bestScore <= 0) return { hints: [], suggestions: [] }
+
+  const byName = new Map(topLevelTools.map((tool) => [tool.name, tool]))
+  const topScores = ranked
+    .filter((item) => item.score > 0)
+    .map((item) => ({ tool: byName.get(item.label), confidence: item.score / bestScore }))
+    .filter((item): item is { tool: NonNullable<typeof item.tool>; confidence: number } =>
+      item.tool !== undefined && item.confidence >= MIN_RELATIVE_RELEVANCE,
+    )
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, MAX_SUGGESTIONS)
 
   // Gerar hints
   const hints: string[] = []
@@ -52,10 +67,10 @@ export function calculateSemanticNudge(userInput: string): NudgeResult {
 
   if (topScores.length > 0) {
     hints.push("[SDD Tools Sugeridas]")
-    for (const { tool, score } of topScores) {
-      const confidencePct = Math.round(score * 100)
+    for (const { tool, confidence } of topScores) {
+      const confidencePct = Math.round(confidence * 100)
       hints.push(`- ${tool.name} (${confidencePct}%): ${tool.description}`)
-      suggestions.push({ tool: tool.name, confidence: score })
+      suggestions.push({ tool: tool.name, confidence })
     }
   }
 

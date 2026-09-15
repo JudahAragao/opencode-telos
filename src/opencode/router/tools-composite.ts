@@ -45,6 +45,7 @@ import { parseSymbols, convertToSymbolNodes } from "../../sdd/code-quality/symbo
 import type { KnowledgeGraph, AnyNode, NodeType } from "../../sdd/domain/types.js"
 import { pruneGraph, formatPruneReport } from "../../sdd/graph/pruner.js"
 import { projectPath } from "../../sdd/security/paths.js"
+import { GRAPH_SCHEMA_VERSION } from "../../version.js"
 
 function getRepo(directory: string): GraphRepository {
   return createRepository(directory)
@@ -53,7 +54,7 @@ function getRepo(directory: string): GraphRepository {
 function loadOrEmpty(directory: string): KnowledgeGraph {
   const repo = getRepo(directory)
   if (repo.isInitialized()) return repo.loadGraph()
-  return { project_id: "pending", version: "1", nodes: [], relationships: [], metadata: { created_at: "", updated_at: "", sdd_version: "1.0" } }
+  return { project_id: "pending", version: GRAPH_SCHEMA_VERSION, nodes: [], relationships: [], metadata: { created_at: "", updated_at: "", sdd_version: GRAPH_SCHEMA_VERSION } }
 }
 
 async function executeOriginalTool(name: string, args: Record<string, unknown>, ctx: any): Promise<string> {

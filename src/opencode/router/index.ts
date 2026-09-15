@@ -6,7 +6,12 @@
  */
 
 // State Gate
-export { getVisibleTools, formatVisibleTools, ESCAPE_HATCH_INSTRUCTION } from "./state-gate.js"
+export {
+  getVisibleTools,
+  formatVisibleTools,
+  ESCAPE_HATCH_INSTRUCTION,
+  ENFORCEMENT_ORDER_INSTRUCTION,
+} from "./state-gate.js"
 
 // Graph State Snapshot
 export { getGraphSnapshot, invalidateSnapshotCache, formatGraphState } from "./graph-state-snapshot.js"

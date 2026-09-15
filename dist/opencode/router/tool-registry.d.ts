@@ -26,10 +26,12 @@ export interface ToolRegistryResult {
  * com intent classifier (tools relevantes para a intenção).
  *
  * @param directory - Diretório do projeto
- * @param userInput - Texto do input do usuário
+ * @param userInput - Texto do input do usuário. Quando ausente/vazio (ex: a
+ *   injeção no system prompt não recebe a mensagem do usuário), nenhuma
+ *   intenção é inferida: o conjunto completo do estado é apresentado.
  * @returns ToolRegistryResult com tools selecionadas e mensagem formatada
  */
-export declare function getToolsForSession(directory: string, userInput: string): ToolRegistryResult;
+export declare function getToolsForSession(directory: string, userInput?: string): ToolRegistryResult;
 /**
  * Obtém descrição de uma tool (standalone ou composite).
  */

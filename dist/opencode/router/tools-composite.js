@@ -27,6 +27,7 @@ import { addToDriftWhitelist, removeFromDriftWhitelist, loadDriftWhitelist } fro
 import { parseSymbols, convertToSymbolNodes } from "../../sdd/code-quality/symbol-parser.js";
 import { pruneGraph, formatPruneReport } from "../../sdd/graph/pruner.js";
 import { projectPath } from "../../sdd/security/paths.js";
+import { GRAPH_SCHEMA_VERSION } from "../../version.js";
 function getRepo(directory) {
     return createRepository(directory);
 }
@@ -34,7 +35,7 @@ function loadOrEmpty(directory) {
     const repo = getRepo(directory);
     if (repo.isInitialized())
         return repo.loadGraph();
-    return { project_id: "pending", version: "1", nodes: [], relationships: [], metadata: { created_at: "", updated_at: "", sdd_version: "1.0" } };
+    return { project_id: "pending", version: GRAPH_SCHEMA_VERSION, nodes: [], relationships: [], metadata: { created_at: "", updated_at: "", sdd_version: GRAPH_SCHEMA_VERSION } };
 }
 async function executeOriginalTool(name, args, ctx) {
     const { createSddTools } = await import("../tools.js");

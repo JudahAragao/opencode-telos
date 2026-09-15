@@ -8,7 +8,7 @@
  * Dependências: state-gate.ts, intent-classifier.ts, tool-taxonomy.ts
  */
 
-import { getVisibleTools, ESCAPE_HATCH_INSTRUCTION } from "./state-gate.js"
+import { getVisibleTools, ESCAPE_HATCH_INSTRUCTION, ENFORCEMENT_ORDER_INSTRUCTION } from "./state-gate.js"
 import { classifyIntent, getToolsForIntent, type IntentResult } from "./intent-classifier.js"
 import { TOOL_TAXONOMY, STANDALONE_TOOLS, type CompositeTool } from "./tool-taxonomy.js"
 
@@ -24,30 +24,65 @@ export interface ToolRegistryResult {
 }
 
 /**
+ * Número mínimo de tools que uma interseção de categoria precisa produzir
+ * para ser confiada em vez do conjunto completo do estado. Abaixo disso o
+ * agente ficaria cego para entry points essenciais (sdd.enforce, sdd.discover,
+ * sdd.validate, ...).
+ */
+const MIN_INTERSECTION_TOOLS = 10
+
+/**
+ * Conjunto completo de tools conhecidas: as visíveis pelo estado ou, em
+ * fallback, todas as registradas.
+ */
+function allKnownTools(stateTools: Set<string> | null): string[] {
+  if (stateTools) return [...stateTools]
+  return [...STANDALONE_TOOLS, ...TOOL_TAXONOMY.map((t) => t.name)]
+}
+
+/**
  * Obtém o conjunto final de tools para o LLM.
  *
  * Combina state gate (tools visíveis pelo estado do grafo)
  * com intent classifier (tools relevantes para a intenção).
  *
  * @param directory - Diretório do projeto
- * @param userInput - Texto do input do usuário
+ * @param userInput - Texto do input do usuário. Quando ausente/vazio (ex: a
+ *   injeção no system prompt não recebe a mensagem do usuário), nenhuma
+ *   intenção é inferida: o conjunto completo do estado é apresentado.
  * @returns ToolRegistryResult com tools selecionadas e mensagem formatada
  */
-export function getToolsForSession(directory: string, userInput: string): ToolRegistryResult {
+export function getToolsForSession(directory: string, userInput?: string): ToolRegistryResult {
   // 1. State gate: quais tools são visíveis pelo estado do grafo?
   const stateTools = getVisibleTools(directory)
 
-  // 2. Intent classifier: qual a intenção do usuário?
-  const intent = classifyIntent(userInput)
+  const input = userInput?.trim() ?? ""
 
-  // 3. Interseção: tools da intenção ∩ tools visíveis
+  // 2. Sem input: não fabricar intenção a partir de string vazia. Isso
+  // produzia sempre a primeira categoria ("mutation") com 0% de confiança e
+  // reduzia o anúncio a 3 tools, escondendo o resto do conjunto do estado.
+  if (input.length === 0) {
+    const tools = allKnownTools(stateTools)
+    const intent: IntentResult = { category: "info", confidence: 0, topCategories: [] }
+    return {
+      tools,
+      intent,
+      stateTools,
+      formattedMessage: formatToolRegistryMessage(tools, intent, false),
+    }
+  }
+
+  // 3. Intent classifier: qual a intenção do usuário?
+  const intent = classifyIntent(input)
+
+  // 4. Interseção: tools da intenção ∩ tools visíveis
   const tools = getToolsForIntent(intent, stateTools)
 
-  // 4. Se resultado muito pequeno, usar fallback (todas as tools do estado)
-  const finalTools = tools.length >= 3 ? tools : (stateTools ? [...stateTools] : [...STANDALONE_TOOLS, ...TOOL_TAXONOMY.map(t => t.name)])
+  // 5. Interseção fina demais → usar o conjunto completo do estado
+  const finalTools = tools.length >= MIN_INTERSECTION_TOOLS ? tools : allKnownTools(stateTools)
 
-  // 5. Formatar mensagem para o system prompt
-  const formattedMessage = formatToolRegistryMessage(finalTools, intent)
+  // 6. Formatar mensagem para o system prompt
+  const formattedMessage = formatToolRegistryMessage(finalTools, intent, true)
 
   return {
     tools: finalTools,
@@ -59,21 +94,29 @@ export function getToolsForSession(directory: string, userInput: string): ToolRe
 
 /**
  * Formata a mensagem do tool registry para o system prompt.
+ *
+ * @param showIntent - Quando false, omite o header de intenção (não houve
+ *   input para classificar).
  */
 function formatToolRegistryMessage(
   tools: string[],
   intent: IntentResult,
+  showIntent = true,
 ): string {
   const lines: string[] = []
 
   // Header com intenção detectada
-  const confidencePct = Math.round(intent.confidence * 100)
-  lines.push(`## Intent Detectado: ${intent.category} (${confidencePct}% confiança)`)
-  if (intent.topCategories.length > 1) {
-    const alternatives = intent.topCategories.slice(1).map(c => `${c.category} (${Math.round(c.score * 100)}%)`).join(", ")
-    lines.push(`Alternativas: ${alternatives}`)
+  if (showIntent) {
+    const confidencePct = Math.round(intent.confidence * 100)
+    lines.push(`## Intent Detectado: ${intent.category} (${confidencePct}% confiança)`)
+    if (intent.topCategories.length > 1) {
+      const alternatives = intent.topCategories.slice(1).map(c => `${c.category} (${Math.round(c.score * 100)}%)`).join(", ")
+      lines.push(`Alternativas: ${alternatives}`)
+    }
+    lines.push("")
   }
-  lines.push("")
+
+  lines.push(`### Tools SDD Disponíveis (${tools.length})`)
 
   // Tools selecionadas
   const standalone = tools.filter(t => STANDALONE_TOOLS.includes(t))
@@ -96,6 +139,10 @@ function formatToolRegistryMessage(
       }
     }
   }
+
+  // Contrato de enforcement (mantém o prompt coerente com checkToolAccess)
+  lines.push("")
+  lines.push(ENFORCEMENT_ORDER_INSTRUCTION)
 
   // Escape hatch
   lines.push("")

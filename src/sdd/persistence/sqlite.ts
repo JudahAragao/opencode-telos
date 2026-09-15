@@ -12,6 +12,7 @@ import { getCacheManager } from "../cache/manager.js"
 import { fileSignature, graphFingerprint } from "../cache/fingerprint.js"
 import type { GraphRepository } from "./repository.js"
 import { recordLegitimateSave, validateGraphIntegrity } from "../graph/integrity-guard.js"
+import { GRAPH_SCHEMA_VERSION } from "../../version.js"
 
 /**
  * SQLite-backed graph repository.
@@ -170,14 +171,14 @@ export class SqliteGraphRepository {
     }))
 
     const graph: KnowledgeGraph = {
-      version: metaMap.get("version") || "1.0.0",
+      version: metaMap.get("version") || GRAPH_SCHEMA_VERSION,
       project_id: metaMap.get("project_id") || "unknown",
       nodes,
       relationships,
       metadata: {
         created_at: metaMap.get("created_at") || new Date().toISOString(),
         updated_at: metaMap.get("updated_at") || new Date().toISOString(),
-        sdd_version: metaMap.get("sdd_version") || "1.0.0",
+        sdd_version: metaMap.get("sdd_version") || GRAPH_SCHEMA_VERSION,
       },
     }
 
@@ -418,7 +419,7 @@ export class SqliteGraphRepository {
       metadata: {
         created_at: now,
         updated_at: now,
-        sdd_version: "1.0.0",
+        sdd_version: GRAPH_SCHEMA_VERSION,
       },
     }
     this.saveGraph(graph)

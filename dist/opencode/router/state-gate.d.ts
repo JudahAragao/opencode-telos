@@ -19,6 +19,14 @@ export declare function getVisibleTools(directory: string): Set<string> | null;
  */
 export declare function formatVisibleTools(visibleTools: Set<string> | null): string;
 /**
+ * Contrato de enforcement anunciado junto com a lista de tools.
+ *
+ * Mantém o prompt coerente com a política aplicada por checkToolAccess: as
+ * tools de mutação são recusadas enquanto não houver um Change ativo, então a
+ * ordem de bootstrap precisa estar explícita para o agente.
+ */
+export declare const ENFORCEMENT_ORDER_INSTRUCTION: string;
+/**
  * Escape hatch: instrução para o LLM mostrar todas as tools se necessário.
  */
 export declare const ESCAPE_HATCH_INSTRUCTION: string;

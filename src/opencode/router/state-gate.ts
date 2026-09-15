@@ -18,6 +18,10 @@ const ALWAYS_VISIBLE = new Set([
   "sdd.validate",
   "sdd.detect_drift",
   "sdd.get_context",
+  // Workflow entry points: exempt from the enforcement policy and required to
+  // start a Change in ANY graph state, so they must never be hidden.
+  "sdd.enforce",
+  "sdd.update_from_answers",
 ])
 
 /** Tools de composits que são sempre visíveis */
@@ -187,11 +191,28 @@ export function formatVisibleTools(visibleTools: Set<string> | null): string {
 }
 
 /**
+ * Contrato de enforcement anunciado junto com a lista de tools.
+ *
+ * Mantém o prompt coerente com a política aplicada por checkToolAccess: as
+ * tools de mutação são recusadas enquanto não houver um Change ativo, então a
+ * ordem de bootstrap precisa estar explícita para o agente.
+ */
+export const ENFORCEMENT_ORDER_INSTRUCTION = `
+### Ordem obrigatória (enforcement ativo)
+Sem um Change ativo, as tools que mutam o grafo são recusadas pelo hook. Sequência:
+1. \`sdd.enforce\` — classifica a requisição e cria o Change
+2. atualizar a spec (\`sdd.build_graph\`, \`sdd.graph_mutation\`, \`sdd.update_from_answers\`)
+3. \`sdd.approve_change\` — aprova o Change
+4. escrever código (\`sdd.generate_code\` ou Write/Edit)
+5. \`sdd.verify_implementation\` → \`sdd.complete_change\`
+`.trim()
+
+/**
  * Escape hatch: instrução para o LLM mostrar todas as tools se necessário.
  */
 export const ESCAPE_HATCH_INSTRUCTION = `
 ### Tools SDD Não Listadas?
-Se precisar de uma tool que não está na lista acima, você pode:
-1. Usar a tool original diretamente (todas ainda existem)
-2. Pedir ao usuário para usar \`/sdd status\` para ver todas as tools disponíveis
+Todas as tools SDD registradas continuam disponíveis mesmo fora desta lista.
+Se precisar de uma tool específica que não aparece acima, chame-a diretamente
+pelo nome (ex: \`sdd.<nome>\`).
 `.trim()

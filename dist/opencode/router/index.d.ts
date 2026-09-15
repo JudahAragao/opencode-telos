@@ -4,7 +4,7 @@
  * Exporta todas as funções públicas do módulo router.
  * Consumido por: hooks.ts
  */
-export { getVisibleTools, formatVisibleTools, ESCAPE_HATCH_INSTRUCTION } from "./state-gate.js";
+export { getVisibleTools, formatVisibleTools, ESCAPE_HATCH_INSTRUCTION, ENFORCEMENT_ORDER_INSTRUCTION, } from "./state-gate.js";
 export { getGraphSnapshot, invalidateSnapshotCache, formatGraphState } from "./graph-state-snapshot.js";
 export type { GraphSnapshot, GraphState } from "./graph-state-snapshot.js";
 export { classifyIntent, getToolsForIntent } from "./intent-classifier.js";

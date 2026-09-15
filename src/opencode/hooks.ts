@@ -198,6 +198,16 @@ export function createSddHooks(projectDir: string): Hooks {
       }
 
       const repo = createRepository(projectDir)
+
+      // A política central e o catálogo de tools DEVEM chegar ao modelo mesmo
+      // sem grafo: o grafo é criado POR essas tools (sdd.initialize /
+      // sdd.build_graph). Gatear o anúncio atrás de isInitialized() escondia
+      // os entry points do agente — ciclo fechado.
+      output.system.push(SDD_CORE_SYSTEM_PROMPT)
+      try {
+        output.system.push(getToolsForSession(projectDir).formattedMessage)
+      } catch (error) { sddDebug("hooks", "Failed to build tool registry message") }
+
       if (repo.isInitialized()) {
         // Restore persistent cache from disk (cross-session)
         try {
@@ -205,14 +215,10 @@ export function createSddHooks(projectDir: string): Hooks {
           cacheMgr.restoreFromPersistentCache()
         } catch (error) { sddDebug("hooks", "Failed to restore persistent cache") }
 
-        output.system.push(SDD_CORE_SYSTEM_PROMPT)
-        output.system.push(getToolsForSession(projectDir, "").formattedMessage)
-
-        // Tool Registry: injeta tools relevantes para o estado atual do grafo
+        // Tool Registry: injeta o estado atual do grafo
         try {
-          const { getGraphSnapshot } = await import("./router/graph-state-snapshot.js")
+          const { getGraphSnapshot, formatGraphState } = await import("./router/graph-state-snapshot.js")
           const snapshot = getGraphSnapshot(projectDir)
-          const { formatGraphState } = await import("./router/graph-state-snapshot.js")
           output.system.push(formatGraphState(snapshot))
         } catch (error) { sddDebug("hooks", "Failed to inject graph state snapshot") }
         try {

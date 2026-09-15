@@ -8,6 +8,7 @@ import { getCacheManager } from "../cache/manager.js"
 import { atomicWriteFile } from "../cache/atomic.js"
 import { fileSignature, graphFingerprint } from "../cache/fingerprint.js"
 import { recordLegitimateSave, validateGraphIntegrity } from "../graph/integrity-guard.js"
+import { GRAPH_SCHEMA_VERSION } from "../../version.js"
 
 export function readYaml<T>(filePath: string): T {
   const content = readFileSync(filePath, "utf-8")
@@ -328,7 +329,7 @@ export class YamlGraphRepository implements GraphRepository {
       metadata: {
         created_at: now,
         updated_at: now,
-        sdd_version: "1.0.0",
+        sdd_version: GRAPH_SCHEMA_VERSION,
       },
     }
     this.saveGraph(graph)

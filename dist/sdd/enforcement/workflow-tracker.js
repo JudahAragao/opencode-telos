@@ -171,7 +171,9 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
     // Read-only enterprise reports remain exempt; mutating enterprise tools are
     // classified below as workflow-required.
     "sdd.estimate_cost",
-    // Toggle and config
+    // Toggle and config. `sdd.toggle` flips enforcement itself; requiring an
+    // active workflow would make it impossible to enable SDD through the tool.
+    "sdd.toggle",
     "sdd.toggle_status",
     "sdd.constitution",
     // Session and export
@@ -217,6 +219,12 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
     "sdd.sync",
     "sdd.code_quality",
     "sdd.enterprise",
+    // Composite containers stay exempt so their dispatcher can inspect the
+    // requested action and allow read-only ones; mutating actions are still
+    // gated by COMPOSITE_MUTATING_ACTIONS below.
+    "sdd.graph_mutation",
+    "sdd.graph_admin",
+    "sdd.drift_whitelist",
     "sdd.workflow_new_feature",
     "sdd.workflow_bug_fix",
     "sdd.workflow_hotfix",
@@ -243,9 +251,6 @@ export const WORKFLOW_REQUIRED_TOOLS = new Set([
     "sdd.whitelist_drift",
     "sdd.unwhitelist_drift",
     "sdd.auto_link_tests",
-    "sdd.graph_mutation",
-    "sdd.graph_admin",
-    "sdd.drift_whitelist",
     "sdd.save_permissions_config",
     "sdd.sync_pull",
     "sdd.sync_push",
@@ -255,7 +260,6 @@ export const WORKFLOW_REQUIRED_TOOLS = new Set([
     "sdd.install_hooks",
     "sdd.generate_cicd",
     "sdd.migrate_storage",
-    "sdd.toggle",
     "sdd.bug_fix",
     "sdd.hotfix",
     "sdd.refactoring",
