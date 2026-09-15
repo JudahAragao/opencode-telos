@@ -341,7 +341,8 @@ The agent runs `sdd.inspect` showing stats, nodes by type and status distributio
 | Tool | Description |
 |---|---|
 | `sdd.initialize` | Initializes SDD for the project |
-| `sdd.toggle_status` | Enables/disables SDD enforcement |
+| `sdd.toggle` | Enables/disables SDD enforcement (write) |
+| `sdd.toggle_status` | Shows the current toggle state (read-only) |
 | `sdd.list_snapshots` | Lists snapshots available for rollback |
 
 ### Navigation and search
@@ -376,6 +377,42 @@ The agent runs `sdd.inspect` showing stats, nodes by type and status distributio
 | `sdd.add_relationship` | Creates relationships between nodes |
 | `sdd.remove_relationship` | Removes a relationship |
 
+### Graph building
+
+| Tool | Description |
+|---|---|
+| `sdd.build_graph` | Builds a complete Knowledge Graph from a briefing (entities, features, requirements, relationships). The primary tool for bootstrapping a specification: prefers an `analysis_json` with the agent's structured analysis. |
+| `sdd.auto_link_tests` | Links orphan tests to requirements by name/import analysis (`tested_by`), optionally as a dry run |
+
+### Composite tools
+
+The router groups related tools into **composite tools** that accept an `action` parameter, replacing the original standalone tools (kept for compatibility):
+
+| Tool | Actions |
+|---|---|
+| `sdd.graph_mutation` | `add_node`, `update_node`, `remove_node`, `add_relationship`, `remove_relationship` |
+| `sdd.graph_query` | `count_nodes`, `get_nodes_by_status`, `list_nodes` |
+| `sdd.traverse` | `outgoing`, `incoming`, `both`, `subgraph`, `find_path` |
+| `sdd.permissions` | `set_role`, `check`, `audit`, `config`, `save_config`, `role`, `approval` |
+| `sdd.snapshot` | `create`, `rollback`, `history`, `list` |
+| `sdd.sync` | `status`, `pull`, `push`, `conflicts`, `merge` |
+| `sdd.graph_admin` | `health`, `health_detail`, `prune`, `cache`, `conventions`, `learn` |
+| `sdd.code_quality` | `complexity`, `metrics`, `smells`, `dependencies`, `usage`, `dead_code`, `remove_dead_code`, `parse_symbols`, `plan_implementation`, `analyze_codebase` |
+| `sdd.enterprise` | `migration`, `experiment`, `flag`, `tenant`, `security_audit`, `scalability`, `compliance`, `monitoring`, `dashboard`, `incident`, `sla`, `cost`, `docs`, `onboarding`, `knowledge_transfer`, `disaster_recovery`, `config_drift`, `workflow_export` |
+| `sdd.drift_whitelist` | `add`, `remove`, `list` |
+
+### Workflow chains
+
+Encapsulated multi-step workflows executed as a single tool call (each step uses the SDD tools under the hood):
+
+| Tool | What it does |
+|---|---|
+| `sdd.workflow_new_feature` | enforce → build_graph → validate → approve → generate → verify → complete |
+| `sdd.workflow_bug_fix` | enforce → validate → approve → generate → verify → complete |
+| `sdd.workflow_hotfix` | emergency hotfix (no enforcement) + retrospective documentation |
+| `sdd.workflow_refactor` | enforce → validate → analyze impact → complete |
+| `sdd.workflow_full_cycle` | full cycle via `sdd.full_cycle` |
+
 ### Discovery and briefing
 
 | Tool | Description |
@@ -393,6 +430,9 @@ The agent runs `sdd.inspect` showing stats, nodes by type and status distributio
 | `sdd.complete_change` | Marks a change as complete, only when every gate passes |
 | `sdd.renew_workflow` | Renews the active workflow window, keeping the same Change and its verification report |
 | `sdd.pending_changes` | Lists pending changes |
+| `sdd.fail_change` | Marks a change as FAILED with a reason |
+| `sdd.change_history` | Shows the changes history ordered by creation |
+| `sdd.impact_report` | Generates a detailed impact report for a change (affected nodes, files, new/modified/removed) |
 
 ### Completion gate (trava B)
 
@@ -423,6 +463,16 @@ again would create a new Change and orphan the previous one.
 | `sdd.quality` | Calculates the quality score with trend |
 | `sdd.contradictions` | Detects contradictions in the graph |
 | `sdd.verify_usage` | Verifies SDD feature usage |
+| `sdd.graph_health` | Analyzes graph health (orphans, density, type distribution) |
+| `sdd.graph_health_detail` | Detailed health analysis (stale changes, cycles, god nodes) |
+
+### Migrations
+
+| Tool | Description |
+|---|---|
+| `sdd.check_migrations` | Checks if SDD data needs migration (graph.yaml vs graph.db, missing fields) |
+| `sdd.run_migrations` | Executes all pending SDD migrations |
+| `sdd.migrate_storage` | Migrates storage between YAML and SQLite backends |
 
 ### Drift detection
 
@@ -431,6 +481,10 @@ again would create a new Change and orphan the previous one.
 | `sdd.detect_drift` | Detects specification ↔ code drift |
 | `sdd.config_drift` | Detects drift in configs |
 | `sdd.detect_sync_conflicts` | Detects conflicts between local and remote graphs |
+| `sdd.drift_signals` | Detects advanced drift signals (mutant duplicates, architecture violations, pattern fragmentation) |
+| `sdd.whitelist_drift` | Adds a file/pattern to the drift whitelist |
+| `sdd.unwhitelist_drift` | Removes a file from the drift whitelist |
+| `sdd.list_whitelist` | Lists files/patterns in the drift whitelist |
 
 ### Patterns and anti-patterns
 
@@ -449,6 +503,13 @@ again would create a new Change and orphan the previous one.
 | `sdd.enforce_rules` | Shows the enforcement rules |
 | `sdd.full_cycle` | Full cycle: enforce → validate → generate → sync |
 
+### Verification
+
+| Tool | Description |
+|---|---|
+| `sdd.verify_implementation` | Runs the project-declared verification scripts (lint, typecheck, test, build, etc.) **plus** the requirement→test evidence for the Change. A report is required before completing the Change. |
+| `sdd.analyze_scalability` | Scalability analysis |
+
 ### Code quality
 
 | Tool | Description |
@@ -460,14 +521,19 @@ again would create a new Change and orphan the previous one.
 | `sdd.find_dead_code` | Finds unused code |
 | `sdd.remove_dead_code` | Removes identified dead code |
 | `sdd.parse_symbols` | Parses symbols (functions, classes, interfaces) |
+| `sdd.verify_usage` | Verifies if code is actually used/imported |
+| `sdd.detect_conventions` | Detects project coding conventions |
+| `sdd.learn_patterns` | Learns common patterns, defaults and relationship conventions from the graph |
+| `sdd.plan_implementation` | Plans implementation connecting code to spec nodes |
 
 ### Analysis
 
 | Tool | Description |
 |---|---|
-| `sdd.check_compliance` | Compliance check (GDPR, LGPD, HIPAA, SOC2) |
+| `sdd.check_compliance` | Compliance check (GDPR, LGPD, HIPAA, SOC2, PCI_DSS, ISO27001) |
 | `sdd.security_audit` | Security audit |
-| `sdd.analyze_scalability` | Scalability analysis |
+| `sdd.drift_signals` | Detects advanced drift signals (mutant duplicates, architecture violations, pattern fragmentation) |
+| `sdd.brownfield_scan` | Analyzes an existing project for integration |
 
 ### Codebase intelligence
 
@@ -541,7 +607,7 @@ again would create a new Change and orphan the previous one.
 | Tool | Description |
 |---|---|
 | `sdd.estimate_cost` | Cost estimation |
-| `sdd.generate_cicd` | Generates CI/CD config (GitHub, GitLab, Jenkins, Docker) |
+| `sdd.generate_cicd` | Generates CI/CD config (platform: github, gitlab, jenkins, docker, or all) |
 | `sdd.disaster_recovery_plan` | Disaster recovery plan |
 
 ### Infrastructure
@@ -553,6 +619,10 @@ again would create a new Change and orphan the previous one.
 | `sdd.start_dashboard` | Starts the web server with 3D graph visualization |
 | `sdd.mcp_server_info` | MCP server information |
 | `sdd.handle_mcp_tool` | Processes a tool via the MCP protocol |
+| `sdd.telemetry` | Shows local performance, estimated token, and cache telemetry (nothing leaves the machine) |
+| `sdd.record_feedback` | Records a local human correction for an extracted fact/classification |
+| `sdd.cache_stats` | Shows cache statistics (hit rates, sizes, invalidation count) |
+| `sdd.detect_conventions` | Detects project conventions (naming, imports, async patterns) |
 
 ### Promises
 
@@ -636,7 +706,10 @@ contains, depends_on, requires, implements, implemented_by,
 satisfied_by, affects, modifies, creates, deletes, uses,
 calls, persists_to, exposes, tested_by, tests, derived_from,
 contradicts, supersedes, replaces, blocked_by, belongs_to,
-owned_by, triggered_by, flows_to
+owned_by, triggered_by, flows_to, deprecates, migrates_to,
+experimented_by, flagged_by, validates, influences, constrains,
+applies_to, owned_by_tenant, monitored_by, alerted_by,
+incident_in, sla_for, defines
 ```
 
 ## Enforcement flow
@@ -676,11 +749,64 @@ sdd.complete_change → completes only when every gate passes
     (if the 30-min window expires: sdd.renew_workflow keeps the same Change)
 ```
 
-**What is blocked:** any write operation on `.ts`, `.js`, `.py`, `.go`, `.rs`, `.java`, `.rb`, `.vue`, `.svelte` files (outside `node_modules`, `.sdd/`, `dist/`, `build/`).
+**What is blocked:** any write operation on `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, `.rs`, `.java`, `.rb`, `.vue`, `.svelte` files (outside `node_modules`, `.sdd/`, `dist/`, `build/`, `.git/`, `.opencode/`, and unfollowed files like `package.json`, `tsconfig.json`, `.env`).
 
 **What is NOT blocked:** config files (`package.json`, `tsconfig.json`), `.env`, `.sdd/` files, files outside the project.
 
 **What happens when blocked:** the agent receives an error message describing exactly what it needs to do (enforce → approve → retry).
+
+## Completing a Change (verification gate)
+
+`sdd.complete_change` only completes a Change when **all** of these hold (unless you explicitly `force=true`, which is an audited override, not a shortcut):
+
+1. **the executable verification passed** — `sdd.verify_implementation` ran the project-declared scripts AND the requirement→test evidence for the Change, and all passed;
+2. **the requirement→test evidence holds** — at least one `tested_by` link exists for each affected requirement, or the Change declares `no_requirement_impact=true`;
+3. **no verification check failed** — every `format:check`, `lint`, `typecheck`, `test`, `build`, `ci`, `diff`, etc. that the project declares must pass (skipped optional tests do not count as a failure);
+4. **the fingerprint still matches** — no code or configuration file changed after verification;
+5. **the declared `affected_files` still match** — each file declared by the Change exists and has the same content hash captured at verification (`verifyScopedFiles`);
+6. **spec evidence exists** — the Change references at least one node that actually exists in the graph, or declares `no_requirement_impact=true`.
+
+The blocked message lists exactly which condition failed, so the agent knows what to fix.
+
+### What is a "verification script" and when does a project not have one?
+
+`sdd.verify_implementation` does NOT invent a command. It derives the check from the project:
+
+- reads `package.json` scripts and runs the ones it understands: `format:check`, `format`, `lint`, `typecheck`, `check`, `verify`, `build`, `compile`, `test`, `ci`;
+- also looks for common manifests: `Cargo.toml` (cargo check/test), `go.mod` (go test), `pyproject.toml`/`pytest.ini`/`tox.ini` (python compile/test), `pom.xml`/gradle/Makefile;
+- runs `git diff --check` when there is a `.git` repo.
+
+A project "does not have a verification script" when **none of those is declared** — for example, a straight Node/TS repo that only has `start`/`dev` scripts and no test or lint target, or a minimal project that was not configured with any verification script at all.
+
+In that case `sdd.verify_implementation` returns:
+
+```
+## Executable Verification: BLOCKED
+- SKIPPED: project verification — No supported project verification manifest or script was declared
+No executable verification script was available; configure project scripts before completing the Change.
+```
+
+So a project without a verification script is **blocked by default** — that is the intended behavior, because the gate is supposed to require evidence, not guess.
+
+### How can a project still complete when it has no script?
+
+That is the G4 case. Instead of silently forcing the Change, the workflow now uses an **auditable waiver**:
+
+- run `sdd.verify_implementation` with `acknowledge_no_scripts=true` and optionally `waiver_reason` (e.g. "docs-only change, no test runner declared");
+- the report is saved with `verification_waived: true` and the recorded reason;
+- `sdd.complete_change` then accepts that report as a valid completion.
+
+Use this only when you understand what is missing — it is the explicit path from "I must provide a script" to "I am recording why there is no script and I still want to complete". It does not remove the other gates: the requirement→test evidence, fingerprint and file hashes still apply.
+
+### What about changes that do not write code?
+
+For changes that do not affect a file (documentation only, graph-only updates, metadata changes), declaring an artificial file to satisfy the gate is not the right move. Instead:
+
+- declare `affected_files: []` with `acknowledge_no_files=true` when creating the Change (private, audited — the write hook stays blocked for that Change because there is nothing to cover);
+- declare `no_requirement_impact=true` when the change truly alters no specified behaviour;
+- complete only if the remaining gates still make sense.
+
+That combination is the intended path for graph-only/documentation-only changes: it records the decision that no script and no spec-trace were required, instead of forcing a Change into a verification model that does not fit it.
 
 ## Authentication and roles
 
@@ -877,10 +1003,12 @@ sdd.generate_dashboard(type: "overview")
 ```
 src/
 ├ index.ts                              # Plugin entry point (synchronous init — no HTTP await)
+├ version.ts                            # PLUGIN_VERSION + GRAPH_SCHEMA_VERSION (generated by scripts/sync-version.cjs)
 ├ server-entry.ts                       # "./server" subpath with utilities (createMcpServer, dashboard, analyzeCodebase)
 ├ sdd/
 │  ├── domain/types.ts                  # Node types + relationships + graphs
 │  ├── graph/                           # Knowledge Graph CRUD and navigation
+│  │   ├── index.ts                       # In-memory graph indices (byId, byType, byStatus, inverted)
 │  │   ├── engine.ts                      # Engines / integrity
 │  │   ├── traverse.ts                    # BFS, impact analysis, pathfinding
 │  │   ├── integrity.ts / integrity-guard.ts / pruner.ts
@@ -927,6 +1055,7 @@ src/
 │  ├── code-quality/                    # Code quality
 │  │   ├── complexity.ts / metrics.ts / smells.ts / dependencies.ts
 │  │   ├── symbol-parser.ts / usage-tracker.ts / import-analyzer.ts / conventions.ts / utils.ts
+│  ├── security/paths.ts                # Project path assertion (rejects traversal, symlink escapes)
 │  ├── workflows/                       # Enterprise workflows
 │  │   ├── bug-fix.ts / hotfix.ts / refactoring.ts / deprecation.ts / data-migration.ts
 │  │   ├── ab-testing.ts / feature-flags.ts / multi-tenancy.ts / onboarding.ts
@@ -952,7 +1081,7 @@ src/
 │  ├── router/                          # Semantic tool routing
 │  │   ├── index.ts / categories.ts / intent-classifier.ts / state-gate.ts
 │  │   ├── tool-registry.ts / tool-taxonomy.ts / tools-composite.ts
-│  │   └── graph-state-snapshot.ts
+│  │   ├── graph-state-snapshot.ts / embeddings.ts
 │  └── workflows/                       # Opencode workflow executor
 │      ├── index.ts / chains.ts / executor.ts / tools-workflow.ts / types.ts
 ├ mcp/
