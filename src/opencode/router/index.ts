@@ -25,12 +25,8 @@ export type { IntentResult } from "./intent-classifier.js"
 export { getToolsForSession, getToolDescription, listAllTools } from "./tool-registry.js"
 export type { ToolRegistryResult } from "./tool-registry.js"
 
-// Semantic Nudge
-export { calculateSemanticNudge, formatNudgeInput, isToolSuggested, getTopSuggestion } from "./semantic-nudge.js"
-export type { NudgeResult } from "./semantic-nudge.js"
-
-// Embeddings
-export { cosineSimilarity, getEmbedding, getLexicalVector, rankSimilarity } from "./embeddings.js"
+// Relevância lexical (BM25)
+export { rankSimilarity } from "./embeddings.js"
 
 // Categories
 export { getToolCategories, getToolsByCategory, getCategoriesInToolSet, CATEGORY_KEYWORDS } from "./categories.js"

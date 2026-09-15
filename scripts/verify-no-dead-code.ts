@@ -31,8 +31,6 @@ const NEW_FILES = [
   "src/opencode/router/tool-registry.ts",
   "src/opencode/router/embeddings.ts",
   "src/opencode/router/categories.ts",
-  "src/opencode/router/semantic-nudge.ts",
-  "src/opencode/router/tool-embeddings.ts",
   // Workflows (Item 4)
   "src/opencode/workflows/index.ts",
   "src/opencode/workflows/chains.ts",
@@ -46,7 +44,7 @@ const NEW_FILES = [
 // Arquivos existentes que importam os novos módulos
 const CONSUMERS = [
   "src/opencode/tools.ts",       // importa tools-composite.ts, tools-workflow.ts
-  "src/opencode/hooks.ts",       // importa router/semantic-nudge.ts, router/tool-registry.ts, router/graph-state-snapshot.ts
+  "src/opencode/hooks.ts",       // importa router/tool-registry.ts, router/graph-state-snapshot.ts
   "src/opencode/system-prompt.ts", // Referenciado mas não importa diretamente
   // Internos dos módulos novos
   "src/opencode/router/index.ts",
@@ -54,8 +52,6 @@ const CONSUMERS = [
   "src/opencode/router/graph-state-snapshot.ts",
   "src/opencode/router/intent-classifier.ts",
   "src/opencode/router/tool-registry.ts",
-  "src/opencode/router/semantic-nudge.ts",
-  "src/opencode/router/tool-embeddings.ts",
   "src/opencode/router/embeddings.ts",
   "src/opencode/router/categories.ts",
   "src/opencode/router/tool-taxonomy.ts",

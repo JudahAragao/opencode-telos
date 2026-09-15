@@ -7,7 +7,6 @@ import { checkPermission, getUserRoleWithAuth, addAuditEntry } from "../sdd/perm
 import { createSnapshot } from "../sdd/rollback/manager.js";
 import { getCacheManager } from "../sdd/cache/manager.js";
 import { checkToolAccess, getWorkflowState, markSpecUpdated, workflowScope } from "../sdd/enforcement/workflow-tracker.js";
-import { formatNudgeInput } from "./router/semantic-nudge.js";
 import { getToolsForSession } from "./router/tool-registry.js";
 import { invalidateSnapshotCache } from "./router/graph-state-snapshot.js";
 import { hasPendingMigrations } from "../sdd/migrations/index.js";
@@ -257,21 +256,6 @@ export function createSddHooks(projectDir) {
                     sddDebug("hooks", "Failed to persist cache to disk");
                 }
                 systemInjected = true;
-            }
-        },
-        "chat.message": async (_input, output) => {
-            if (!output.parts)
-                return;
-            if (!isSddEnabled(projectDir))
-                return;
-            for (const part of output.parts) {
-                if (part.type !== "text")
-                    continue;
-                // Semantic nudge — replaces regex-based pattern detection
-                const nudge = formatNudgeInput(part.text.trim());
-                if (nudge) {
-                    part.text += `\n\n${nudge}`;
-                }
             }
         },
         // `/sdd ...` commands are executed deterministically by the plugin

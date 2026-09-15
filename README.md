@@ -916,8 +916,8 @@ src/
 │  ├── system-prompt.ts                 # SDD instructions + question tool integration
 │  ├── shell-hooks.ts                   # Git hooks for SDD
 │  ├── router/                          # Semantic tool routing
-│  │   ├── index.ts / categories.ts / intent-classifier.ts / semantic-nudge.ts / state-gate.ts
-│  │   ├── tool-embeddings.ts / tool-registry.ts / tool-taxonomy.ts / tools-composite.ts
+│  │   ├── index.ts / categories.ts / intent-classifier.ts / state-gate.ts
+│  │   ├── tool-registry.ts / tool-taxonomy.ts / tools-composite.ts
 │  │   └── graph-state-snapshot.ts
 │  └── workflows/                       # Opencode workflow executor
 │      ├── index.ts / chains.ts / executor.ts / tools-workflow.ts / types.ts

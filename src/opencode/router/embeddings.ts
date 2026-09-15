@@ -1,107 +1,24 @@
 /**
- * Similaridade local entre input do usuário e tools SDD.
+ * Relevância lexical local entre o input do usuário e as opções de roteamento.
  *
- * O roteamento usa BM25 lexical. O vetor hash-based permanece apenas como
- * compatibilidade para consumidores externos.
+ * O roteamento usa BM25: determinístico, sem rede e preservando termos
+ * técnicos, nomes de arquivo e nomes de comando.
  *
- * Consumido por: intent-classifier.ts, semantic-nudge.ts
+ * Consumido por: intent-classifier.ts
  * Dependências: nenhuma (módulo puro)
  */
 
-/** Fixed dimension for the deterministic lexical vector. It is not an ML embedding. */
-const LEXICAL_VECTOR_DIM = 384
-
 /**
- * Gera um vetor lexical determinístico a partir de uma string usando hashes.
- */
-function hashToLexicalVector(text: string): number[] {
-  const vector: number[] = new Array(LEXICAL_VECTOR_DIM)
-  const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim()
-  const words = normalized.split(/\s+/).filter(w => w.length > 1)
-
-  // Inicializar com zeros
-  for (let i = 0; i < LEXICAL_VECTOR_DIM; i++) {
-    vector[i] = 0
-  }
-
-  // Adicionar contribuição de cada palavra
-  for (const word of words) {
-    let hash = 0
-    for (let i = 0; i < word.length; i++) {
-      hash = ((hash << 5) - hash + word.charCodeAt(i)) | 0
-    }
-
-    // Espalhar a contribuição da palavra pelo vetor
-    const seed = Math.abs(hash)
-    for (let i = 0; i < LEXICAL_VECTOR_DIM; i++) {
-      const val = Math.sin(seed * (i + 1) * 0.001) * 0.1
-      vector[i] += val
-    }
-  }
-
-  // Normalizar
-  let norm = 0
-  for (let i = 0; i < LEXICAL_VECTOR_DIM; i++) {
-    norm += vector[i] * vector[i]
-  }
-  norm = Math.sqrt(norm)
-  if (norm > 0) {
-    for (let i = 0; i < LEXICAL_VECTOR_DIM; i++) {
-      vector[i] /= norm
-    }
-  }
-
-  return vector
-}
-
-/**
- * Calcula similaridade coseno entre dois vetores.
- */
-export function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) return 0
-  let dotProduct = 0
-  let normA = 0
-  let normB = 0
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
-  }
-  const denominator = Math.sqrt(normA) * Math.sqrt(normB)
-  return denominator === 0 ? 0 : dotProduct / denominator
-}
-
-/**
- * Cache de vetores lexicais calculados.
- */
-const embeddingCache = new Map<string, number[]>()
-
-/**
- * Obtém o vetor lexical para uma string (com cache).
- */
-export function getLexicalVector(text: string): number[] {
-  const cached = embeddingCache.get(text)
-  if (cached) return cached
-
-  const vector = hashToLexicalVector(text)
-  embeddingCache.set(text, vector)
-  return vector
-}
-
-/** @deprecated Use getLexicalVector; this compatibility alias is not an ML embedding. */
-export const getEmbedding = getLexicalVector
-
-/**
- * Calcula similaridade entre um texto e múltiplas opções.
- * Retorna pares (label, score) ordenados por similaridade decrescente.
+ * Calcula a relevância BM25 entre uma consulta e múltiplas opções.
+ * Retorna pares (label, score) ordenados por relevância decrescente.
+ *
+ * Os scores são ilimitados — normalize contra o melhor match quando precisar
+ * de um valor de confiança comparável entre consultas.
  */
 export function rankSimilarity(
   query: string,
   options: Array<{ label: string; text: string }>,
 ): Array<{ label: string; score: number }> {
-  // Tool routing needs dependable lexical relevance, not an untrained hash
-  // vector that merely looks semantic. BM25 is local, deterministic and
-  // preserves exact technical terms, filenames and command names.
   const tokenize = (text: string) => text.toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .split(/[^a-z0-9_./-]+/).filter((term) => term.length > 1)
@@ -126,25 +43,4 @@ export function rankSimilarity(
     }, 0)
     return { label: option.label, score }
   }).sort((a, b) => b.score - a.score)
-}
-
-/**
- * Limpa o cache de vetores lexicais.
- */
-export function clearEmbeddingCache(): void {
-  embeddingCache.clear()
-}
-
-/**
- * Gera vetores lexicais para todas as tools e retorna o mapa.
- * Útil para pré-computação e persistência.
- */
-export function generateToolEmbeddings(
-  tools: Array<{ name: string; description: string }>,
-): Map<string, number[]> {
-  const map = new Map<string, number[]>()
-  for (const tool of tools) {
-    map.set(tool.name, getLexicalVector(tool.description))
-  }
-  return map
 }
