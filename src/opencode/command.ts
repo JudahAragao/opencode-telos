@@ -5,6 +5,12 @@ import {
   workflowScope,
 } from "../sdd/enforcement/workflow-tracker.js"
 import { getCacheManager } from "../sdd/cache/manager.js"
+import {
+  startSharedDashboard,
+  stopSharedDashboard,
+  getSharedDashboardUrl,
+  resolveDashboardPort,
+} from "../server/server.js"
 import { join as joinPath } from "path"
 import { sddDebug } from "../sdd/log.js"
 
@@ -30,7 +36,7 @@ import { sddDebug } from "../sdd/log.js"
 
 export const SDD_COMMAND_NAME = "sdd"
 export const SDD_COMMAND_DESCRIPTION =
-  "SDD command hub: enable/disable enforcement, show status, or reset caches (deterministic, no file changes)."
+  "SDD command hub: enable/disable enforcement, show status, open the dashboard, or reset caches (deterministic, no LLM needed)."
 
 /**
  * Template registered via `config(cfg).command` so `/sdd` shows up in the
@@ -97,8 +103,10 @@ export function runSddCommand(
   const raw = rawInput.replace(/^[/\s]+/, "").trim().toLowerCase()
   if (!raw.startsWith("sdd")) return { matched: false, text: "" }
 
-  const parts = raw.split(/\s+/)
-  const subRaw = parts.slice(1).join(" ").trim().toLowerCase()
+  // `sdd viz`, `sdd:viz` e `sdd-viz` são a mesma coisa: o separador depois de
+  // "sdd" é consumido aqui para que nenhuma forma caia no painel por engano.
+  const parts = raw.replace(/^sdd(?:[\s:_-]+|$)/i, "").split(/\s+/).filter(Boolean)
+  const subRaw = parts.join(" ").trim().toLowerCase()
   const sub = subRaw.replace(/^[:\-_]/, "").trim()
 
   const input: SddCommandInput = { command: "sdd", sessionID, arguments: subRaw }
@@ -114,6 +122,8 @@ export function runSddCommand(
     text = sddStatus(projectDir)
   } else if (sub === "cache_reset" || sub === "cachereset" || sub === "cache reset") {
     text = sddCacheReset(projectDir)
+  } else if (sub === "viz" || sub.startsWith("viz ") || sub.startsWith("viz:")) {
+    text = sddViz(projectDir, input)
   } else {
     text = commandNotFound(projectDir, input)
   }
@@ -126,7 +136,7 @@ export function runSddCommand(
  * Anchored full-text match so normal prose that merely contains "sdd" is
  * never treated as a command.
  */
-const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|cache[_\s-]*reset))?$/i
+const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|cache[_\s-]*reset|viz(?:[\s:_-]+(?:start|stop|status))?))?$/i
 
 /**
  * Detect a user message that is (or renders) an SDD command and normalize it
@@ -181,9 +191,12 @@ function commandNotFound(projectDir: string, _input: SddCommandInput): string {
     "- `sdd on` / `sdd:on`            — Enable SDD enforcement.",
     "- `sdd off` / `sdd:off`           — Disable SDD enforcement.",
     "- `sdd status` / `sdd:status`     — Show current SDD toggle.",
+    "- `sdd viz`                       — Start the Knowledge Graph dashboard.",
+    "- `sdd viz stop`                  — Stop the dashboard.",
+    "- `sdd viz status`                — Show the dashboard URL.",
     "- `sdd cache_reset` / `sdd:cache_reset` — Full cache reset.",
     "",
-    "Toggle and status are executed deterministically by the plugin (no LLM needed).",
+    "Toggle, status, viz and cache_reset are executed deterministically by the plugin (no LLM needed).",
     "",
     `Toggle state file: ${joinPath(projectDir, ".sdd", "enabled")}`,
   ].join("\n")
@@ -223,7 +236,7 @@ function sddStatus(projectDir: string): string {
     "",
     `Toggle file: ${joinPath(projectDir, ".sdd", "enabled")}`,
     "",
-    "Commands: `/sdd on`, `/sdd off`, `/sdd status`, `/sdd cache_reset`",
+    "Commands: `/sdd on`, `/sdd off`, `/sdd status`, `/sdd viz`, `/sdd cache_reset`",
   ].join("\n")
 }
 
@@ -248,12 +261,14 @@ function sddCacheReset(projectDir: string): string {
 function sddPanel(projectDir: string, _input: SddCommandInput): string {
   const state = getToggleState(projectDir)
   const status = state.enabled ? "🟢 ON" : "🔴 OFF"
+  const dashboardUrl = getSharedDashboardUrl()
 
   return [
     "## SDD — Command Panel",
     "",
     "**Status:** " + status,
     "**Last Changed:** " + state.changed_at,
+    "**Dashboard:** " + (dashboardUrl ?? "not running"),
     "",
     "This panel is an interactive shortcut for the most common SDD operations.",
     "Select a subcommand by typing it explicitly:",
@@ -261,12 +276,71 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
     "- `sdd on`       — Enable SDD enforcement (deterministic).",
     "- `sdd off`      — Disable SDD enforcement (deterministic).",
     "- `sdd status`   — Show current toggle state.",
+    "- `sdd viz`      — Start the Knowledge Graph dashboard (deterministic).",
+    "- `sdd viz stop` — Stop the dashboard.",
     "- `sdd cache_reset` — Clear caches without killing the session.",
     "",
     "The panel itself does not modify the graph. It routes to deterministic actions.",
     "",
     `Toggle file: ${joinPath(projectDir, ".sdd", "enabled")}`,
   ].join("\n")
+}
+
+/**
+ * `/sdd viz` — dashboard do Knowledge Graph.
+ *
+ * Totalmente determinístico: subir o servidor é um efeito colateral e não pode
+ * depender do LLM — o template do comando inclusive proíbe tool calls.
+ */
+function sddViz(projectDir: string, input: SddCommandInput): string {
+  const action = input.arguments.replace(/^viz[:\s]*/i, "").trim().toLowerCase()
+
+  if (action === "stop" || action === "off") {
+    const stopped = stopSharedDashboard()
+    return [
+      stopped ? "🛑 SDD dashboard **stopped**." : "ℹ️ SDD dashboard is not running.",
+      "",
+      "Start it again with `/sdd viz`.",
+    ].join("\n")
+  }
+
+  if (action === "status") {
+    const url = getSharedDashboardUrl()
+    return [
+      "## SDD Dashboard Status",
+      "",
+      `**Running:** ${url ?? "no"}`,
+      `**Preferred port:** ${resolveDashboardPort()} (override with SDD_DASHBOARD_PORT)`,
+      "",
+      "Commands: `/sdd viz`, `/sdd viz stop`, `/sdd viz status`",
+    ].join("\n")
+  }
+
+  try {
+    const port = startSharedDashboard(projectDir, resolveDashboardPort())
+    const url = getSharedDashboardUrl() ?? `http://127.0.0.1:${port}`
+    return [
+      "## SDD Dashboard Running",
+      "",
+      `**URL:** ${url}`,
+      "",
+      "Open the URL in a browser to view the Knowledge Graph in real time",
+      "(auto-refresh every 5 seconds).",
+      "",
+      "Stop it with `/sdd viz stop`.",
+    ].join("\n")
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return [
+      "## SDD Dashboard Unavailable",
+      "",
+      `**Reason:** ${message}`,
+      "",
+      message.toLowerCase().includes("not initialized")
+        ? "Initialize the Knowledge Graph first (`sdd.initialize`) and run `/sdd viz` again."
+        : "Retry with `/sdd viz`, or set a free port via SDD_DASHBOARD_PORT.",
+    ].join("\n")
+  }
 }
 
 /**

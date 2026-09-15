@@ -1,10 +1,15 @@
 /**
- * State Gate — Determina quais tools são visíveis para cada estado do grafo.
+ * State Gate — Prioriza as tools mais relevantes para cada estado do grafo.
  *
- * Reduz o espaço de escolha do LLM mostrando apenas tools relevantes.
- * Fallback: se o resultado for vazio, mostra todas as tools.
+ * ATENÇÃO: este módulo NÃO esconde tools. O catálogo completo é sempre
+ * anunciado ao agente por tool-registry.ts; aqui só calculamos o subconjunto
+ * que merece destaque para o estado atual. A decisão final de o que pode ser
+ * chamado é da política de enforcement (checkToolAccess).
  *
- * Consumido por: hooks.ts (experimental.chat.system.transform)
+ * Esconder tools por categoria foi a causa de entry points essenciais
+ * (sdd.start_dashboard, sdd.enforce, ...) nunca chegarem ao prompt.
+ *
+ * Consumido por: tool-registry.ts
  * Dependências: graph-state-snapshot.ts, tool-taxonomy.ts
  */
 import { getGraphSnapshot } from "./graph-state-snapshot.js";
@@ -106,38 +111,36 @@ const CATEGORY_HIDDEN = {
     emergency: ["quality", "sync", "enterprise"],
 };
 /**
- * Obtém as tools visíveis para o estado atual do grafo.
+ * Obtém as tools recomendadas (destaques) para o estado atual do grafo.
  *
  * @param directory - Diretório do projeto
- * @returns Set de nomes de tools visíveis. Se vazio (fallback), retorna null para indicar "todas".
+ * @returns Set de nomes de tools recomendadas. Nunca indica "ocultar".
  */
-export function getVisibleTools(directory) {
+export function getRecommendedTools(directory) {
     const snapshot = getGraphSnapshot(directory);
     const stateConfig = STATE_TOOLS[snapshot.state];
     const hiddenCategories = CATEGORY_HIDDEN[snapshot.state] || [];
-    const visible = new Set();
+    const recommended = new Set();
     // Adicionar sempre-visíveis
     for (const t of ALWAYS_VISIBLE)
-        visible.add(t);
+        recommended.add(t);
     for (const t of ALWAYS_VISIBLE_COMPOSITES)
-        visible.add(t);
+        recommended.add(t);
     // Adicionar tools do estado
     for (const t of stateConfig.standalone)
-        visible.add(t);
+        recommended.add(t);
     for (const t of stateConfig.composite)
-        visible.add(t);
+        recommended.add(t);
     // Adicionar composits de categories não-ocultas
     for (const tool of TOOL_TAXONOMY) {
         if (!hiddenCategories.includes(tool.category)) {
-            visible.add(tool.name);
+            recommended.add(tool.name);
         }
     }
-    // Se o resultado é muito pequeno (< 5 tools), retornar null (fallback: todas)
-    if (visible.size < 5) {
-        return null;
-    }
-    return visible;
+    return recommended;
 }
+/** @deprecated Use getRecommendedTools — nenhuma tool é ocultada do agente. */
+export const getVisibleTools = getRecommendedTools;
 /**
  * Formata a lista de tools visíveis para injeção no system prompt.
  */
@@ -192,11 +195,12 @@ Sem um Change ativo, as tools que mutam o grafo são recusadas pelo hook. Sequê
 5. \`sdd.verify_implementation\` → \`sdd.complete_change\`
 `.trim();
 /**
- * Escape hatch: instrução para o LLM mostrar todas as tools se necessário.
+ * Como escolher a tool: a lista anunciada é o catálogo completo, então a
+ * instrução passa a ser de priorização, não de descoberta.
  */
 export const ESCAPE_HATCH_INSTRUCTION = `
-### Tools SDD Não Listadas?
-Todas as tools SDD registradas continuam disponíveis mesmo fora desta lista.
-Se precisar de uma tool específica que não aparece acima, chame-a diretamente
-pelo nome (ex: \`sdd.<nome>\`).
+### Como escolher a tool
+A lista acima é o catálogo COMPLETO — não existe tool SDD fora dela.
+Comece pelas recomendadas (▸) e, antes de mutar o grafo, confirme o estado
+com \`sdd.inspect\` ou \`sdd.query_graph\`.
 `.trim();

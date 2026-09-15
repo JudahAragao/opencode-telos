@@ -1,35 +1,46 @@
 /**
  * Tool Registry — Registry central de tools SDD.
  *
- * Mantém a lista completa de tools, filtra por estado (state gate)
- * e intenção (intent classifier), e fornece o conjunto final para o LLM.
+ * Anuncia o CATÁLOGO COMPLETO de tools registradas ao agente e destaca as mais
+ * relevantes para o estado atual do grafo e para a intenção detectada.
+ *
+ * Histórico: antes este módulo escondia tools por categoria/estado e reduzia o
+ * anúncio a ~3 nomes, o que fazia entry points essenciais (sdd.enforce,
+ * sdd.discover, sdd.start_dashboard) nunca chegarem ao modelo. Nenhuma tool é
+ * omitida agora — a política de enforcement é quem decide o que pode ser
+ * chamado, não o anúncio.
  *
  * Consumido por: hooks.ts (experimental.chat.system.transform)
- * Dependências: state-gate.ts, intent-classifier.ts, tool-taxonomy.ts
+ * Dependências: state-gate.ts, intent-classifier.ts, categories.ts, tool-taxonomy.ts
  */
 import { type IntentResult } from "./intent-classifier.js";
 import { type CompositeTool } from "./tool-taxonomy.js";
 export interface ToolRegistryResult {
-    /** Tools finais selecionadas para o LLM */
+    /** Catálogo completo, ordenado por relevância */
     tools: string[];
-    /** Resultado da classificação de intenção */
+    /** Resultado da classificação de intenção (zeroed quando não há input) */
     intent: IntentResult;
-    /** Se null, todas as tools estão disponíveis (fallback) */
-    stateTools: Set<string> | null;
+    /** Tools recomendadas para o estado atual do grafo (destaque, nunca filtro) */
+    recommended: Set<string>;
     /** Mensagem formatada para injeção no system prompt */
     formattedMessage: string;
 }
 /**
- * Obtém o conjunto final de tools para o LLM.
+ * Catálogo completo de tools registradas: as standalone (cujo nome vem de
+ * STANDALONE_CATEGORIES) mais as compositas da taxonomia.
  *
- * Combina state gate (tools visíveis pelo estado do grafo)
- * com intent classifier (tools relevantes para a intenção).
+ * tests/tool-catalog.test.ts garante que esta lista é idêntica às chaves de
+ * createSddTools(), então uma tool nova não pode mais ficar invisível.
+ */
+export declare const ALL_TOOL_NAMES: readonly string[];
+/**
+ * Obtém o conjunto final de tools para o LLM.
  *
  * @param directory - Diretório do projeto
  * @param userInput - Texto do input do usuário. Quando ausente/vazio (ex: a
  *   injeção no system prompt não recebe a mensagem do usuário), nenhuma
- *   intenção é inferida: o conjunto completo do estado é apresentado.
- * @returns ToolRegistryResult com tools selecionadas e mensagem formatada
+ *   intenção é inferida e as recomendadas do estado lideram a ordenação.
+ * @returns ToolRegistryResult com o catálogo completo e a mensagem formatada
  */
 export declare function getToolsForSession(directory: string, userInput?: string): ToolRegistryResult;
 /**

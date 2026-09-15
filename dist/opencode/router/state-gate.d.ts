@@ -1,19 +1,26 @@
 /**
- * State Gate — Determina quais tools são visíveis para cada estado do grafo.
+ * State Gate — Prioriza as tools mais relevantes para cada estado do grafo.
  *
- * Reduz o espaço de escolha do LLM mostrando apenas tools relevantes.
- * Fallback: se o resultado for vazio, mostra todas as tools.
+ * ATENÇÃO: este módulo NÃO esconde tools. O catálogo completo é sempre
+ * anunciado ao agente por tool-registry.ts; aqui só calculamos o subconjunto
+ * que merece destaque para o estado atual. A decisão final de o que pode ser
+ * chamado é da política de enforcement (checkToolAccess).
  *
- * Consumido por: hooks.ts (experimental.chat.system.transform)
+ * Esconder tools por categoria foi a causa de entry points essenciais
+ * (sdd.start_dashboard, sdd.enforce, ...) nunca chegarem ao prompt.
+ *
+ * Consumido por: tool-registry.ts
  * Dependências: graph-state-snapshot.ts, tool-taxonomy.ts
  */
 /**
- * Obtém as tools visíveis para o estado atual do grafo.
+ * Obtém as tools recomendadas (destaques) para o estado atual do grafo.
  *
  * @param directory - Diretório do projeto
- * @returns Set de nomes de tools visíveis. Se vazio (fallback), retorna null para indicar "todas".
+ * @returns Set de nomes de tools recomendadas. Nunca indica "ocultar".
  */
-export declare function getVisibleTools(directory: string): Set<string> | null;
+export declare function getRecommendedTools(directory: string): Set<string>;
+/** @deprecated Use getRecommendedTools — nenhuma tool é ocultada do agente. */
+export declare const getVisibleTools: typeof getRecommendedTools;
 /**
  * Formata a lista de tools visíveis para injeção no system prompt.
  */
@@ -27,6 +34,7 @@ export declare function formatVisibleTools(visibleTools: Set<string> | null): st
  */
 export declare const ENFORCEMENT_ORDER_INSTRUCTION: string;
 /**
- * Escape hatch: instrução para o LLM mostrar todas as tools se necessário.
+ * Como escolher a tool: a lista anunciada é o catálogo completo, então a
+ * instrução passa a ser de priorização, não de descoberta.
  */
 export declare const ESCAPE_HATCH_INSTRUCTION: string;

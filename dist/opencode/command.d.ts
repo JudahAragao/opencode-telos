@@ -19,7 +19,7 @@ import type { Hooks } from "@opencode-ai/plugin";
  * o roteamento determinístico.
  */
 export declare const SDD_COMMAND_NAME = "sdd";
-export declare const SDD_COMMAND_DESCRIPTION = "SDD command hub: enable/disable enforcement, show status, or reset caches (deterministic, no file changes).";
+export declare const SDD_COMMAND_DESCRIPTION = "SDD command hub: enable/disable enforcement, show status, open the dashboard, or reset caches (deterministic, no LLM needed).";
 /**
  * Template registered via `config(cfg).command` so `/sdd` shows up in the
  * command preview without the user having to create `.md` files.

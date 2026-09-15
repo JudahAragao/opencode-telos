@@ -127,7 +127,15 @@ depending on the LLM to perform the action):
 | `/sdd on` | `on` / `enable` | Enables SDD enforcement (every change requires a spec) |
 | `/sdd off` | `off` / `disable` | Disables enforcement (you can code freely) |
 | `/sdd status` | `status` | Shows the current toggle state |
+| `/sdd viz` | `viz` / `viz start` | Starts the Knowledge Graph dashboard (3D, real time) in the background |
+| `/sdd viz stop` | `viz stop` | Stops the dashboard |
+| `/sdd viz status` | `viz status` | Shows the dashboard URL |
 | `/sdd cache_reset` | `cache_reset` | Clears caches without killing the session |
+
+`/sdd-viz` and `/sdd:viz` are accepted as the same command as `/sdd viz`.
+The dashboard listens on `127.0.0.1:7331` (override with `SDD_DASHBOARD_PORT`),
+falls back to a free port when 7331 is taken, and is stopped when the OpenCode
+process exits — it is an in-process server, not a detached daemon.
 
 > **Note:** because slash `/` commands in OpenCode are *prompt commands* by
 > definition, invoking them makes OpenCode **also trigger an LLM turn** after

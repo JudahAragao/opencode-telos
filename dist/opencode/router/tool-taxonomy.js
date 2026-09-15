@@ -6,6 +6,7 @@
  *
  * Base para: router (intent classification), state gate, e redução de tools.
  */
+import { STANDALONE_CATEGORIES } from "./categories.js";
 /**
  * Todas as tools composits e suas sub-actions.
  * As tools originais listadas em `replaces` são deprecated e mantidas por compatibilidade.
@@ -177,66 +178,15 @@ for (const tool of TOOL_TAXONOMY) {
         }
     }
 }
-/** Tools que NÃO foram compostas (mantidas isoladas) */
-export const STANDALONE_TOOLS = [
-    "sdd.initialize",
-    "sdd.inspect",
-    "sdd.query_graph",
-    "sdd.analyze_impact",
-    "sdd.create_change",
-    "sdd.discover",
-    "sdd.update_from_answers",
-    "sdd.validate",
-    "sdd.detect_drift",
-    "sdd.get_context",
-    "sdd.approve_change",
-    "sdd.complete_change",
-    "sdd.fail_change",
-    "sdd.change_history",
-    "sdd.impact_report",
-    "sdd.pending_changes",
-    "sdd.generate_code",
-    "sdd.enforce",
-    "sdd.enforce_rules",
-    "sdd.full_cycle",
-    "sdd.toggle",
-    "sdd.constitution",
-    "sdd.promises",
-    "sdd.quality",
-    "sdd.session_handoff",
-    "sdd.anti_patterns",
-    "sdd.clone_detection",
-    "sdd.contradictions",
-    "sdd.coverage",
-    "sdd.install_hooks",
-    "sdd.brownfield_scan",
-    "sdd.generate_cicd",
-    "sdd.bug_fix",
-    "sdd.hotfix",
-    "sdd.refactoring",
-    "sdd.deprecate",
-    "sdd.toggle_status",
-    "sdd.drift_signals",
-    "sdd.build_graph",
-    "sdd.auto_link_tests",
-    "sdd.migrate_storage",
-    "sdd.start_dashboard",
-    "sdd.mcp_server_info",
-    "sdd.handle_mcp_tool",
-    // Operational tools and workflow entrypoints remain standalone so every
-    // registered tool participates in routing, visibility and policy checks.
-    "sdd.check_migrations",
-    "sdd.run_migrations",
-    "sdd.verify_implementation",
-    "sdd.record_feedback",
-    "sdd.telemetry",
-    "sdd.remote_status",
-    "sdd.workflow_new_feature",
-    "sdd.workflow_bug_fix",
-    "sdd.workflow_hotfix",
-    "sdd.workflow_refactor",
-    "sdd.workflow_full_cycle",
-];
+/**
+ * Tools que NÃO foram compostas (mantidas isoladas).
+ *
+ * Derivado de `STANDALONE_CATEGORIES` para que exista uma única fonte do
+ * catálogo: manter uma segunda lista aqui só criava divergência silenciosa
+ * (tools registradas que nunca apareciam no anúncio). Uma tool sem categoria
+ * declarada deixa de existir nesta lista, e tests/tool-catalog.test.ts acusa.
+ */
+export const STANDALONE_TOOLS = Object.keys(STANDALONE_CATEGORIES);
 /** Todas as tools originais que foram substituídas por composits */
 export const DEPRECATED_TOOLS = [];
 for (const tool of TOOL_TAXONOMY) {

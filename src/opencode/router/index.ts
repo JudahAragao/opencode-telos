@@ -7,6 +7,7 @@
 
 // State Gate
 export {
+  getRecommendedTools,
   getVisibleTools,
   formatVisibleTools,
   ESCAPE_HATCH_INSTRUCTION,
@@ -22,14 +23,22 @@ export { classifyIntent, getToolsForIntent } from "./intent-classifier.js"
 export type { IntentResult } from "./intent-classifier.js"
 
 // Tool Registry
-export { getToolsForSession, getToolDescription, listAllTools } from "./tool-registry.js"
+export { getToolsForSession, getToolDescription, listAllTools, ALL_TOOL_NAMES } from "./tool-registry.js"
 export type { ToolRegistryResult } from "./tool-registry.js"
 
 // Relevância lexical (BM25)
 export { rankSimilarity } from "./embeddings.js"
 
 // Categories
-export { getToolCategories, getToolsByCategory, getCategoriesInToolSet, CATEGORY_KEYWORDS } from "./categories.js"
+export {
+  getToolCategories,
+  hasToolCategory,
+  getToolsByCategory,
+  getCategoriesInToolSet,
+  CATEGORY_KEYWORDS,
+  STANDALONE_CATEGORIES,
+  COMPOSITE_CATEGORIES,
+} from "./categories.js"
 export type { IntentCategory } from "./categories.js"
 
 // Tool Taxonomy

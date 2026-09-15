@@ -12,6 +12,7 @@ The user can control SDD enforcement with these commands (handled automatically 
 - \`/sdd on\` — Enable SDD enforcement (all changes must go through spec)
 - \`/sdd off\` — Disable SDD enforcement (code changes freely)
 - \`/sdd status\` — Show current SDD status
+- \`/sdd viz\` — Start the Knowledge Graph dashboard (3D, real time); \`/sdd viz stop\` stops it
 
 When SDD is disabled, skip the enforcement workflow and implement changes directly.
 When SDD is enabled, ALWAYS follow the SDD-first workflow.

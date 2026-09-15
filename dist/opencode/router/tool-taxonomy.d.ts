@@ -31,7 +31,14 @@ export declare const TOOL_TO_COMPOSITE: Map<string, {
     composite: string;
     action: string;
 }>;
-/** Tools que NÃO foram compostas (mantidas isoladas) */
+/**
+ * Tools que NÃO foram compostas (mantidas isoladas).
+ *
+ * Derivado de `STANDALONE_CATEGORIES` para que exista uma única fonte do
+ * catálogo: manter uma segunda lista aqui só criava divergência silenciosa
+ * (tools registradas que nunca apareciam no anúncio). Uma tool sem categoria
+ * declarada deixa de existir nesta lista, e tests/tool-catalog.test.ts acusa.
+ */
 export declare const STANDALONE_TOOLS: string[];
 /** Todas as tools originais que foram substituídas por composits */
 export declare const DEPRECATED_TOOLS: string[];

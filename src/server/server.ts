@@ -20,32 +20,75 @@ export interface DashboardEvent {
   data: unknown
 }
 
+/** Porta preferida do dashboard (estável entre sessões). Override via SDD_DASHBOARD_PORT. */
+export const DEFAULT_DASHBOARD_PORT = 7331
+
+/** Porta configurada pelo usuário, se houver. */
+export function resolveDashboardPort(): number {
+  const raw = process.env.SDD_DASHBOARD_PORT
+  if (!raw) return DEFAULT_DASHBOARD_PORT
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 65535 ? parsed : DEFAULT_DASHBOARD_PORT
+}
+
 export class SddDashboardServer {
   private repo: GraphRepository
   private projectDir: string
   private port: number = 0
+  private server: ReturnType<typeof Bun.serve> | null = null
 
   constructor(projectDir: string) {
     this.projectDir = projectDir
     this.repo = createRepository(projectDir)
   }
 
-  async start(): Promise<number> {
+  /**
+   * Sobe o servidor de dashboard.
+   *
+   * @param preferredPort - porta desejada. Se estiver ocupada, cai para uma
+   *   porta efêmera em vez de falhar; a porta retornada é a autoritativa.
+   * @returns a porta em que o servidor está escutando
+   */
+  start(preferredPort: number = 0): number {
     if (!this.repo.isInitialized()) {
       throw new Error("SDD not initialized")
     }
 
-    const server = Bun.serve({
-      port: 0,
-      hostname: "127.0.0.1",
-      fetch: async (req) => {
+    const options = {
+      hostname: "127.0.0.1" as const,
+      fetch: async (req: Request) => {
         const url = new URL(req.url)
         return this.handleRequest(url, req)
       },
-    })
+    }
 
+    let server: ReturnType<typeof Bun.serve>
+    try {
+      server = Bun.serve({ ...options, port: preferredPort })
+    } catch (error) {
+      if (preferredPort === 0) throw error
+      server = Bun.serve({ ...options, port: 0 })
+    }
+
+    this.server = server
     this.port = server.port ?? 0
     return this.port
+  }
+
+  /** Encerra o servidor, se estiver rodando. */
+  stop(): void {
+    if (!this.server) return
+    this.server.stop(true)
+    this.server = null
+    this.port = 0
+  }
+
+  isRunning(): boolean {
+    return this.server !== null
+  }
+
+  getProjectDir(): string {
+    return this.projectDir
   }
 
   getPort(): number {
@@ -1134,4 +1177,49 @@ export class SddDashboardServer {
       headers: { "Content-Type": "text/html", ...headers },
     })
   }
+}
+
+// ── Servidor compartilhado ──────────────────────────────────────────
+//
+// O dashboard é um servidor in-process: só faz sentido existir um por projeto.
+// O tool `sdd.start_dashboard` e o comando `/sdd viz` passam por aqui, para não
+// subir dois servidores (com duas portas distintas) na mesma sessão.
+
+let sharedDashboard: SddDashboardServer | null = null
+let sharedProjectDir: string | null = null
+
+/**
+ * Sobe o dashboard do projeto ou reaproveita o que já estiver rodando.
+ *
+ * @returns a porta em que o dashboard está escutando
+ */
+export function startSharedDashboard(
+  projectDir: string,
+  preferredPort: number = resolveDashboardPort(),
+): number {
+  if (sharedDashboard?.isRunning() && sharedProjectDir === projectDir) {
+    return sharedDashboard.getPort()
+  }
+
+  sharedDashboard?.stop()
+
+  const server = new SddDashboardServer(projectDir)
+  server.start(preferredPort)
+  sharedDashboard = server
+  sharedProjectDir = projectDir
+  return server.getPort()
+}
+
+/** Encerra o dashboard compartilhado. Retorna false se não havia nada rodando. */
+export function stopSharedDashboard(): boolean {
+  if (!sharedDashboard?.isRunning()) return false
+  sharedDashboard.stop()
+  sharedDashboard = null
+  sharedProjectDir = null
+  return true
+}
+
+/** URL do dashboard compartilhado, ou null se não estiver rodando. */
+export function getSharedDashboardUrl(): string | null {
+  return sharedDashboard?.isRunning() ? sharedDashboard.getUrl() : null
 }

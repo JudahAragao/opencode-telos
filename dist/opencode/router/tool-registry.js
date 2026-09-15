@@ -1,117 +1,126 @@
 /**
  * Tool Registry — Registry central de tools SDD.
  *
- * Mantém a lista completa de tools, filtra por estado (state gate)
- * e intenção (intent classifier), e fornece o conjunto final para o LLM.
+ * Anuncia o CATÁLOGO COMPLETO de tools registradas ao agente e destaca as mais
+ * relevantes para o estado atual do grafo e para a intenção detectada.
+ *
+ * Histórico: antes este módulo escondia tools por categoria/estado e reduzia o
+ * anúncio a ~3 nomes, o que fazia entry points essenciais (sdd.enforce,
+ * sdd.discover, sdd.start_dashboard) nunca chegarem ao modelo. Nenhuma tool é
+ * omitida agora — a política de enforcement é quem decide o que pode ser
+ * chamado, não o anúncio.
  *
  * Consumido por: hooks.ts (experimental.chat.system.transform)
- * Dependências: state-gate.ts, intent-classifier.ts, tool-taxonomy.ts
+ * Dependências: state-gate.ts, intent-classifier.ts, categories.ts, tool-taxonomy.ts
  */
-import { getVisibleTools, ESCAPE_HATCH_INSTRUCTION, ENFORCEMENT_ORDER_INSTRUCTION } from "./state-gate.js";
-import { classifyIntent, getToolsForIntent } from "./intent-classifier.js";
+import { getRecommendedTools, ESCAPE_HATCH_INSTRUCTION, ENFORCEMENT_ORDER_INSTRUCTION, } from "./state-gate.js";
+import { classifyIntent } from "./intent-classifier.js";
 import { TOOL_TAXONOMY, STANDALONE_TOOLS } from "./tool-taxonomy.js";
+import { getToolCategories } from "./categories.js";
 /**
- * Número mínimo de tools que uma interseção de categoria precisa produzir
- * para ser confiada em vez do conjunto completo do estado. Abaixo disso o
- * agente ficaria cego para entry points essenciais (sdd.enforce, sdd.discover,
- * sdd.validate, ...).
+ * Catálogo completo de tools registradas: as standalone (cujo nome vem de
+ * STANDALONE_CATEGORIES) mais as compositas da taxonomia.
+ *
+ * tests/tool-catalog.test.ts garante que esta lista é idêntica às chaves de
+ * createSddTools(), então uma tool nova não pode mais ficar invisível.
  */
-const MIN_INTERSECTION_TOOLS = 10;
-/**
- * Conjunto completo de tools conhecidas: as visíveis pelo estado ou, em
- * fallback, todas as registradas.
- */
-function allKnownTools(stateTools) {
-    if (stateTools)
-        return [...stateTools];
-    return [...STANDALONE_TOOLS, ...TOOL_TAXONOMY.map((t) => t.name)];
+export const ALL_TOOL_NAMES = [
+    ...STANDALONE_TOOLS,
+    ...TOOL_TAXONOMY.map((t) => t.name),
+];
+const COMPOSITE_NAMES = new Set(TOOL_TAXONOMY.map((t) => t.name));
+/** Nomes de tools por linha na listagem compacta do prompt. */
+const NAMES_PER_LINE = 5;
+/** Prioridade de exibição: intenção (0) → recomendada (1) → restante (2). */
+function relevanceRank(name, intent, recommended) {
+    if (intent && getToolCategories(name).includes(intent.category))
+        return 0;
+    if (recommended.has(name))
+        return 1;
+    return 2;
 }
 /**
  * Obtém o conjunto final de tools para o LLM.
  *
- * Combina state gate (tools visíveis pelo estado do grafo)
- * com intent classifier (tools relevantes para a intenção).
- *
  * @param directory - Diretório do projeto
  * @param userInput - Texto do input do usuário. Quando ausente/vazio (ex: a
  *   injeção no system prompt não recebe a mensagem do usuário), nenhuma
- *   intenção é inferida: o conjunto completo do estado é apresentado.
- * @returns ToolRegistryResult com tools selecionadas e mensagem formatada
+ *   intenção é inferida e as recomendadas do estado lideram a ordenação.
+ * @returns ToolRegistryResult com o catálogo completo e a mensagem formatada
  */
 export function getToolsForSession(directory, userInput) {
-    // 1. State gate: quais tools são visíveis pelo estado do grafo?
-    const stateTools = getVisibleTools(directory);
+    // 1. State gate: quais tools merecem destaque neste estado do grafo?
+    const recommended = getRecommendedTools(directory);
+    // 2. Intent classifier: qual a intenção do usuário? (só com input real —
+    // inferir de string vazia devolvia sempre a primeira categoria, "mutation")
     const input = userInput?.trim() ?? "";
-    // 2. Sem input: não fabricar intenção a partir de string vazia. Isso
-    // produzia sempre a primeira categoria ("mutation") com 0% de confiança e
-    // reduzia o anúncio a 3 tools, escondendo o resto do conjunto do estado.
-    if (input.length === 0) {
-        const tools = allKnownTools(stateTools);
-        const intent = { category: "info", confidence: 0, topCategories: [] };
-        return {
-            tools,
-            intent,
-            stateTools,
-            formattedMessage: formatToolRegistryMessage(tools, intent, false),
-        };
-    }
-    // 3. Intent classifier: qual a intenção do usuário?
-    const intent = classifyIntent(input);
-    // 4. Interseção: tools da intenção ∩ tools visíveis
-    const tools = getToolsForIntent(intent, stateTools);
-    // 5. Interseção fina demais → usar o conjunto completo do estado
-    const finalTools = tools.length >= MIN_INTERSECTION_TOOLS ? tools : allKnownTools(stateTools);
-    // 6. Formatar mensagem para o system prompt
-    const formattedMessage = formatToolRegistryMessage(finalTools, intent, true);
+    const intent = input.length > 0 ? classifyIntent(input) : null;
+    // 3. Ordenar por relevância mantendo o catálogo INTEIRO (nada é omitido)
+    const tools = [...ALL_TOOL_NAMES].sort((a, b) => {
+        const diff = relevanceRank(a, intent, recommended) - relevanceRank(b, intent, recommended);
+        return diff !== 0 ? diff : a.localeCompare(b);
+    });
     return {
-        tools: finalTools,
-        intent,
-        stateTools,
-        formattedMessage,
+        tools,
+        intent: intent ?? { category: "info", confidence: 0, topCategories: [] },
+        recommended,
+        formattedMessage: formatToolRegistryMessage(tools, intent, recommended),
     };
+}
+/**
+ * Lista compacta de nomes, agrupados em linhas, com destaque das recomendadas.
+ */
+function formatNameList(names, recommended) {
+    const sorted = [...names].sort();
+    const lines = [];
+    for (let i = 0; i < sorted.length; i += NAMES_PER_LINE) {
+        const chunk = sorted
+            .slice(i, i + NAMES_PER_LINE)
+            .map((name) => `${recommended.has(name) ? "▸" : " "} \`${name}\``);
+        lines.push(`- ${chunk.join("")}`);
+    }
+    return lines.join("\n");
 }
 /**
  * Formata a mensagem do tool registry para o system prompt.
  *
- * @param showIntent - Quando false, omite o header de intenção (não houve
- *   input para classificar).
+ * @param intent - null quando não houve input para classificar.
  */
-function formatToolRegistryMessage(tools, intent, showIntent = true) {
+function formatToolRegistryMessage(tools, intent, recommended) {
     const lines = [];
-    // Header com intenção detectada
-    if (showIntent) {
+    if (intent) {
         const confidencePct = Math.round(intent.confidence * 100);
         lines.push(`## Intent Detectado: ${intent.category} (${confidencePct}% confiança)`);
         if (intent.topCategories.length > 1) {
-            const alternatives = intent.topCategories.slice(1).map(c => `${c.category} (${Math.round(c.score * 100)}%)`).join(", ");
+            const alternatives = intent.topCategories
+                .slice(1)
+                .map((c) => `${c.category} (${Math.round(c.score * 100)}%)`)
+                .join(", ");
             lines.push(`Alternativas: ${alternatives}`);
         }
         lines.push("");
     }
-    lines.push(`### Tools SDD Disponíveis (${tools.length})`);
-    // Tools selecionadas
-    const standalone = tools.filter(t => STANDALONE_TOOLS.includes(t));
-    const composite = tools.filter(t => TOOL_TAXONOMY.find(tc => tc.name === t));
-    if (standalone.length > 0) {
-        lines.push("### Tools Individuais");
-        for (const t of standalone.sort()) {
-            lines.push(`- \`${t}\``);
-        }
-    }
-    if (composite.length > 0) {
-        lines.push("\n### Tools Compositas (use action= para sub-comando)");
-        for (const t of composite.sort()) {
-            const tool = TOOL_TAXONOMY.find(tc => tc.name === t);
-            if (tool) {
-                const actions = tool.actions.map(a => a.name).join(", ");
-                lines.push(`- \`${t}\` → [${actions}]`);
-            }
-        }
-    }
-    // Contrato de enforcement (mantém o prompt coerente com checkToolAccess)
+    lines.push(`### Tools SDD — catálogo completo (${tools.length})`);
+    lines.push("Todas estão disponíveis. `▸` marca as recomendadas para o estado atual do grafo.");
     lines.push("");
+    const composites = tools.filter((name) => COMPOSITE_NAMES.has(name)).sort();
+    const standalone = tools.filter((name) => !COMPOSITE_NAMES.has(name));
+    if (composites.length > 0) {
+        lines.push("#### Compositas (use `action=` para o sub-comando)");
+        for (const name of composites) {
+            const tool = TOOL_TAXONOMY.find((tc) => tc.name === name);
+            if (!tool)
+                continue;
+            const actions = tool.actions.map((a) => a.name).join(", ");
+            lines.push(`- ${recommended.has(name) ? "▸" : " "} \`${name}\` → [${actions}]`);
+        }
+        lines.push("");
+    }
+    lines.push(`#### Individuais (${standalone.length})`);
+    lines.push(formatNameList(standalone, recommended));
+    lines.push("");
+    // Contrato de enforcement (mantém o prompt coerente com checkToolAccess)
     lines.push(ENFORCEMENT_ORDER_INSTRUCTION);
-    // Escape hatch
     lines.push("");
     lines.push(ESCAPE_HATCH_INSTRUCTION);
     return lines.join("\n");
@@ -120,15 +129,11 @@ function formatToolRegistryMessage(tools, intent, showIntent = true) {
  * Obtém descrição de uma tool (standalone ou composite).
  */
 export function getToolDescription(toolName) {
-    // Tentar standalone primeiro
-    if (STANDALONE_TOOLS.includes(toolName)) {
-        return `SDD tool: ${toolName}`;
-    }
-    // Tentar composite
-    const composite = TOOL_TAXONOMY.find(t => t.name === toolName);
-    if (composite) {
+    const composite = TOOL_TAXONOMY.find((t) => t.name === toolName);
+    if (composite)
         return composite.description;
-    }
+    if (STANDALONE_TOOLS.includes(toolName))
+        return `SDD tool: ${toolName}`;
     return `Unknown tool: ${toolName}`;
 }
 /**

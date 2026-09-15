@@ -31,7 +31,7 @@ import { createSnapshot, executeRollback, loadRollbackHistory, formatRollbackRes
 import { loadPermissions, checkPermission, checkChangeApproval, setRole, getUserRoleWithAuth, addAuditEntry, getAuditLog, formatPermissionCheck, formatAuditLog, detectRemote, formatRemoteStatus, savePermissions, getRequiredApprovals, getUserRole, fetchRemoteUser } from "../sdd/permissions/access.js";
 import { analyzeCodebase } from "../code-intelligence/analyzer.js";
 import { createMcpServer } from "../mcp/server.js";
-import { SddDashboardServer } from "../server/server.js";
+import { startSharedDashboard, getSharedDashboardUrl, resolveDashboardPort } from "../server/server.js";
 import { readJson } from "../sdd/persistence/yaml.js";
 import { getCacheManager } from "../sdd/cache/manager.js";
 import { markEnforced, markApproved, markValidated, markCompleted, resetWorkflowState, workflowScope } from "../sdd/enforcement/workflow-tracker.js";
@@ -3205,18 +3205,22 @@ export function createSddTools() {
             },
         }),
         "sdd.start_dashboard": tool({
-            description: "Start the SDD Knowledge Graph dashboard server with a 3D visualization UI.",
+            description: "Start the SDD Knowledge Graph dashboard server (3D visualization UI) and return its URL. Stop it with the `/sdd viz stop` command.",
             args: {},
             async execute(_args, ctx) {
-                const dashboard = new SddDashboardServer(ctx.directory);
                 try {
-                    const port = await dashboard.start();
+                    // Servidor compartilhado: `/sdd viz` usa a mesma instância, então não
+                    // subimos dois servidores (com duas portas) na mesma sessão.
+                    const port = startSharedDashboard(ctx.directory, resolveDashboardPort());
+                    const url = getSharedDashboardUrl() ?? `http://127.0.0.1:${port}`;
                     return [
                         `## SDD Dashboard Started`,
-                        `**URL:** http://127.0.0.1:${port}`,
+                        `**URL:** ${url}`,
                         "",
                         "Open the URL in a browser to view the Knowledge Graph visualization.",
                         "The dashboard auto-refreshes every 5 seconds.",
+                        "",
+                        "Stop it with `/sdd viz stop`.",
                     ].join("\n");
                 }
                 catch (e) {
