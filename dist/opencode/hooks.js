@@ -14,6 +14,8 @@ import { graphFingerprint, sourceFingerprint } from "../sdd/cache/fingerprint.js
 import { sddDebug } from "../sdd/log.js";
 import { projectPath } from "../sdd/security/paths.js";
 import { extractSddCommandText, renderSddCommandMessage } from "./command.js";
+import { getPendingIntegrationTasks } from "../sdd/tasks/board.js";
+import { setDashboardSessionID } from "../server/dashboard-context.js";
 const SDD_FILE_PATTERNS = [
     /\.ts$/,
     /\.tsx$/,
@@ -167,6 +169,9 @@ export function createSddHooks(projectDir) {
     let injectedSourceSignature = "";
     return {
         "experimental.chat.system.transform": async (_input, output) => {
+            // Track the session driving the current turn so the dashboard can wake the
+            // agent for task integration (see src/server/dashboard-context.ts).
+            setDashboardSessionID(_input.sessionID);
             if (systemInjected) {
                 try {
                     const currentRepo = createRepository(projectDir);
@@ -242,6 +247,16 @@ export function createSddHooks(projectDir) {
                     const pending = getPendingChanges(graph);
                     if (pending.length > 0) {
                         output.system.push(`## Pending Changes: ${pending.length} change(s) awaiting action`);
+                    }
+                    // Surface manual tasks created from the dashboard Kanban so the agent
+                    // integrates them into the spec.
+                    const pendingTasks = getPendingIntegrationTasks(graph);
+                    if (pendingTasks.length > 0) {
+                        output.system.push([
+                            `## SDD Task Board: ${pendingTasks.length} task(s) pending AI integration`,
+                            'Run `sdd.integrate_tasks` (action="list") to get the integration plan, link each task',
+                            "(implements / tested_by / depends_on) and finish with action=\"mark_integrated\".",
+                        ].join("\n"));
                     }
                 }
                 catch {

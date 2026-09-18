@@ -131,6 +131,9 @@ depending on the LLM to perform the action):
 | `/sdd viz` | `viz` / `viz start` | Starts the Knowledge Graph dashboard (3D, real time) in the background |
 | `/sdd viz stop` | `viz stop` | Stops the dashboard |
 | `/sdd viz status` | `viz status` | Shows the dashboard URL |
+| `/sdd tasks` | `tasks` | Lists the Kanban task board |
+| `/sdd tasks integrate` | `tasks integrate` | Shows the AI integration plan for tasks pending integration |
+| `/sdd tasks board` | `tasks board` | Opens the dashboard on the Kanban board |
 | `/sdd cache_reset` | `cache_reset` | Clears caches without killing the session |
 
 `/sdd-viz` and `/sdd:viz` are accepted as the same command as `/sdd viz`.
@@ -333,6 +336,41 @@ Create a relationship: Tenant contains User
 Show the current SDD state
 ```
 The agent runs `sdd.inspect` showing stats, nodes by type and status distribution.
+
+## Kanban task board
+
+The dashboard exposes a **Kanban view** over the existing `task` nodes — no
+schema change. Columns are derived from the task status:
+
+| Column | Status |
+|---|---|
+| Backlog | `DRAFT`, `PROPOSED`, `todo` |
+| Ready | `ready`, `APPROVED` |
+| In Progress | `in_progress`, `IMPLEMENTING`, `VERIFYING` |
+| Blocked | `blocked`, `BLOCKED`, `CONFLICT`, `FAILED`, `DRIFTED` |
+| Done | `completed`, `COMPLETED`, `IMPLEMENTED`, `VERIFIED`, `DEPRECATED`, `ROLLED_BACK` |
+
+Open it with `/sdd viz` (or `/sdd tasks board`) and switch to the **Kanban** tab:
+
+- **Create manually**: the “+ Nova task” button writes a `task` node to the graph
+  immediately (status `todo`, linked to the project root so it is never an
+  orphan). The task keeps `metadata.integration_status: "pending"`.
+- **Edit / drag**: moving a card updates the node status; editing content marks
+  the task as pending integration again.
+- **AI integration**: when the SDD agent session is active, saving a card asks
+  the agent to run `sdd.integrate_tasks`, linking the task to its
+  `feature`/`requirement` (`implements`), tests (`tested_by`) and dependencies.
+  Without an active session the task simply stays pending and the agent picks
+  it up on the next turn (the system prompt surfaces the pending count) —
+  `/sdd tasks integrate` prints the plan at any time.
+
+Persistence goes through the same repository as the SDD tools, so the board
+works for both YAML and SQLite backends. Mutating routes reject cross-origin
+requests and non-loopback `Host` headers.
+
+| Tool | Description |
+|---|---|
+| `sdd.integrate_tasks` | Kanban bridge: `list` tasks pending integration, `create`/`update`/`remove` tasks, and `mark_integrated` once they are linked to the graph |
 
 ## Available tools
 
@@ -1069,6 +1107,7 @@ src/
 │  ├── documentation/generator.ts       # Documentation generation
 │  ├── knowledge/transfer.ts            # Knowledge transfer
 │  ├── disaster/recovery.ts             # Disaster recovery plan
+│  ├── tasks/board.ts                   # Kanban board domain over `task` nodes
 │  ├── transactions/manager.ts          # Logical transactions
 │  ├── project-dir.ts                   # Project directory resolution (rejects "/")
 │  └── log.ts                           # Plugin debug log
@@ -1093,6 +1132,10 @@ src/
 │      └── registry.ts / tree-sitter.ts / typescript.ts
 └ server/
    ├── server.ts                        # Web dashboard (API + UI)
+   ├── tasks-api.ts                     # Kanban task API (create/update/move/delete)
+   ├── dashboard-context.ts             # Dashboard ↔ agent bridge (task integration trigger)
+   ├── ui/
+   │   └── kanban-view.ts               # Kanban style, modal and script
    └── events.ts                        # Dashboard events
 ```
 

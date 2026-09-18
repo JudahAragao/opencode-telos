@@ -5,6 +5,15 @@ import { validateGraph } from "../sdd/validation/validator.js"
 import { detectDrift } from "../sdd/drift/detector.js"
 import { getPendingChanges } from "../sdd/changes/manager.js"
 import { progressEmitter, type ProgressEvent } from "./events.js"
+import { KANBAN_MODAL_HTML, KANBAN_SCRIPT, KANBAN_STYLE } from "./ui/kanban-view.js"
+import {
+  handleCreateTask,
+  handleDeleteTask,
+  handleIntegrateTask,
+  handleListTasks,
+  handleMarkIntegrated,
+  handleUpdateTask,
+} from "./tasks-api.js"
 import type { SqliteGraphRepository } from "../sdd/persistence/sqlite.js"
 import type { NodeType } from "../sdd/domain/types.js"
 
@@ -103,7 +112,7 @@ export class SddDashboardServer {
     const origin = req.headers.get("origin")
     const allowedOrigins = new Set([`http://127.0.0.1:${this.port}`, `http://localhost:${this.port}`])
     const corsHeaders: Record<string, string> = {
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     }
     if (origin && allowedOrigins.has(origin)) {
@@ -113,6 +122,18 @@ export class SddDashboardServer {
 
     if (req.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders })
+    }
+
+    // Mutating routes reject cross-origin requests (CSRF) and non-loopback
+    // Host headers (DNS rebinding). The dashboard is local-only by design.
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      const host = (req.headers.get("host") || "").split(":")[0]
+      if (host !== "127.0.0.1" && host !== "localhost") {
+        return this.jsonResponse({ error: "Forbidden host" }, corsHeaders, 403)
+      }
+      if (origin && !allowedOrigins.has(origin)) {
+        return this.jsonResponse({ error: "Forbidden origin" }, corsHeaders, 403)
+      }
     }
 
     try {
@@ -188,6 +209,54 @@ export class SddDashboardServer {
         return this.jsonResponse(this.getChanges(), corsHeaders)
       }
 
+      // ── Kanban tasks ─────────────────────────────────────────────
+      if (path === "/api/tasks") {
+        if (req.method === "GET") {
+          const result = handleListTasks(this.projectDir)
+          return this.jsonResponse(result.body, corsHeaders, result.status)
+        }
+        if (req.method === "POST") {
+          const body = await this.readJsonBody(req)
+          if (body === undefined) {
+            return this.jsonResponse({ error: "Invalid JSON body" }, corsHeaders, 400)
+          }
+          const result = handleCreateTask(this.projectDir, body)
+          return this.jsonResponse(result.body, corsHeaders, result.status)
+        }
+        return this.jsonResponse({ error: "Method not allowed" }, corsHeaders, 405)
+      }
+
+      if (path.startsWith("/api/tasks/")) {
+        const rest = path.slice("/api/tasks/".length)
+        const [rawId, action] = rest.split("/")
+        const taskId = decodeURIComponent(rawId || "")
+        if (!taskId) {
+          return this.jsonResponse({ error: "Task id required" }, corsHeaders, 400)
+        }
+
+        if (!action && (req.method === "POST" || req.method === "PATCH")) {
+          const body = await this.readJsonBody(req)
+          if (body === undefined) {
+            return this.jsonResponse({ error: "Invalid JSON body" }, corsHeaders, 400)
+          }
+          const result = handleUpdateTask(this.projectDir, taskId, body)
+          return this.jsonResponse(result.body, corsHeaders, result.status)
+        }
+        if (!action && req.method === "DELETE") {
+          const result = handleDeleteTask(this.projectDir, taskId)
+          return this.jsonResponse(result.body, corsHeaders, result.status)
+        }
+        if (action === "integrate" && req.method === "POST") {
+          const result = handleIntegrateTask(this.projectDir, taskId)
+          return this.jsonResponse(result.body, corsHeaders, result.status)
+        }
+        if (action === "integrated" && req.method === "POST") {
+          const result = handleMarkIntegrated(this.projectDir, taskId)
+          return this.jsonResponse(result.body, corsHeaders, result.status)
+        }
+        return this.jsonResponse({ error: "Not found" }, corsHeaders, 404)
+      }
+
       if (path === "/api/events") {
         return this.streamEvents(req)
       }
@@ -219,6 +288,17 @@ export class SddDashboardServer {
       status,
       headers: { "Content-Type": "application/json", ...headers },
     })
+  }
+
+  /** Parse a JSON request body. Returns undefined when the payload is invalid. */
+  private async readJsonBody(req: Request): Promise<unknown | undefined> {
+    try {
+      const text = await req.text()
+      if (!text.trim()) return {}
+      return JSON.parse(text)
+    } catch {
+      return undefined
+    }
   }
 
   private getProjectInfo() {
@@ -563,7 +643,7 @@ export class SddDashboardServer {
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; overflow: hidden; }
-    .container { display: grid; grid-template-columns: 280px 1fr 320px; height: 100vh; }
+    .container { display: grid; grid-template-columns: 280px 1fr 320px; height: 100%; }
     .sidebar { background: #161b22; border-right: 1px solid #30363d; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; }
     .main { position: relative; overflow: hidden; }
     .details { background: #161b22; border-left: 1px solid #30363d; padding: 16px; overflow-y: auto; }
@@ -619,10 +699,21 @@ export class SddDashboardServer {
     .sse-dot.connected { background: #3fb950; }
     .sse-dot.disconnected { background: #f85149; }
     .large-graph-notice { background: #1c2333; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: #d29922; display: none; }
+${KANBAN_STYLE}
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="app">
+    <header class="topbar">
+      <span class="brand">SDD Knowledge Graph</span>
+      <nav class="tabs">
+        <button class="tab active" data-view="graph">Graph</button>
+        <button class="tab" data-view="kanban">Kanban</button>
+      </nav>
+      <span class="task-pending" id="task-pending"></span>
+    </header>
+    <div class="views">
+  <div class="container" id="graph-view">
     <div class="sidebar">
       <h1>SDD Knowledge Graph</h1>
       <div class="sse-status" id="sse-status">
@@ -660,6 +751,13 @@ export class SddDashboardServer {
       <p style="color: #8b949e; font-size: 13px;">Click a node to view details</p>
     </div>
   </div>
+  <div class="kanban-wrap" id="kanban-view" style="display:none">
+    <button class="btn primary" id="kanban-add">+ Nova task</button>
+    <div class="kanban" id="kanban-board"></div>
+  </div>
+    </div>
+  </div>
+${KANBAN_MODAL_HTML}
   <script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
   <script>
     var TYPE_COLORS = {
@@ -716,6 +814,7 @@ export class SddDashboardServer {
             renderFilters();
             renderLegend();
             renderNodeList();
+            if (typeof renderKanban === "function") renderKanban();
             var overlayText = nodeCount + " nodes, " + relCount + " links";
             if (isLargeGraph) overlayText += " (large graph mode)";
             document.getElementById("graph-overlay").textContent = overlayText;
@@ -1170,6 +1269,7 @@ export class SddDashboardServer {
     // Start SSE connection
     connectSSE();
   </script>
+  <script>${KANBAN_SCRIPT}</script>
 </body>
 </html>`;
 

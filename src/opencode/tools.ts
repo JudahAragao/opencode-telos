@@ -19,6 +19,18 @@ import {
   getGraphStatsIndexed,
 } from "../sdd/graph/engine.js"
 import { GraphIndices } from "../sdd/graph/index.js"
+import {
+  TASK_COLUMN_LABELS,
+  TASK_COLUMNS,
+  buildIntegrationBrief,
+  createTask as createBoardTask,
+  getPendingIntegrationTasks,
+  isTaskColumn,
+  listTasks,
+  markTaskIntegrated,
+  removeTask as removeBoardTask,
+  updateTask as updateBoardTask,
+} from "../sdd/tasks/board.js"
 import { bfsOutgoing, bfsBoth, bfsIncoming, computeImpact, findPath, getSubgraph } from "../sdd/graph/traverse.js"
 import { analyzeBriefing, generateDiscoveryQuestions, updateGraphFromAnswers, formatDiscoverySummary } from "../sdd/discovery/briefing.js"
 import { createChange, classifyApprovalLevel, approveChange, getPendingChanges, failChange, getChangeHistory, formatImpactReport, preflightChangeScope, checkSpecEvidence } from "../sdd/changes/manager.js"
@@ -4299,6 +4311,126 @@ export function createSddTools(): Record<string, ToolDefinition> {
         }
 
         return lines.join("\n")
+      },
+    }),
+
+    "sdd.integrate_tasks": tool({
+      description:
+        "Kanban task board bridge: list tasks pending AI integration, create/update/remove tasks, " +
+        "and mark them as integrated once they are linked to the Knowledge Graph. " +
+        "Used by the dashboard workflow so a manual task becomes part of the specification.",
+      args: {
+        action: tool.schema
+          .enum(["list", "create", "update", "remove", "mark_integrated"])
+          .optional()
+          .describe("Operação: list (default) | create | update | remove | mark_integrated"),
+        task_id: tool.schema.string().optional().describe("ID da task (update/remove/mark_integrated)"),
+        name: tool.schema.string().optional().describe("Nome da task (create/update)"),
+        description: tool.schema.string().optional().describe("Descrição da task"),
+        goal: tool.schema.string().optional().describe("Objetivo da task"),
+        files: tool.schema.string().optional().describe("Arquivos previstos, separados por vírgula"),
+        acceptance: tool.schema
+          .string()
+          .optional()
+          .describe("Critérios de aceite, separados por ponto e vírgula ou quebra de linha"),
+        column: tool.schema
+          .string()
+          .optional()
+          .describe("Coluna do Kanban: backlog | ready | in_progress | blocked | done"),
+        status: tool.schema.string().optional().describe("Status do nó (opcional)"),
+        link_to: tool.schema
+          .string()
+          .optional()
+          .describe("ID de feature/requirement para vincular a task (create)"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized. Run sdd.initialize first."
+        const graph = repo.loadGraph()
+        const action = args.action || "list"
+
+        const splitBy = (value: string | undefined, pattern: RegExp): string[] | undefined => {
+          if (!value) return undefined
+          const parts = value.split(pattern).map((s) => s.trim()).filter(Boolean)
+          return parts.length > 0 ? parts : undefined
+        }
+
+        const formatTaskList = (): string => {
+          const tasks = listTasks(graph)
+          if (tasks.length === 0) return "## SDD Tasks — nenhuma task no board."
+          const lines = [`## SDD Tasks (${tasks.length})`, ""]
+          for (const column of TASK_COLUMNS) {
+            const items = tasks.filter((t) => t.column === column)
+            if (items.length === 0) continue
+            lines.push(`### ${TASK_COLUMN_LABELS[column]} (${items.length})`)
+            for (const task of items) {
+              const flag = task.integration_status === "pending" ? " ⏳ pendente de integração" : ""
+              lines.push(`- ${task.id}: ${task.name}${flag}`)
+            }
+            lines.push("")
+          }
+          return lines.join("\n")
+        }
+
+        if (action === "list") {
+          const pending = getPendingIntegrationTasks(graph)
+          return pending.length > 0 ? buildIntegrationBrief(graph) : formatTaskList()
+        }
+
+        if (action === "create") {
+          if (!args.name) return "`name` is required to create a task."
+          const column = isTaskColumn(args.column) ? args.column : undefined
+          const task = createBoardTask(graph, {
+            name: args.name,
+            description: args.description,
+            goal: args.goal,
+            files: splitBy(args.files, /,/),
+            acceptance: splitBy(args.acceptance, /[;\n]/),
+            column,
+            status: args.status as never,
+            link_to: args.link_to,
+            origin: "agent",
+            integration_status: "manual",
+          })
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["task"], ["contains", "implements"])
+          return `Task created: **${task.id}** (column: ${column || "backlog"})`
+        }
+
+        if (action === "update") {
+          if (!args.task_id) return "`task_id` is required to update a task."
+          const column = isTaskColumn(args.column) ? args.column : undefined
+          const task = updateBoardTask(graph, args.task_id, {
+            name: args.name,
+            description: args.description,
+            goal: args.goal,
+            files: splitBy(args.files, /,/),
+            acceptance: splitBy(args.acceptance, /[;\n]/),
+            column,
+            status: args.status as never,
+          })
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["task"], [])
+          return `Task updated: **${task.id}** (${task.status})`
+        }
+
+        if (action === "remove") {
+          if (!args.task_id) return "`task_id` is required to remove a task."
+          removeBoardTask(graph, args.task_id)
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["task"], [])
+          return `Task removed: **${args.task_id}**`
+        }
+
+        if (action === "mark_integrated") {
+          if (!args.task_id) return "`task_id` is required to mark a task as integrated."
+          const task = markTaskIntegrated(graph, args.task_id)
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["task"], ["implements", "tested_by"])
+          return `Task **${task.id}** marked as integrated.`
+        }
+
+        return `Unknown action \`${action}\`. Use list, create, update, remove or mark_integrated.`
       },
     }),
 

@@ -29,6 +29,8 @@ export declare class SddDashboardServer {
     getUrl(): string;
     private handleRequest;
     private jsonResponse;
+    /** Parse a JSON request body. Returns undefined when the payload is invalid. */
+    private readJsonBody;
     private getProjectInfo;
     private getGraphData;
     private getGraphCounts;

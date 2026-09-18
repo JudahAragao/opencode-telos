@@ -1,6 +1,8 @@
 import { setToggleState, getToggleState } from "../sdd/toggle/state.js";
 import { resetWorkflowState, workflowScope, renewWorkflow, workflowTtlMs, getWorkflowState, } from "../sdd/enforcement/workflow-tracker.js";
 import { getCacheManager } from "../sdd/cache/manager.js";
+import { createRepository } from "../sdd/persistence/repository.js";
+import { TASK_COLUMN_LABELS, TASK_COLUMNS, buildIntegrationBrief, getPendingIntegrationTasks, listTasks, } from "../sdd/tasks/board.js";
 import { startSharedDashboard, stopSharedDashboard, getSharedDashboardUrl, resolveDashboardPort, } from "../server/server.js";
 import { join as joinPath } from "path";
 import { sddDebug } from "../sdd/log.js";
@@ -92,6 +94,9 @@ export function runSddCommand(projectDir, rawInput, sessionID = "unknown") {
     else if (sub === "cache_reset" || sub === "cachereset" || sub === "cache reset") {
         text = sddCacheReset(projectDir);
     }
+    else if (sub === "tasks" || sub.startsWith("tasks ") || sub.startsWith("tasks:")) {
+        text = sddTasks(projectDir, input);
+    }
     else if (sub === "viz" || sub.startsWith("viz ") || sub.startsWith("viz:")) {
         text = sddViz(projectDir, input);
     }
@@ -105,7 +110,7 @@ export function runSddCommand(projectDir, rawInput, sessionID = "unknown") {
  * Anchored full-text match so normal prose that merely contains "sdd" is
  * never treated as a command.
  */
-const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|renew|cache[_\s-]*reset|viz(?:[\s:_-]+(?:start|stop|status))?))?$/i;
+const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|renew|cache[_\s-]*reset|tasks(?:[\s:_-]+(?:list|integrate|pending|board|kanban|open))?|viz(?:[\s:_-]+(?:start|stop|status))?))?$/i;
 /**
  * Detect a user message that is (or renders) an SDD command and normalize it
  * to the canonical `sdd <sub>` form:
@@ -154,6 +159,9 @@ function commandNotFound(projectDir, _input) {
         "- `sdd off` / `sdd:off`           — Disable SDD enforcement.",
         "- `sdd status` / `sdd:status`     — Show current SDD toggle.",
         "- `sdd renew`                     — Renew the active workflow window (keeps the same Change).",
+        "- `sdd tasks`                     — List the Kanban task board.",
+        "- `sdd tasks integrate`           — Show the integration plan for pending tasks.",
+        "- `sdd tasks board`               — Open the dashboard on the Kanban board.",
         "- `sdd viz`                       — Start the Knowledge Graph dashboard.",
         "- `sdd viz stop`                  — Stop the dashboard.",
         "- `sdd viz status`                — Show the dashboard URL.",
@@ -196,7 +204,7 @@ function sddStatus(projectDir) {
         "",
         `Toggle file: ${joinPath(projectDir, ".sdd", "enabled")}`,
         "",
-        "Commands: `/sdd on`, `/sdd off`, `/sdd status`, `/sdd renew`, `/sdd viz`, `/sdd cache_reset`",
+        "Commands: `/sdd on`, `/sdd off`, `/sdd status`, `/sdd renew`, `/sdd tasks`, `/sdd viz`, `/sdd cache_reset`",
     ].join("\n");
 }
 /**
@@ -262,6 +270,8 @@ function sddPanel(projectDir, _input) {
         "- `sdd off`      — Disable SDD enforcement (deterministic).",
         "- `sdd status`   — Show current toggle state.",
         "- `sdd renew`    — Renew the active workflow window (keeps the same Change).",
+        "- `sdd tasks`    — List the Kanban task board.",
+        "- `sdd tasks board` — Open the dashboard on the Kanban board.",
         "- `sdd viz`      — Start the Knowledge Graph dashboard (deterministic).",
         "- `sdd viz stop` — Stop the dashboard.",
         "- `sdd cache_reset` — Clear caches without killing the session.",
@@ -270,6 +280,84 @@ function sddPanel(projectDir, _input) {
         "",
         `Toggle file: ${joinPath(projectDir, ".sdd", "enabled")}`,
     ].join("\n");
+}
+/**
+ * `/sdd tasks` — board de tasks (Kanban) do dashboard.
+ *
+ * Determinístico: lê o grafo e formata o board; `tasks board` sobe o dashboard
+ * (mesmo caminho de `/sdd viz`) e aponta para a aba Kanban.
+ */
+function sddTasks(projectDir, input) {
+    const action = input.arguments.replace(/^tasks[:\s]*/i, "").trim().toLowerCase();
+    const repo = createRepository(projectDir);
+    if (!repo.isInitialized()) {
+        return [
+            "## SDD Tasks",
+            "",
+            "The Knowledge Graph is not initialized. Run `sdd.initialize` first.",
+        ].join("\n");
+    }
+    const graph = repo.loadGraph();
+    if (action === "integrate" || action === "pending") {
+        return buildIntegrationBrief(graph);
+    }
+    if (action === "board" || action === "kanban" || action === "open") {
+        try {
+            const port = startSharedDashboard(projectDir, resolveDashboardPort());
+            const url = getSharedDashboardUrl() ?? `http://127.0.0.1:${port}`;
+            return [
+                "## SDD Task Board",
+                "",
+                `**URL:** ${url}`,
+                "",
+                "Open the URL and switch to the **Kanban** tab. Tasks created there are integrated into the SDD by the AI.",
+                "",
+                "Stop the dashboard with `/sdd viz stop`.",
+            ].join("\n");
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return [
+                "## SDD Task Board Unavailable",
+                "",
+                `**Reason:** ${message}`,
+                "",
+                message.toLowerCase().includes("not initialized")
+                    ? "Initialize the Knowledge Graph first (`sdd.initialize`)."
+                    : "Retry with `/sdd tasks board`, or set a free port via SDD_DASHBOARD_PORT.",
+            ].join("\n");
+        }
+    }
+    const tasks = listTasks(graph);
+    if (tasks.length === 0) {
+        return [
+            "## SDD Tasks",
+            "",
+            "No tasks on the board yet.",
+            "",
+            "Open the board with `/sdd tasks board`, or ask the agent to run `sdd.integrate_tasks`.",
+        ].join("\n");
+    }
+    const pending = getPendingIntegrationTasks(graph).length;
+    const lines = [
+        `## SDD Tasks (${tasks.length})`,
+        "",
+        `**Pending AI integration:** ${pending}`,
+        "",
+    ];
+    for (const column of TASK_COLUMNS) {
+        const items = tasks.filter((t) => t.column === column);
+        if (items.length === 0)
+            continue;
+        lines.push(`### ${TASK_COLUMN_LABELS[column]} (${items.length})`);
+        for (const task of items) {
+            const flag = task.integration_status === "pending" ? " ⏳" : "";
+            lines.push(`- ${task.id}: ${task.name}${flag}`);
+        }
+        lines.push("");
+    }
+    lines.push("Commands: `/sdd tasks`, `/sdd tasks integrate`, `/sdd tasks board`");
+    return lines.join("\n");
 }
 /**
  * `/sdd viz` — dashboard do Knowledge Graph.
