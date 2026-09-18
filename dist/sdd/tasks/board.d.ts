@@ -16,6 +16,11 @@
 import type { KnowledgeGraph, NodeStatus, RelationshipType, TaskNode } from "../domain/types.js";
 export type TaskColumn = "backlog" | "ready" | "in_progress" | "blocked" | "done";
 export type IntegrationStatus = "pending" | "integrated" | "manual";
+export type TaskPriority = "critical" | "high" | "medium" | "low";
+export declare const TASK_PRIORITIES: readonly TaskPriority[];
+export declare const TASK_PRIORITY_LABELS: Record<TaskPriority, string>;
+export declare function isTaskPriority(value: unknown): value is TaskPriority;
+export declare function taskPriority(task: TaskNode): TaskPriority;
 export declare const TASK_COLUMNS: readonly TaskColumn[];
 export declare const TASK_COLUMN_LABELS: Record<TaskColumn, string>;
 export declare function isTaskColumn(value: unknown): value is TaskColumn;
@@ -48,6 +53,10 @@ export interface TaskBoardItem {
     version: number;
     metadata: Record<string, unknown>;
     integration_status: IntegrationStatus;
+    priority: TaskPriority;
+    /** Change SDD aberto por esta task, quando existir. */
+    change_id?: string;
+    change_status?: NodeStatus;
     created_at: string;
     updated_at: string;
     links: TaskLink[];
@@ -55,6 +64,26 @@ export interface TaskBoardItem {
 export declare function taskIntegrationStatus(task: TaskNode): IntegrationStatus;
 export declare function toTaskBoardItem(graph: KnowledgeGraph, task: TaskNode): TaskBoardItem;
 export declare function listTasks(graph: KnowledgeGraph): TaskBoardItem[];
+export type TaskSortKey = "column" | "priority" | "name" | "created" | "updated" | "links" | "integration";
+export declare const TASK_SORT_KEYS: readonly TaskSortKey[];
+export type TaskSortOrder = "asc" | "desc";
+export interface TaskQuery {
+    /** Free-text search on id, name, description, goal, files, acceptance, and linked node names. */
+    search?: string;
+    /** Filter by link status: "all", "linked", "unlinked", or a node type (feature, requirement, …). */
+    link?: string;
+    /** Filter by integration status. */
+    integration?: "all" | IntegrationStatus;
+    /** Filter by priority. */
+    priority?: "all" | TaskPriority;
+    /** Filter by Kanban column. */
+    column?: "all" | TaskColumn;
+    /** Sort key (default: "column"). */
+    sort?: TaskSortKey;
+    /** Sort direction (default varies by key). */
+    order?: TaskSortOrder;
+}
+export declare function queryTasks(graph: KnowledgeGraph, query?: TaskQuery): TaskBoardItem[];
 export interface CreateTaskInput {
     name: string;
     description?: string;
@@ -63,6 +92,7 @@ export interface CreateTaskInput {
     acceptance?: string[];
     column?: TaskColumn;
     status?: NodeStatus;
+    priority?: TaskPriority;
     link_to?: string;
     link_type?: RelationshipType;
     origin?: string;
@@ -77,6 +107,7 @@ export interface UpdateTaskInput {
     acceptance?: string[];
     status?: NodeStatus;
     column?: TaskColumn;
+    priority?: TaskPriority;
     metadata?: Record<string, unknown>;
     /** Re-flag the task for AI integration (content changed). */
     markPending?: boolean;

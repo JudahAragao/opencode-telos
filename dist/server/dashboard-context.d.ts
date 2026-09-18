@@ -22,7 +22,11 @@ export interface IntegrationRequestResult {
     reason: string;
 }
 /**
- * Ask the active OpenCode session to integrate a task into the SDD. Never
- * throws: a failure just leaves the task pending for the tool-based fallback.
+ * Ask the active OpenCode session to run a turn with `prompt`. Never throws:
+ * a failure just falls back to the tool-based (deterministic) path.
+ */
+export declare function requestAgentTurn(prompt: string, label: string): IntegrationRequestResult;
+/**
+ * Ask the active OpenCode session to integrate a task into the SDD.
  */
 export declare function requestTaskIntegration(taskId: string, name: string): IntegrationRequestResult;

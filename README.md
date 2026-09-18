@@ -134,6 +134,7 @@ depending on the LLM to perform the action):
 | `/sdd tasks` | `tasks` | Lists the Kanban task board |
 | `/sdd tasks integrate` | `tasks integrate` | Shows the AI integration plan for tasks pending integration |
 | `/sdd tasks board` | `tasks board` | Opens the dashboard on the Kanban board |
+| `/sdd tasks change <TASK-ID>` | `tasks change <id>` | Opens the SDD Change that authorizes the code of a task (`--approve` approves it) |
 | `/sdd cache_reset` | `cache_reset` | Clears caches without killing the session |
 
 `/sdd-viz` and `/sdd:viz` are accepted as the same command as `/sdd viz`.
@@ -368,9 +369,59 @@ Persistence goes through the same repository as the SDD tools, so the board
 works for both YAML and SQLite backends. Mutating routes reject cross-origin
 requests and non-loopback `Host` headers.
 
+### Filtering, search and sorting
+
+The toolbar at the top of the Kanban lets you:
+
+- **Search** by free text (matches task id, name, description, goal, files and linked node names).
+- **Filter by link status**: all / linked / unlinked / specific node type (feature, requirement, entity, test).
+- **Filter by integration**: all / pending / manual / integrated.
+- **Filter by priority**: all / critical / high / medium / low.
+- **Filter by column**: all / Backlog / Ready / In Progress / Blocked / Done.
+- **Sort** by: column (default), priority, name, updated, created, links, integration.
+- **Toggle ascending/descending** order.
+
+All filter state is persisted in `localStorage` and survives page reloads. The
+**Limpar** button resets everything. The server-side API also accepts query
+params (`GET /api/tasks?q=...&priority=high&sort=name&order=desc`) for external
+consumers.
+
+Each card shows a colored priority badge and, when a Change has been opened,
+a `CHG-xxx · STATUS` badge.
+
+### From task to code: the SDD Change
+
+A task is only a work item — the write hook refuses any `Write`/`Edit` that is
+not covered by an **APPROVED `change`** node. So an integrated task opens its
+own Change, and that Change is what unlocks code generation:
+
+1. `mark_integrated` (or the card's **Abrir Change SDD** button,
+   `POST /api/tasks/:id/change`, or `/sdd tasks change <TASK-ID>`) creates a
+   `change` node through the standard `createChange` path — impact analysis,
+   approval level, `affected_files`/`affected_tests` taken from
+   `task.metadata.files`, `implementation_tasks: [task.id]`, and
+   `change → affects → <spec nodes linked to the task>`.
+2. The link is recorded both ways (`change.affects → task` and
+   `task.metadata.change_id` / `change_status`), so the card shows a
+   `CHG-xxx · STATUS` badge and the topbar counts the Changes awaiting approval.
+3. **AUTO**-level Changes with a complete file scope are approved immediately;
+   `REVIEW`/`APPROVAL` ones stay in draft and the modal offers
+   **Aprovar + gerar código** (`{ "approve": true }`) or
+   `/sdd tasks change <TASK-ID> --approve`. A Change without `affected_files`
+   cannot be approved — the write hook would reject every file — so the blocker
+   is reported instead.
+4. Once approved, the agent is handed
+   `buildChangeImplementationPrompt(...)`: implement the code **covered by that
+   Change**, run the tests and finish with `sdd.complete_change`. Without an
+   active session nothing is lost: the next turn surfaces the tasks whose Change
+   still needs approval, and the same steps are available as tools.
+
+The bridge is idempotent — calling it twice returns the same Change — and never
+writes source code itself.
+
 | Tool | Description |
 |---|---|
-| `sdd.integrate_tasks` | Kanban bridge: `list` tasks pending integration, `create`/`update`/`remove` tasks, and `mark_integrated` once they are linked to the graph |
+| `sdd.integrate_tasks` | Kanban bridge: `list` tasks pending integration, `create`/`update`/`remove` tasks, `mark_integrated` (which opens the Change) and `open_change`/`approve_change` to drive the code authorisation |
 
 ## Available tools
 
@@ -1108,6 +1159,7 @@ src/
 │  ├── knowledge/transfer.ts            # Knowledge transfer
 │  ├── disaster/recovery.ts             # Disaster recovery plan
 │  ├── tasks/board.ts                   # Kanban board domain over `task` nodes
+│  ├── tasks/change-bridge.ts           # Task → SDD Change bridge (code authorisation)
 │  ├── transactions/manager.ts          # Logical transactions
 │  ├── project-dir.ts                   # Project directory resolution (rejects "/")
 │  └── log.ts                           # Plugin debug log
@@ -1132,8 +1184,8 @@ src/
 │      └── registry.ts / tree-sitter.ts / typescript.ts
 └ server/
    ├── server.ts                        # Web dashboard (API + UI)
-   ├── tasks-api.ts                     # Kanban task API (create/update/move/delete)
-   ├── dashboard-context.ts             # Dashboard ↔ agent bridge (task integration trigger)
+   ├── tasks-api.ts                     # Kanban task API (create/update/move/delete/change)
+   ├── dashboard-context.ts             # Dashboard ↔ agent bridge (integration + code prompts)
    ├── ui/
    │   └── kanban-view.ts               # Kanban style, modal and script
    └── events.ts                        # Dashboard events

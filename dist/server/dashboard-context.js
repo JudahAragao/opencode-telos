@@ -34,34 +34,34 @@ export function hasDashboardAgent() {
     return bridge.client !== null && bridge.lastSessionID !== null;
 }
 /**
- * Ask the active OpenCode session to integrate a task into the SDD. Never
- * throws: a failure just leaves the task pending for the tool-based fallback.
+ * Ask the active OpenCode session to run a turn with `prompt`. Never throws:
+ * a failure just falls back to the tool-based (deterministic) path.
  */
-export function requestTaskIntegration(taskId, name) {
+export function requestAgentTurn(prompt, label) {
     const client = bridge.client;
     if (!client?.session?.promptAsync) {
         return {
             queued: false,
-            reason: "No OpenCode client available; task marked as pending for sdd.integrate_tasks.",
+            reason: `No OpenCode client available; ${label} stays queued for the agent tools.`,
         };
     }
     const sessionID = bridge.lastSessionID;
     if (!sessionID) {
         return {
             queued: false,
-            reason: "No active session; task marked as pending for sdd.integrate_tasks.",
+            reason: `No active session; ${label} stays queued for the agent tools.`,
         };
     }
     try {
         const result = client.session.promptAsync({
             path: { id: sessionID },
-            body: { parts: [{ type: "text", text: buildTaskIntegrationPrompt(taskId, name) }] },
+            body: { parts: [{ type: "text", text: prompt }] },
         });
         // Fire-and-forget: the HTTP response must not wait on the agent turn.
         if (result && typeof result.then === "function") {
             ;
             result.then(() => { }, (error) => {
-                sddDebug("dashboard", `Task integration prompt failed: ${String(error)}`);
+                sddDebug("dashboard", `${label} prompt failed: ${String(error)}`);
             });
         }
         return { queued: true, reason: `Integration requested in session ${sessionID}.` };
@@ -72,4 +72,10 @@ export function requestTaskIntegration(taskId, name) {
             reason: error instanceof Error ? error.message : String(error),
         };
     }
+}
+/**
+ * Ask the active OpenCode session to integrate a task into the SDD.
+ */
+export function requestTaskIntegration(taskId, name) {
+    return requestAgentTurn(buildTaskIntegrationPrompt(taskId, name), "task integration");
 }

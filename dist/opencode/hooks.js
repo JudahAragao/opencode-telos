@@ -15,6 +15,7 @@ import { sddDebug } from "../sdd/log.js";
 import { projectPath } from "../sdd/security/paths.js";
 import { extractSddCommandText, renderSddCommandMessage } from "./command.js";
 import { getPendingIntegrationTasks } from "../sdd/tasks/board.js";
+import { getTasksAwaitingChangeApproval } from "../sdd/tasks/change-bridge.js";
 import { setDashboardSessionID } from "../server/dashboard-context.js";
 const SDD_FILE_PATTERNS = [
     /\.ts$/,
@@ -256,6 +257,19 @@ export function createSddHooks(projectDir) {
                             `## SDD Task Board: ${pendingTasks.length} task(s) pending AI integration`,
                             'Run `sdd.integrate_tasks` (action="list") to get the integration plan, link each task',
                             "(implements / tested_by / depends_on) and finish with action=\"mark_integrated\".",
+                            "An integrated task opens its SDD Change automatically — that Change is what authorizes the code.",
+                        ].join("\n"));
+                    }
+                    // Integrated tasks whose Change is still a draft: no Write/Edit is
+                    // allowed until the Change is approved (that is the write gate).
+                    const awaitingApproval = getTasksAwaitingChangeApproval(graph);
+                    if (awaitingApproval.length > 0) {
+                        output.system.push([
+                            `## SDD Task Board: ${awaitingApproval.length} task(s) com Change aguardando aprovação`,
+                            ...awaitingApproval
+                                .slice(0, 5)
+                                .map(({ task, change }) => `- ${task.id}: ${task.name} → ${change.id} (${change.metadata.approval_level})`),
+                            'Aprove com `sdd.integrate_tasks` (action="approve_change", task_id="...") e implemente o código correspondente.',
                         ].join("\n"));
                     }
                 }

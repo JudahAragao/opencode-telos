@@ -16,6 +16,7 @@ import {
   getPendingIntegrationTasks,
   listTasks,
 } from "../sdd/tasks/board.js"
+import { formatOpenChangeResult, openChangeForTask } from "../sdd/tasks/change-bridge.js"
 import {
   startSharedDashboard,
   stopSharedDashboard,
@@ -329,6 +330,7 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
     "- `sdd renew`    — Renew the active workflow window (keeps the same Change).",
     "- `sdd tasks`    — List the Kanban task board.",
     "- `sdd tasks board` — Open the dashboard on the Kanban board.",
+    "- `sdd tasks change <TASK-ID>` — Open the SDD Change that authorizes the code of a task.",
     "- `sdd viz`      — Start the Knowledge Graph dashboard (deterministic).",
     "- `sdd viz stop` — Stop the dashboard.",
     "- `sdd cache_reset` — Clear caches without killing the session.",
@@ -346,7 +348,8 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
  * (mesmo caminho de `/sdd viz`) e aponta para a aba Kanban.
  */
 function sddTasks(projectDir: string, input: SddCommandInput): string {
-  const action = input.arguments.replace(/^tasks[:\s]*/i, "").trim().toLowerCase()
+  const rawAction = input.arguments.replace(/^tasks[:\s]*/i, "").trim()
+  const action = rawAction.toLowerCase()
 
   const repo = createRepository(projectDir)
   if (!repo.isInitialized()) {
@@ -360,6 +363,44 @@ function sddTasks(projectDir: string, input: SddCommandInput): string {
 
   if (action === "integrate" || action === "pending") {
     return buildIntegrationBrief(graph)
+  }
+
+  // `/sdd tasks change <TASK-ID> [--approve]` — opens the SDD Change that
+  // authorizes the code of the task (the write gate needs an approved Change).
+  if (/^change\b/i.test(rawAction)) {
+    const rest = rawAction.replace(/^change\b\s*/i, "")
+    const approve = /--approve\b/i.test(rest)
+    const requested = rest.replace(/--approve\b/i, "").trim()
+    if (!requested) {
+      return [
+        "## SDD Tasks — Change",
+        "",
+        "Informe a task: `/sdd tasks change TASK-001` (use `--approve` para aprovar um Change de nível REVIEW/APPROVAL).",
+        "",
+        "Tasks no board:",
+        ...listTasks(graph).map((task) => `- ${task.id}: ${task.name}${task.change_id ? ` · ${task.change_id}(${task.change_status})` : ""}`),
+      ].join("\n")
+    }
+
+    const task = listTasks(graph).find(
+      (candidate) =>
+        candidate.id.toLowerCase() === requested.toLowerCase() ||
+        candidate.name.toLowerCase() === requested.toLowerCase(),
+    )
+    if (!task) {
+      return [
+        "## SDD Tasks — Change",
+        "",
+        `Task \`${requested}\` não encontrada no board. Rode \`/sdd tasks\` para listar.`,
+      ].join("\n")
+    }
+
+    const result = openChangeForTask(graph, task.id, { approve })
+    repo.saveGraph(graph)
+    const footer = result.approved
+      ? "\nPróximo passo: implemente o código coberto pelo Change (o agente também recebe esse pedido pelo dashboard)."
+      : "\nRode `/sdd tasks change " + task.id + " --approve` para aprovar e liberar a escrita de código."
+    return formatOpenChangeResult(result) + footer
   }
 
   if (action === "board" || action === "kanban" || action === "open") {
@@ -417,7 +458,7 @@ function sddTasks(projectDir: string, input: SddCommandInput): string {
     }
     lines.push("")
   }
-  lines.push("Commands: `/sdd tasks`, `/sdd tasks integrate`, `/sdd tasks board`")
+  lines.push("Commands: `/sdd tasks`, `/sdd tasks integrate`, `/sdd tasks board`, `/sdd tasks change <TASK-ID>`")
   return lines.join("\n")
 }
 

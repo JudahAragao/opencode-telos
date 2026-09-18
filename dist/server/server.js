@@ -6,7 +6,7 @@ import { detectDrift } from "../sdd/drift/detector.js";
 import { getPendingChanges } from "../sdd/changes/manager.js";
 import { progressEmitter } from "./events.js";
 import { KANBAN_MODAL_HTML, KANBAN_SCRIPT, KANBAN_STYLE } from "./ui/kanban-view.js";
-import { handleCreateTask, handleDeleteTask, handleIntegrateTask, handleListTasks, handleMarkIntegrated, handleUpdateTask, } from "./tasks-api.js";
+import { handleCreateTask, handleDeleteTask, handleIntegrateTask, handleListTasks, handleMarkIntegrated, handleOpenChange, handleUpdateTask, } from "./tasks-api.js";
 /** Porta preferida do dashboard (estável entre sessões). Override via SDD_DASHBOARD_PORT. */
 export const DEFAULT_DASHBOARD_PORT = 7331;
 /** Porta configurada pelo usuário, se houver. */
@@ -162,7 +162,9 @@ export class SddDashboardServer {
             // ── Kanban tasks ─────────────────────────────────────────────
             if (path === "/api/tasks") {
                 if (req.method === "GET") {
-                    const result = handleListTasks(this.projectDir);
+                    const params = {};
+                    url.searchParams.forEach((v, k) => { params[k] = v; });
+                    const result = handleListTasks(this.projectDir, params);
                     return this.jsonResponse(result.body, corsHeaders, result.status);
                 }
                 if (req.method === "POST") {
@@ -196,6 +198,14 @@ export class SddDashboardServer {
                 }
                 if (action === "integrate" && req.method === "POST") {
                     const result = handleIntegrateTask(this.projectDir, taskId);
+                    return this.jsonResponse(result.body, corsHeaders, result.status);
+                }
+                if (action === "change" && req.method === "POST") {
+                    const body = (await this.readJsonBody(req)) ?? {};
+                    if (typeof body !== "object" || body === null) {
+                        return this.jsonResponse({ error: "Invalid JSON body" }, corsHeaders, 400);
+                    }
+                    const result = handleOpenChange(this.projectDir, taskId, body);
                     return this.jsonResponse(result.body, corsHeaders, result.status);
                 }
                 if (action === "integrated" && req.method === "POST") {
@@ -662,6 +672,22 @@ ${KANBAN_STYLE}
     </div>
   </div>
   <div class="kanban-wrap" id="kanban-view" style="display:none">
+    <div class="kanban-toolbar" id="kanban-toolbar">
+      <input class="search" id="kanban-search" type="text" placeholder="Buscar tasks...">
+      <span class="tb-label">Vínculo</span>
+      <select id="kanban-filter-link"><option value="all">Todos</option><option value="linked">Vinculadas</option><option value="unlinked">Sem vínculo</option><option value="feature">Feature</option><option value="requirement">Requirement</option><option value="entity">Entity</option><option value="test">Test</option></select>
+      <span class="tb-label">Integração</span>
+      <select id="kanban-filter-integration"><option value="all">Todas</option><option value="pending">Pendente</option><option value="manual">Manual</option><option value="integrated">Integrada</option></select>
+      <span class="tb-label">Prioridade</span>
+      <select id="kanban-filter-priority"><option value="all">Todas</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      <span class="tb-label">Coluna</span>
+      <select id="kanban-filter-column"><option value="all">Todas</option><option value="backlog">Backlog</option><option value="ready">Ready</option><option value="in_progress">In Progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select>
+      <span class="spacer"></span>
+      <span class="tb-label">Ordenar</span>
+      <select id="kanban-sort"><option value="column">Coluna</option><option value="priority">Prioridade</option><option value="name">Nome</option><option value="updated">Atualizado</option><option value="created">Criado</option><option value="links">Vínculos</option><option value="integration">Integração</option></select>
+      <select id="kanban-order"><option value="asc">↑</option><option value="desc">↓</option></select>
+      <button class="btn" id="kanban-reset-filters">Limpar</button>
+    </div>
     <button class="btn primary" id="kanban-add">+ Nova task</button>
     <div class="kanban" id="kanban-board"></div>
   </div>

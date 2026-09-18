@@ -14,6 +14,26 @@
  * the Kanban column and the AI-integration state.
  */
 import { addNode, addRelationship, getNode, removeNode, updateNode } from "../graph/engine.js";
+export const TASK_PRIORITIES = ["critical", "high", "medium", "low"];
+export const TASK_PRIORITY_LABELS = {
+    critical: "Critical",
+    high: "High",
+    medium: "Medium",
+    low: "Low",
+};
+const PRIORITY_WEIGHT = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+};
+export function isTaskPriority(value) {
+    return typeof value === "string" && TASK_PRIORITIES.includes(value);
+}
+export function taskPriority(task) {
+    const value = task.metadata.priority;
+    return isTaskPriority(value) ? value : "medium";
+}
 export const TASK_COLUMNS = [
     "backlog",
     "ready",
@@ -112,6 +132,8 @@ export function toTaskBoardItem(graph, task) {
         });
     }
     const metadata = { ...task.metadata };
+    const declaredChange = typeof metadata.change_id === "string" ? metadata.change_id : undefined;
+    const change = declaredChange ? getNode(graph, declaredChange) : undefined;
     return {
         id: task.id,
         name: task.name,
@@ -121,18 +143,114 @@ export function toTaskBoardItem(graph, task) {
         version: task.version,
         metadata,
         integration_status: taskIntegrationStatus(task),
+        priority: taskPriority(task),
+        change_id: change?.type === "change" ? change.id : undefined,
+        change_status: change?.type === "change" ? change.status : undefined,
         created_at: task.created_at,
         updated_at: task.updated_at,
         links,
     };
 }
 export function listTasks(graph) {
-    return getTaskNodes(graph)
-        .map((task) => toTaskBoardItem(graph, task))
-        .sort((a, b) => {
-        const byColumn = TASK_COLUMNS.indexOf(a.column) - TASK_COLUMNS.indexOf(b.column);
-        return byColumn !== 0 ? byColumn : a.name.localeCompare(b.name);
+    return queryTasks(graph, {});
+}
+export const TASK_SORT_KEYS = [
+    "column", "priority", "name", "created", "updated", "links", "integration",
+];
+function matchesSearch(item, q) {
+    const hay = [
+        item.id,
+        item.name,
+        item.description ?? "",
+        String(item.metadata.goal ?? ""),
+        ...(Array.isArray(item.metadata.files) ? item.metadata.files : []),
+        ...(Array.isArray(item.metadata.acceptance) ? item.metadata.acceptance : []),
+        ...item.links.map((l) => l.node_id),
+        ...item.links.map((l) => l.node_name ?? ""),
+    ].join(" ").toLowerCase();
+    return hay.includes(q);
+}
+function meaningfulLinks(item) {
+    return item.links.filter((l) => l.type !== "contains");
+}
+function matchesLinkFilter(item, filter) {
+    if (filter === "all")
+        return true;
+    const meaningful = meaningfulLinks(item);
+    if (filter === "linked")
+        return meaningful.length > 0;
+    if (filter === "unlinked")
+        return meaningful.length === 0;
+    return meaningful.some((l) => l.node_type === filter);
+}
+function defaultOrder(key) {
+    return key === "updated" || key === "created" ? "desc" : "asc";
+}
+function sortItems(items, sortKey, order) {
+    const dir = order === "desc" ? -1 : 1;
+    const columnIndex = (item) => TASK_COLUMNS.indexOf(item.column);
+    const integrationWeight = (item) => item.integration_status === "pending" ? 0 : item.integration_status === "manual" ? 1 : 2;
+    const sorted = [...items].sort((a, b) => {
+        let cmp = 0;
+        switch (sortKey) {
+            case "priority":
+                cmp = PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
+                break;
+            case "name":
+                cmp = a.name.localeCompare(b.name);
+                break;
+            case "created":
+                cmp = a.created_at.localeCompare(b.created_at);
+                break;
+            case "updated":
+                cmp = a.updated_at.localeCompare(b.updated_at);
+                break;
+            case "links":
+                cmp = a.links.length - b.links.length;
+                break;
+            case "integration":
+                cmp = integrationWeight(a) - integrationWeight(b);
+                break;
+            default: {
+                // "column" — primary by column order, then priority, then name
+                cmp = columnIndex(a) - columnIndex(b);
+                if (cmp === 0)
+                    cmp = PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
+                if (cmp === 0)
+                    cmp = a.name.localeCompare(b.name);
+                return cmp;
+            }
+        }
+        if (cmp !== 0)
+            return cmp * dir;
+        // Stable tiebreakers
+        const colCmp = columnIndex(a) - columnIndex(b);
+        if (colCmp !== 0)
+            return colCmp;
+        return a.name.localeCompare(b.name);
     });
+    return sorted;
+}
+export function queryTasks(graph, query = {}) {
+    const search = (query.search ?? "").trim().toLowerCase().slice(0, 200);
+    const link = (query.link ?? "all").trim();
+    const integration = query.integration ?? "all";
+    const priority = query.priority ?? "all";
+    const column = query.column ?? "all";
+    const sortKey = query.sort ?? "column";
+    const order = query.order ?? defaultOrder(sortKey);
+    let items = getTaskNodes(graph).map((task) => toTaskBoardItem(graph, task));
+    if (search)
+        items = items.filter((item) => matchesSearch(item, search));
+    if (link !== "all")
+        items = items.filter((item) => matchesLinkFilter(item, link));
+    if (integration !== "all")
+        items = items.filter((item) => item.integration_status === integration);
+    if (priority !== "all")
+        items = items.filter((item) => item.priority === priority);
+    if (column !== "all")
+        items = items.filter((item) => item.column === column);
+    return sortItems(items, sortKey, order);
 }
 function linkTask(graph, task, linkTo, linkType) {
     if (linkTo) {
@@ -183,6 +301,8 @@ export function createTask(graph, input) {
         metadata.files = input.files;
     if (input.acceptance?.length)
         metadata.acceptance = input.acceptance;
+    if (isTaskPriority(input.priority))
+        metadata.priority = input.priority;
     const node = {
         id: nextTaskId(graph),
         type: "task",
@@ -226,6 +346,8 @@ export function updateTask(graph, id, input) {
         metadata.files = input.files;
     if (input.acceptance !== undefined)
         metadata.acceptance = input.acceptance;
+    if (input.priority !== undefined)
+        metadata.priority = input.priority;
     let status = task.status;
     if (input.column && isTaskColumn(input.column))
         status = columnToStatus(input.column);
@@ -241,6 +363,9 @@ export function updateTask(graph, id, input) {
     if (input.markPending) {
         metadata.integration_status = "pending";
         metadata.integration_requested_at = new Date().toISOString();
+    }
+    if (input.priority !== undefined) {
+        metadata.priority = input.priority;
     }
     updates.metadata = metadata;
     return updateNode(graph, id, updates);
@@ -293,7 +418,8 @@ export function buildIntegrationBrief(graph) {
     lines.push("**Como integrar:** vincule a task ao `feature`/`requirement` correspondente com `sdd.add_relationship` " +
         "(tipo `implements`), crie `test` quando houver cobertura (`tested_by`) e registre `decision`/`file` " +
         "quando fizer sentido. Não altere arquivos de código-fonte nesta etapa — ela é só de especificação. " +
-        'Ao terminar, chame `sdd.integrate_tasks` com `action="mark_integrated"` e o `task_id`.');
+        'Ao terminar, chame `sdd.integrate_tasks` com `action="mark_integrated"` e o `task_id` — a task integrada ' +
+        'abre o Change SDD automaticamente e é ele que autoriza a escrita do código.');
     return lines.join("\n");
 }
 /** Short, deterministic prompt used to wake the agent when a card is saved. */
@@ -307,7 +433,9 @@ export function buildTaskIntegrationPrompt(taskId, name) {
         "1. Chame a tool `sdd.integrate_tasks` com `action=\"list\"` para ver o plano de integração.",
         "2. Crie as relações e os nós de apoio necessários (`implements` para feature/requirement, `tested_by`, `depends_on`/`blocked_by`, `decision`, `file`).",
         `3. Ao terminar, chame \`sdd.integrate_tasks\` com \`action="mark_integrated"\` e \`task_id="${taskId}"\`.`,
+        "   Isso abre o Change SDD da task (a autorização de escrita do código).",
+        `4. Se o Change ficar em rascunho, aprove com \`sdd.integrate_tasks\` (\`action="approve_change"\`, \`task_id="${taskId}"\`) e então implemente o código correspondente.`,
         "",
-        "Esta etapa altera apenas o grafo SDD — não modifique arquivos de código-fonte.",
+        "A etapa de integração altera apenas o grafo SDD — só escreva código depois do Change aprovado.",
     ].join("\n");
 }

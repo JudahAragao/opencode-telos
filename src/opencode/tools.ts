@@ -31,6 +31,7 @@ import {
   removeTask as removeBoardTask,
   updateTask as updateBoardTask,
 } from "../sdd/tasks/board.js"
+import { formatOpenChangeResult, openChangeForTask } from "../sdd/tasks/change-bridge.js"
 import { bfsOutgoing, bfsBoth, bfsIncoming, computeImpact, findPath, getSubgraph } from "../sdd/graph/traverse.js"
 import { analyzeBriefing, generateDiscoveryQuestions, updateGraphFromAnswers, formatDiscoverySummary } from "../sdd/discovery/briefing.js"
 import { createChange, classifyApprovalLevel, approveChange, getPendingChanges, failChange, getChangeHistory, formatImpactReport, preflightChangeScope, checkSpecEvidence } from "../sdd/changes/manager.js"
@@ -4317,13 +4318,16 @@ export function createSddTools(): Record<string, ToolDefinition> {
     "sdd.integrate_tasks": tool({
       description:
         "Kanban task board bridge: list tasks pending AI integration, create/update/remove tasks, " +
-        "and mark them as integrated once they are linked to the Knowledge Graph. " +
-        "Used by the dashboard workflow so a manual task becomes part of the specification.",
+        "mark them as integrated once they are linked to the Knowledge Graph, and open/approve the " +
+        "SDD Change that authorizes the code for a task. " +
+        "Used by the dashboard workflow so a manual task becomes part of the specification and can be implemented.",
       args: {
         action: tool.schema
-          .enum(["list", "create", "update", "remove", "mark_integrated"])
+          .enum(["list", "create", "update", "remove", "mark_integrated", "open_change", "approve_change"])
           .optional()
-          .describe("Operação: list (default) | create | update | remove | mark_integrated"),
+          .describe(
+            "Operação: list (default) | create | update | remove | mark_integrated | open_change | approve_change",
+          ),
         task_id: tool.schema.string().optional().describe("ID da task (update/remove/mark_integrated)"),
         name: tool.schema.string().optional().describe("Nome da task (create/update)"),
         description: tool.schema.string().optional().describe("Descrição da task"),
@@ -4342,6 +4346,12 @@ export function createSddTools(): Record<string, ToolDefinition> {
           .string()
           .optional()
           .describe("ID de feature/requirement para vincular a task (create)"),
+        no_requirement_impact: tool.schema
+          .boolean()
+          .optional()
+          .describe(
+            "open_change/approve_change: declara que o Change não altera comportamento especificado (pula a evidência de requisito)",
+          ),
       },
       async execute(args, ctx) {
         const repo = getRepo(ctx.directory)
@@ -4365,7 +4375,8 @@ export function createSddTools(): Record<string, ToolDefinition> {
             lines.push(`### ${TASK_COLUMN_LABELS[column]} (${items.length})`)
             for (const task of items) {
               const flag = task.integration_status === "pending" ? " ⏳ pendente de integração" : ""
-              lines.push(`- ${task.id}: ${task.name}${flag}`)
+              const change = task.change_id ? ` · ${task.change_id}(${task.change_status})` : ""
+              lines.push(`- ${task.id}: ${task.name}${flag}${change}`)
             }
             lines.push("")
           }
@@ -4425,12 +4436,33 @@ export function createSddTools(): Record<string, ToolDefinition> {
         if (action === "mark_integrated") {
           if (!args.task_id) return "`task_id` is required to mark a task as integrated."
           const task = markTaskIntegrated(graph, args.task_id)
+
+          // An integrated task opens the SDD Change that authorizes its code.
+          const change = openChangeForTask(graph, task.id, {
+            noRequirementImpact: args.no_requirement_impact,
+          })
           repo.saveGraph(graph)
-          invalidateCacheForMutation(ctx.directory, ["task"], ["implements", "tested_by"])
-          return `Task **${task.id}** marked as integrated.`
+          invalidateCacheForMutation(ctx.directory, ["task", "change"], ["implements", "tested_by", "affects"])
+          return [
+            `Task **${task.id}** marked as integrated.`,
+            "",
+            formatOpenChangeResult(change),
+          ].join("\n")
         }
 
-        return `Unknown action \`${action}\`. Use list, create, update, remove or mark_integrated.`
+        if (action === "open_change" || action === "approve_change") {
+          if (!args.task_id) return "`task_id` is required to open the SDD Change of a task."
+          const change = openChangeForTask(graph, args.task_id, {
+            files: splitBy(args.files, /,/),
+            approve: action === "approve_change",
+            noRequirementImpact: args.no_requirement_impact,
+          })
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["task", "change"], ["affects"])
+          return formatOpenChangeResult(change)
+        }
+
+        return `Unknown action \`${action}\`. Use list, create, update, remove, mark_integrated, open_change or approve_change.`
       },
     }),
 
