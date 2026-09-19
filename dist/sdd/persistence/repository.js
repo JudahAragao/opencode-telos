@@ -1,69 +1,232 @@
 import { DEFAULT_SDD_CONFIG } from "../domain/types.js";
-import { existsSync, readFileSync, statSync } from "fs";
+import { existsSync, readFileSync, renameSync } from "fs";
 import { join } from "path";
 import { sddDebug } from "../log.js";
+// ── Sentinel helpers ─────────────────────────────────────────────────────────
+/**
+ * Path of the canonical backend sentinel file.
+ * When present, its content ("yaml" | "sqlite") is the authoritative backend
+ * decision — no timestamp comparisons needed.
+ */
+function sentinelPath(projectDir) {
+    return join(projectDir, ".sdd", "storage-backend");
+}
+/**
+ * Read the sentinel. Returns undefined when not present or unreadable.
+ */
+function readSentinel(projectDir) {
+    const p = sentinelPath(projectDir);
+    if (!existsSync(p))
+        return undefined;
+    try {
+        const v = readFileSync(p, "utf-8").trim();
+        if (v === "yaml" || v === "sqlite")
+            return v;
+    }
+    catch { }
+    return undefined;
+}
+/**
+ * Write the sentinel atomically.
+ * Called after every successful migration and during auto-heal.
+ */
+export function writeSentinel(projectDir, backend) {
+    const { atomicWriteFile } = require("../cache/atomic.js");
+    atomicWriteFile(sentinelPath(projectDir), backend);
+}
 const MIGRATION_THRESHOLD = 1000;
+// ── Backup guard ─────────────────────────────────────────────────────────────
+/**
+ * Extensions that identify archived/backup files.
+ * These files must NEVER be opened as an active graph — they are read-only
+ * archives kept only for disaster-recovery by humans.
+ */
+const BACKUP_EXTENSIONS = [".bak", ".bk", ".backup"];
+function isBackupPath(filePath) {
+    return BACKUP_EXTENSIONS.some((ext) => filePath.endsWith(ext));
+}
+/**
+ * Guard called before any graph file is opened.
+ * Throws a clear error if the caller accidentally targets a backup.
+ */
+function assertNotBackup(filePath) {
+    if (isBackupPath(filePath)) {
+        throw new Error(`[SDD] Attempted to read backup file as active graph: ${filePath}\n` +
+            `Backup files (.bak, .bk, .backup) are archives for disaster recovery only.\n` +
+            `They must not be read, modified, or removed by the plugin or the LLM.\n` +
+            `Active graph files are: .sdd/graph.yaml (YAML) and .sdd/graph.db (SQLite).`);
+    }
+}
+// ── Conflict resolution ──────────────────────────────────────────────────────
+/**
+ * Both graph.yaml and graph.db exist without a sentinel — this is a legacy
+ * state (project migrated before Fix 4a) or the result of a crash during
+ * rename. Perform an intelligent analysis to pick the canonical backend.
+ *
+ * Decision algorithm:
+ * 1. Parse updated_at from both graphs (O(1) for SQLite, small YAML parse).
+ * 2. The graph with the more recent updated_at is the active one.
+ * 3. If timestamps are identical (migrated in the same millisecond):
+ *    → SQLite wins. Rationale: the db was created because the project crossed
+ *      the migration threshold; it is always at least as fresh as the YAML.
+ * 4. Write the sentinel so this analysis never runs again.
+ * 5. Return a repo for the winning backend.
+ *
+ * The result is also surfaced to sdd.check_migrations so the LLM learns what
+ * happened and why.
+ */
+function resolveConflictingBackends(projectDir, yamlPath, dbPath) {
+    const { SqliteGraphRepository } = require("./sqlite.js");
+    const { YamlGraphRepository } = require("./yaml.js");
+    let sqliteTime = 0;
+    let yamlTime = 0;
+    let sqliteNodeCount = 0;
+    let yamlNodeCount = 0;
+    let parseError = "";
+    try {
+        const sqliteRepo = new SqliteGraphRepository(projectDir);
+        const sqliteGraph = sqliteRepo.loadGraph();
+        sqliteTime = Date.parse(sqliteGraph.metadata.updated_at) || 0;
+        sqliteNodeCount = sqliteGraph.nodes.length;
+    }
+    catch (e) {
+        parseError += `SQLite read failed: ${e}. `;
+    }
+    try {
+        const yamlRepo = new YamlGraphRepository(projectDir);
+        const yamlGraph = yamlRepo.loadGraph();
+        yamlTime = Date.parse(yamlGraph.metadata.updated_at) || 0;
+        yamlNodeCount = yamlGraph.nodes.length;
+    }
+    catch (e) {
+        parseError += `YAML read failed: ${e}. `;
+    }
+    // If only one backend is readable, use that one.
+    if (sqliteTime === 0 && yamlTime > 0) {
+        const repo = new YamlGraphRepository(projectDir);
+        const reason = `SQLite unreadable${parseError ? ` (${parseError.trim()})` : ""}; using YAML.`;
+        writeSentinel(projectDir, "yaml");
+        sddDebug("repository", `[conflict-resolve] ${reason}`);
+        return { repo, winner: "yaml", reason };
+    }
+    if (yamlTime === 0 && sqliteTime > 0) {
+        const repo = new SqliteGraphRepository(projectDir);
+        const reason = `YAML unreadable${parseError ? ` (${parseError.trim()})` : ""}; using SQLite.`;
+        writeSentinel(projectDir, "sqlite");
+        sddDebug("repository", `[conflict-resolve] ${reason}`);
+        return { repo, winner: "sqlite", reason };
+    }
+    // Both readable — compare updated_at.
+    if (sqliteTime > yamlTime) {
+        const repo = new SqliteGraphRepository(projectDir);
+        const reason = `SQLite is more recent (sqlite updated_at=${new Date(sqliteTime).toISOString()}, ` +
+            `yaml updated_at=${new Date(yamlTime).toISOString()}). Using SQLite.`;
+        writeSentinel(projectDir, "sqlite");
+        sddDebug("repository", `[conflict-resolve] ${reason}`);
+        return { repo, winner: "sqlite", reason };
+    }
+    if (yamlTime > sqliteTime) {
+        const repo = new YamlGraphRepository(projectDir);
+        const reason = `YAML is more recent (yaml updated_at=${new Date(yamlTime).toISOString()}, ` +
+            `sqlite updated_at=${new Date(sqliteTime).toISOString()}). Using YAML.`;
+        writeSentinel(projectDir, "yaml");
+        sddDebug("repository", `[conflict-resolve] ${reason}`);
+        return { repo, winner: "yaml", reason };
+    }
+    // Timestamps equal — SQLite wins by policy (migration was intentional).
+    const repo = new SqliteGraphRepository(projectDir);
+    const reason = `Timestamps equal (${new Date(sqliteTime).toISOString()}). ` +
+        `SQLite wins by policy: migration is intentional and SQLite is always canonical ` +
+        `once created. (sqlite nodes=${sqliteNodeCount}, yaml nodes=${yamlNodeCount})`;
+    writeSentinel(projectDir, "sqlite");
+    sddDebug("repository", `[conflict-resolve] ${reason}`);
+    return { repo, winner: "sqlite", reason };
+}
+/** Module-level cache of the last conflict-resolution result for check_migrations reporting. */
+let lastConflictResolution = null;
+/** Returns the last conflict resolution performed in this process (for sdd.check_migrations). */
+export function getLastConflictResolution() {
+    return lastConflictResolution;
+}
 /**
  * Auto-detect the best storage backend and return a repository.
  *
- * Decision logic:
- * - If .sdd/graph.db exists → use SQLite
- * - If .sdd/graph.yaml exists and <1000 nodes → use YAML
- * - If .sdd/graph.yaml exists and ≥1000 nodes → auto-migrate to SQLite
- * - If neither exists → return YAML (default for new projects)
+ * Decision priority:
+ * 1. Sentinel file (.sdd/storage-backend) — authoritative explicit choice.
+ *    Auto-healed on first call: if graph.db exists without a sentinel, the
+ *    sentinel is written as "sqlite" immediately (Opção B).
+ * 2. Both graph.yaml and graph.db exist without sentinel →
+ *    resolveConflictingBackends() — intelligent analysis with SQLite preference.
+ * 3. Only graph.db exists → SQLite (+ auto-heal sentinel).
+ * 4. Only graph.yaml exists, < 1000 nodes → YAML.
+ * 5. Only graph.yaml exists, ≥ 1000 nodes → auto-migrate to SQLite.
+ * 6. Neither exists → YAML (default for new projects).
+ *
+ * .bak / .bk / .backup files are NEVER opened as active graphs — they are
+ * read-only disaster-recovery archives.
  */
 export function createRepository(projectDir) {
     const sddDir = join(projectDir, ".sdd");
     const yamlPath = join(sddDir, "graph.yaml");
     const dbPath = join(sddDir, "graph.db");
-    // If both backends exist, select the graph with the newest metadata and
-    // fall back safely when one backend is corrupt. This avoids silently using
-    // an old SQLite file after a YAML edit or migration failure.
-    if (existsSync(dbPath) && existsSync(yamlPath)) {
-        try {
-            const { SqliteGraphRepository } = require("./sqlite.js");
-            const { YamlGraphRepository } = require("./yaml.js");
-            const sqlite = new SqliteGraphRepository(projectDir);
-            const yaml = new YamlGraphRepository(projectDir);
-            const sqliteGraph = sqlite.loadGraph();
-            const yamlGraph = yaml.loadGraph();
-            const sqliteTime = Date.parse(sqliteGraph.metadata.updated_at) || 0;
-            const yamlTime = Date.parse(yamlGraph.metadata.updated_at) || 0;
-            if (yamlTime !== sqliteTime)
-                return yamlTime > sqliteTime ? yaml : sqlite;
-            // Metadata timestamps can be equal when two writers serialize quickly.
-            // Use the backend file mtime as a deterministic tie-breaker instead of
-            // silently preferring SQLite.
-            const sqliteMtime = statSync(dbPath).mtimeMs;
-            const yamlMtime = statSync(yamlPath).mtimeMs;
-            return yamlMtime > sqliteMtime ? yaml : sqlite;
-        }
-        catch {
-            try {
-                const { YamlGraphRepository } = require("./yaml.js");
-                return new YamlGraphRepository(projectDir);
-            }
-            catch {
+    // Safety: these paths must never be backup files.
+    assertNotBackup(yamlPath);
+    assertNotBackup(dbPath);
+    // ── 1. Sentinel-first decision ──────────────────────────────────────────
+    const sentinel = readSentinel(projectDir);
+    if (sentinel) {
+        if (sentinel === "sqlite") {
+            if (existsSync(dbPath)) {
                 const { SqliteGraphRepository } = require("./sqlite.js");
                 return new SqliteGraphRepository(projectDir);
             }
+            // Sentinel says sqlite but db is missing — corrupted state; fall through.
+            sddDebug("repository", "Sentinel says sqlite but graph.db is missing — falling back to file detection");
+        }
+        else {
+            if (existsSync(yamlPath)) {
+                const { YamlGraphRepository } = require("./yaml.js");
+                return new YamlGraphRepository(projectDir);
+            }
+            sddDebug("repository", "Sentinel says yaml but graph.yaml is missing — falling back to file detection");
         }
     }
+    // ── 2. Both backends exist without sentinel — intelligent resolution ─────
+    if (existsSync(dbPath) && existsSync(yamlPath)) {
+        const resolution = resolveConflictingBackends(projectDir, yamlPath, dbPath);
+        lastConflictResolution = { winner: resolution.winner, reason: resolution.reason };
+        return resolution.repo;
+    }
+    // ── 3. Auto-heal: only graph.db exists without sentinel ─────────────────
     if (existsSync(dbPath)) {
+        try {
+            writeSentinel(projectDir, "sqlite");
+            sddDebug("repository", "Auto-healed: wrote sentinel sqlite for existing graph.db");
+        }
+        catch (e) {
+            sddDebug("repository", `Auto-heal sentinel write failed: ${e}`);
+        }
         const { SqliteGraphRepository } = require("./sqlite.js");
         return new SqliteGraphRepository(projectDir);
     }
-    // If YAML exists, check if migration is needed
+    // ── 4. Only YAML exists ──────────────────────────────────────────────────
     if (existsSync(yamlPath)) {
         const nodeCount = countNodesInYaml(yamlPath);
         if (nodeCount >= MIGRATION_THRESHOLD) {
-            // Auto-migrate to SQLite
             return autoMigrateToSqlite(projectDir);
+        }
+        if (!sentinel) {
+            try {
+                writeSentinel(projectDir, "yaml");
+            }
+            catch (e) {
+                sddDebug("repository", `Sentinel write failed for yaml project: ${e}`);
+            }
         }
         const { YamlGraphRepository } = require("./yaml.js");
         return new YamlGraphRepository(projectDir);
     }
-    // Default: YAML for new projects
+    // ── 5. Default: YAML for new projects ───────────────────────────────────
     const { YamlGraphRepository } = require("./yaml.js");
     return new YamlGraphRepository(projectDir);
 }
@@ -83,25 +246,44 @@ function countNodesInYaml(yamlPath) {
 }
 /**
  * Auto-migrate from YAML to SQLite.
- * Reads the YAML graph, writes to SQLite, returns SQLite repository.
+ *
+ * Steps (all-or-nothing from the caller's perspective):
+ * 1. Load graph from YAML.
+ * 2. Write graph to SQLite.
+ * 3. Rename graph.yaml → graph.yaml.bak (atomic on POSIX; near-atomic on Windows).
+ *    After this rename, createRepository will never see both files coexisting.
+ * 4. Write the sentinel so the decision is explicit on every future call.
  */
 function autoMigrateToSqlite(projectDir) {
     const { YamlGraphRepository } = require("./yaml.js");
     const { SqliteGraphRepository } = require("./sqlite.js");
+    const sddDir = join(projectDir, ".sdd");
+    const yamlOrigPath = join(sddDir, "graph.yaml");
+    const yamlBakPath = join(sddDir, "graph.yaml.bak");
     const yamlRepo = new YamlGraphRepository(projectDir);
     const graph = yamlRepo.loadGraph();
     const sqliteRepo = new SqliteGraphRepository(projectDir);
     sqliteRepo.saveGraph(graph);
-    // Keep YAML as backup
-    const yamlPath = join(projectDir, ".sdd", "graph.yaml.bak");
+    // Rename the original YAML to .bak — atomic on POSIX, so createRepository
+    // will never observe both graph.yaml and graph.db simultaneously.
     try {
-        const yaml = require("js-yaml");
-        const { atomicWriteFile } = require("../cache/atomic.js");
-        atomicWriteFile(yamlPath, yaml.dump(graph, { noRefs: true, lineWidth: 120 }));
+        renameSync(yamlOrigPath, yamlBakPath);
     }
     catch (error) {
-        throw new Error(`Could not create YAML migration backup: ${error instanceof Error ? error.message : String(error)}`);
+        // If rename fails (e.g. cross-device), fall back to write-then-delete.
+        try {
+            const yaml = require("js-yaml");
+            const { atomicWriteFile } = require("../cache/atomic.js");
+            atomicWriteFile(yamlBakPath, yaml.dump(graph, { noRefs: true, lineWidth: 120 }));
+            const { unlinkSync } = require("fs");
+            unlinkSync(yamlOrigPath);
+        }
+        catch (fallbackError) {
+            throw new Error(`Could not create YAML migration backup: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+        }
     }
+    // Write the sentinel so every future createRepository call skips inference.
+    writeSentinel(projectDir, "sqlite");
     return sqliteRepo;
 }
 /**

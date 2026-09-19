@@ -329,6 +329,21 @@ export class YamlGraphRepository {
             const { SqliteGraphRepository } = require("./sqlite.js");
             const repo = new SqliteGraphRepository(projectDir);
             repo.saveGraph(graph);
+            // Rename the YAML file to .bak so createRepository never sees both
+            // backends coexisting, then write the sentinel.
+            const { join } = require("path");
+            const { renameSync, existsSync } = require("fs");
+            const yamlOrigPath = join(projectDir, ".sdd", "graph.yaml");
+            const yamlBakPath = join(projectDir, ".sdd", "graph.yaml.bak");
+            try {
+                if (existsSync(yamlOrigPath))
+                    renameSync(yamlOrigPath, yamlBakPath);
+            }
+            catch {
+                // Non-fatal: sentinel will be the authoritative decision anyway.
+            }
+            const { writeSentinel } = require("./repository.js");
+            writeSentinel(projectDir, "sqlite");
             return repo;
         }
         // Already YAML

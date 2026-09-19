@@ -1,4 +1,6 @@
 import { type ToolDefinition } from "@opencode-ai/plugin";
+/** Call after any operation that changes the active storage backend. */
+export declare function invalidateCachedRepo(directory: string): void;
 /**
  * Invalidate cache for specific node types after a mutation.
  */

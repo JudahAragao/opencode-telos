@@ -460,6 +460,9 @@ export class SqliteGraphRepository {
       const { YamlGraphRepository } = require("./yaml.js")
       const repo = new YamlGraphRepository(projectDir)
       repo.saveGraph(graph)
+      // Write sentinel so createRepository immediately uses the YAML path.
+      const { writeSentinel } = require("./repository.js")
+      writeSentinel(projectDir, "yaml")
       return repo
     }
 

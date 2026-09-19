@@ -691,6 +691,9 @@ export function createSddHooks(projectDir: string): Hooks {
         "sdd.build_graph", "sdd.update_from_answers",
         "sdd.enforce", "sdd.approve_change", "sdd.complete_change",
         "sdd.generate_code",
+        // Storage migration: backend changed — force full system re-injection
+        // so the next turn shows the new "Storage: sqlite/yaml" line.
+        "sdd.migrate_storage",
         // Composite tools
         "sdd.graph_mutation", "sdd.graph_admin",
         "sdd.workflow_new_feature", "sdd.workflow_bug_fix",

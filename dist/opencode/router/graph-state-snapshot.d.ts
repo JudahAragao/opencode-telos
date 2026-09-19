@@ -16,6 +16,8 @@ export interface GraphSnapshot {
     pendingChangeCount: number;
     approvedChangeCount: number;
     hasWorkflow: boolean;
+    /** Active storage backend for this project */
+    storageType: "yaml" | "sqlite" | "unknown";
     /** Timestamp de criação do snapshot */
     timestamp: number;
 }

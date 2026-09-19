@@ -92,8 +92,24 @@ import { projectPath } from "../sdd/security/paths.js"
 // ── Validation Coverage Index (singleton per session) ──────────────
 const validationIndex = new ValidationIndex()
 
+// ── Repository cache ────────────────────────────────────────────────
+// A single createRepository() decision per directory per process lifetime.
+// The backend (yaml vs sqlite) never changes mid-session unless an explicit
+// migration tool runs; at that point invalidateCachedRepo() is called so the
+// next getRepo() re-evaluates with the updated sentinel.
+const repoCache = new Map<string, GraphRepository>()
+
 function getRepo(directory: string): GraphRepository {
-  return createRepository(directory)
+  const cached = repoCache.get(directory)
+  if (cached) return cached
+  const repo = createRepository(directory)
+  repoCache.set(directory, repo)
+  return repo
+}
+
+/** Call after any operation that changes the active storage backend. */
+export function invalidateCachedRepo(directory: string): void {
+  repoCache.delete(directory)
 }
 
 function loadOrEmpty(directory: string): KnowledgeGraph {
@@ -841,6 +857,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { hasPendingMigrations, runMigrations, getMigrations } = await import("../sdd/migrations/index.js")
+        const { getLastConflictResolution } = await import("../sdd/persistence/repository.js")
         const { existsSync, statSync } = await import("fs")
         const { join } = await import("path")
 
@@ -854,28 +871,69 @@ export function createSddTools(): Record<string, ToolDefinition> {
         lines.push(`- Pending migrations: ${pending ? "YES" : "No"}`)
         lines.push(`- Total registered: ${allMigrations.length}`)
         
-        // 2. Check graph.yaml vs graph.db sync
+        // 2. Storage backend state
         const yamlPath = join(ctx.directory, ".sdd", "graph.yaml")
         const dbPath = join(ctx.directory, ".sdd", "graph.db")
-        
-        if (existsSync(yamlPath) && existsSync(dbPath)) {
-          const yamlStat = statSync(yamlPath)
-          const dbStat = statSync(dbPath)
-          
-          if (dbStat.mtimeMs < yamlStat.mtimeMs) {
-            issues.push("graph.db is older than graph.yaml — needs sync")
-            lines.push(`- ⚠️ graph.db stale (YAML is newer)`)
+        const sentinelPath = join(ctx.directory, ".sdd", "storage-backend")
+        const yamlBakPath = join(ctx.directory, ".sdd", "graph.yaml.bak")
+
+        const hasSentinel = existsSync(sentinelPath)
+        const hasYaml = existsSync(yamlPath)
+        const hasDb = existsSync(dbPath)
+        const hasBak = existsSync(yamlBakPath)
+
+        lines.push(`\n## Storage Backend`)
+        lines.push(`- sentinel (storage-backend): ${hasSentinel ? require("fs").readFileSync(sentinelPath, "utf-8").trim() : "absent"}`)
+        lines.push(`- graph.yaml: ${hasYaml ? "present" : "absent"}`)
+        lines.push(`- graph.db: ${hasDb ? "present" : "absent"}`)
+        lines.push(`- graph.yaml.bak: ${hasBak ? "present (archive — do not read or delete)" : "absent"}`)
+
+        // Ambiguous state: both files exist without sentinel
+        if (hasYaml && hasDb && !hasSentinel) {
+          lines.push(`\n### ⚠️ Ambiguous State Detected`)
+          lines.push(`Both graph.yaml and graph.db exist without a sentinel file.`)
+          lines.push(`The plugin performed an intelligent analysis to determine the active backend:`)
+
+          const conflict = getLastConflictResolution()
+          if (conflict) {
+            lines.push(`- **Active backend chosen:** ${conflict.winner.toUpperCase()}`)
+            lines.push(`- **Reason:** ${conflict.reason}`)
+            lines.push(`- The sentinel has been written. This analysis will not run again.`)
           } else {
-            lines.push(`- ✅ graph.db is up to date`)
+            // Trigger the resolution now so the sentinel is written and we can report it
+            const { createRepository } = await import("../sdd/persistence/repository.js")
+            createRepository(ctx.directory)
+            const resolved = getLastConflictResolution()
+            if (resolved) {
+              lines.push(`- **Active backend chosen:** ${resolved.winner.toUpperCase()}`)
+              lines.push(`- **Reason:** ${resolved.reason}`)
+              lines.push(`- The sentinel has been written. This analysis will not run again.`)
+            } else {
+              lines.push(`- Resolution was already cached from a prior call. Run sdd.inspect to confirm the active backend.`)
+            }
           }
-        } else if (existsSync(yamlPath)) {
-          lines.push(`- ℹ️ Only graph.yaml exists (no SQLite)`)
+          issues.push("Ambiguous backend state (both graph.yaml and graph.db existed without sentinel) — now resolved")
+        } else if (hasYaml && hasDb && hasSentinel) {
+          // Both exist but sentinel is present — old yaml is a leftover from a
+          // pre-Fix1 migration (rename didn't happen). Not dangerous but worth noting.
+          const activeSentinel = require("fs").readFileSync(sentinelPath, "utf-8").trim()
+          if (activeSentinel === "sqlite") {
+            lines.push(`\n### ℹ️ Stale graph.yaml detected`)
+            lines.push(`graph.yaml exists alongside graph.db, but sentinel correctly points to SQLite.`)
+            lines.push(`The graph.yaml is a leftover from a pre-v2 migration and is no longer the active backend.`)
+            lines.push(`It can be manually renamed to graph.yaml.bak for archival if desired.`)
+          }
+        } else if (hasDb && !hasYaml) {
+          lines.push(`- ✅ SQLite-only project (clean state)`)
+        } else if (hasYaml && !hasDb) {
+          lines.push(`- ✅ YAML-only project (clean state)`)
         }
-        
-        // 3. Check for missing priority fields
+
+        // 3. Check for missing priority fields (using active backend only)
         try {
           const repo = createRepository(ctx.directory)
           if (repo.isInitialized()) {
+            lines.push(`\n## Active Backend: ${repo.getStorageType().toUpperCase()}`)
             const graph = repo.loadGraph()
             let missingPriority = 0
             let missingFields = 0
@@ -4042,6 +4100,10 @@ export function createSddTools(): Record<string, ToolDefinition> {
 
         const graph = repo.loadGraph()
         repo.migrateTo(args.target as "yaml" | "sqlite", ctx.directory)
+
+        // Invalidate the per-directory repo cache so every subsequent tool
+        // call in this session uses the new backend immediately.
+        invalidateCachedRepo(ctx.directory)
 
         return [
           `## Storage Migration Complete`,

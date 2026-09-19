@@ -32,6 +32,8 @@ export interface GraphSnapshot {
   pendingChangeCount: number
   approvedChangeCount: number
   hasWorkflow: boolean
+  /** Active storage backend for this project */
+  storageType: "yaml" | "sqlite" | "unknown"
   /** Timestamp de criação do snapshot */
   timestamp: number
 }
@@ -43,6 +45,8 @@ let cachedDirectory: string | null = null
 let cachedSourceSignature: string | null = null
 
 function sourceSignature(directory: string): string {
+  // Only watch active graph files. Backup files (.bak, .bk) are archives and
+  // must never trigger a snapshot refresh or be read by the plugin/LLM.
   const paths = [
     join(directory, ".sdd", "graph.yaml"),
     join(directory, ".sdd", "graph.db"),
@@ -90,7 +94,7 @@ function captureSnapshot(directory: string): GraphSnapshot {
         nodeCount: 0, relationshipCount: 0, nodeTypes: [],
         hasSpecNodes: false, hasChanges: false,
         pendingChangeCount: 0, approvedChangeCount: 0,
-        hasWorkflow: false, timestamp: now,
+        hasWorkflow: false, storageType: "unknown", timestamp: now,
       }
     }
 
@@ -142,6 +146,7 @@ function captureSnapshot(directory: string): GraphSnapshot {
       pendingChangeCount: pendingChanges.length,
       approvedChangeCount: approvedChanges.length,
       hasWorkflow,
+      storageType: repo.getStorageType(),
       timestamp: now,
     }
   } catch {
@@ -150,7 +155,7 @@ function captureSnapshot(directory: string): GraphSnapshot {
       nodeCount: 0, relationshipCount: 0, nodeTypes: [],
       hasSpecNodes: false, hasChanges: false,
       pendingChangeCount: 0, approvedChangeCount: 0,
-      hasWorkflow: false, timestamp: now,
+      hasWorkflow: false, storageType: "unknown", timestamp: now,
     }
   }
 }
@@ -170,8 +175,14 @@ export function formatGraphState(snapshot: GraphSnapshot): string {
     emergency: "🚨 Emergência (hotfix)",
   }
 
+  const storageLabel =
+    snapshot.storageType === "sqlite" ? "SQLite (graph.db)" :
+    snapshot.storageType === "yaml"   ? "YAML (graph.yaml)" :
+    "desconhecido"
+
   return [
     `Estado: ${stateLabels[snapshot.state]}`,
+    `Storage: ${storageLabel}`,
     `Nós: ${snapshot.nodeCount} | Relações: ${snapshot.relationshipCount}`,
     `Spec nodes: ${snapshot.hasSpecNodes ? "sim" : "não"}`,
     `Changes: ${snapshot.pendingChangeCount} pendente(s), ${snapshot.approvedChangeCount} aprovada(s)`,

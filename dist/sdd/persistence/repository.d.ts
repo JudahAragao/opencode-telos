@@ -2,6 +2,11 @@ import type { KnowledgeGraph, AnyNode, NodeType, NodeStatus, Relationship } from
 import { type SddConfig } from "../domain/types.js";
 import { GraphIndices } from "../graph/index.js";
 /**
+ * Write the sentinel atomically.
+ * Called after every successful migration and during auto-heal.
+ */
+export declare function writeSentinel(projectDir: string, backend: "yaml" | "sqlite"): void;
+/**
  * Unified interface for graph storage.
  * Both YAML and SQLite implementations satisfy this contract.
  */
@@ -43,14 +48,27 @@ export interface GraphRepository {
     /** Get relationships for a node without loading full graph (optimized for large graphs) */
     getRelationshipsForNode?(nodeId: string): Relationship[];
 }
+/** Returns the last conflict resolution performed in this process (for sdd.check_migrations). */
+export declare function getLastConflictResolution(): {
+    winner: "yaml" | "sqlite";
+    reason: string;
+} | null;
 /**
  * Auto-detect the best storage backend and return a repository.
  *
- * Decision logic:
- * - If .sdd/graph.db exists → use SQLite
- * - If .sdd/graph.yaml exists and <1000 nodes → use YAML
- * - If .sdd/graph.yaml exists and ≥1000 nodes → auto-migrate to SQLite
- * - If neither exists → return YAML (default for new projects)
+ * Decision priority:
+ * 1. Sentinel file (.sdd/storage-backend) — authoritative explicit choice.
+ *    Auto-healed on first call: if graph.db exists without a sentinel, the
+ *    sentinel is written as "sqlite" immediately (Opção B).
+ * 2. Both graph.yaml and graph.db exist without sentinel →
+ *    resolveConflictingBackends() — intelligent analysis with SQLite preference.
+ * 3. Only graph.db exists → SQLite (+ auto-heal sentinel).
+ * 4. Only graph.yaml exists, < 1000 nodes → YAML.
+ * 5. Only graph.yaml exists, ≥ 1000 nodes → auto-migrate to SQLite.
+ * 6. Neither exists → YAML (default for new projects).
+ *
+ * .bak / .bk / .backup files are NEVER opened as active graphs — they are
+ * read-only disaster-recovery archives.
  */
 export declare function createRepository(projectDir: string): GraphRepository;
 /**
