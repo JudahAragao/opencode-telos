@@ -5,7 +5,7 @@ import { createGraph, addNode, getNode, addRelationship, removeRelationship, get
 import { TASK_COLUMN_LABELS, TASK_COLUMNS, buildIntegrationBrief, createTask as createBoardTask, getPendingIntegrationTasks, isTaskColumn, listTasks, markTaskIntegrated, removeTask as removeBoardTask, updateTask as updateBoardTask, } from "../sdd/tasks/board.js";
 import { formatOpenChangeResult, openChangeForTask } from "../sdd/tasks/change-bridge.js";
 import { bfsOutgoing, bfsBoth, bfsIncoming, computeImpact, findPath, getSubgraph } from "../sdd/graph/traverse.js";
-import { analyzeBriefing, generateDiscoveryQuestions, updateGraphFromAnswers, formatDiscoverySummary } from "../sdd/discovery/briefing.js";
+import { analyzeBriefing, generateDiscoveryQuestions, updateGraphFromAnswers, formatDiscoverySummary, generatePurposeQuestion } from "../sdd/discovery/briefing.js";
 import { createChange, classifyApprovalLevel, approveChange, getPendingChanges, failChange, getChangeHistory, formatImpactReport, preflightChangeScope, checkSpecEvidence } from "../sdd/changes/manager.js";
 import { validateGraph, formatValidationResult } from "../sdd/validation/validator.js";
 import { detectDrift, formatDriftReport } from "../sdd/drift/detector.js";
@@ -27,6 +27,7 @@ import { detectConfigDrift, formatConfigDriftReport } from "../sdd/patterns/conf
 import { exportWorkflow, formatWorkflowExport } from "../sdd/workflow/exporter.js";
 import { generateShellHooks, formatShellHookResult } from "./shell-hooks.js";
 import { scanExistingProject, formatBrownfieldAnalysis } from "../sdd/brownfield/scanner.js";
+import { reverseEngineerProject } from "../sdd/brownfield/reverse-engineer.js";
 import { generateCicd, writeCicdFiles, formatCicdResults } from "../sdd/cicd/generators.js";
 import { getSyncStatus, pullLatest, pushChanges, detectConflicts, mergeGraphs, acquireLock, releaseLock, formatSyncStatus, resolveConflict } from "../sdd/sync/git-sync.js";
 import { createSnapshot, executeRollback, loadRollbackHistory, formatRollbackResult, formatRollbackHistory } from "../sdd/rollback/manager.js";
@@ -609,6 +610,17 @@ export function createSddTools() {
                 }
                 catch (error) {
                     sddDebug("tools", "Discovery adaptive filtering failed");
+                }
+                // Mandatory purpose question for brownfield projects
+                try {
+                    const purposeQuestion = generatePurposeQuestion(_ctx.directory);
+                    if (purposeQuestion) {
+                        // Insert as FIRST question — highest priority
+                        questions.unshift(purposeQuestion);
+                    }
+                }
+                catch (error) {
+                    sddDebug("tools", "Purpose question generation failed");
                 }
                 // Build the prompt for the agent
                 const lines = [];
@@ -2099,6 +2111,66 @@ export function createSddTools() {
             async execute(_args, ctx) {
                 const analysis = scanExistingProject(ctx.directory);
                 return formatBrownfieldAnalysis(analysis);
+            },
+        }),
+        "sdd.reverse_engineer": tool({
+            description: "Reverse-engineer an existing codebase into a Knowledge Graph. " +
+                "Use purpose='documentation' to document the system as-is with its real tech stack. " +
+                "Use purpose='reverse_engineering' to create a technology-agnostic spec that captures " +
+                "WHAT the system does (entities, endpoints, business rules, architecture layers) without " +
+                "committing to specific frameworks — ideal for rebuilding the system with a different stack.",
+            args: {
+                purpose: tool.schema.enum(["documentation", "reverse_engineering"]).describe("documentation = document the existing system as-is. " +
+                    "reverse_engineering = create a technology-agnostic spec for rebuilding elsewhere."),
+                depth: tool.schema.enum(["structure", "full"]).optional().describe("structure = only entities, endpoints, and architecture. " +
+                    "full = also extract business rules and requirements. Default: full."),
+                focus_dirs: tool.schema.string().optional().describe("Comma-separated directories to focus on (e.g., 'src/api,src/models')."),
+            },
+            async execute(args, ctx) {
+                const repo = getRepo(ctx.directory);
+                if (!repo.isInitialized()) {
+                    repo.createProject("project", "Project", "Reverse-engineered from existing codebase", args.purpose);
+                }
+                const result = reverseEngineerProject(ctx.directory, {
+                    purpose: args.purpose,
+                    depth: args.depth || "full",
+                    focusDirs: args.focus_dirs?.split(",").map(s => s.trim()),
+                });
+                // Update graph with reverse-engineered data
+                const graph = repo.loadGraph();
+                // Set purpose in metadata
+                graph.metadata.purpose = args.purpose;
+                const projectNode = graph.nodes.find(n => n.type === "project");
+                if (projectNode) {
+                    projectNode.metadata.purpose = args.purpose;
+                }
+                // Build graph from analysis using existing graph builder
+                const { buildGraphFromAnalysis } = await import("../sdd/discovery/graph-builder.js");
+                buildGraphFromAnalysis(graph, result.analysis);
+                // For documentation mode: mark all spec nodes as APPROVED (they represent reality)
+                if (args.purpose === "documentation") {
+                    for (const node of graph.nodes) {
+                        if (["feature", "entity", "endpoint", "architecture_component", "requirement", "business_rule", "decision"].includes(node.type) && node.status === "DRAFT") {
+                            node.status = "APPROVED";
+                        }
+                    }
+                }
+                repo.saveGraph(graph);
+                invalidateCacheForMutation(ctx.directory, [...new Set(graph.nodes.map(n => n.type))], [...new Set(graph.relationships.map(r => r.type))]);
+                const lines = [
+                    result.summary,
+                    "",
+                    `### Graph Updated`,
+                    `- **Nodes:** ${graph.nodes.length}`,
+                    `- **Relationships:** ${graph.relationships.length}`,
+                    `- **Purpose:** ${args.purpose}`,
+                    "",
+                    "Use `sdd.inspect` to review the graph.",
+                ];
+                if (args.purpose === "reverse_engineering") {
+                    lines.push("", "### Next Steps", "This is a **technology-agnostic** SDD. When using it in a new project:", "1. The LLM will detect `purpose: reverse_engineering` in the graph", "2. It will ask you to choose a tech stack (frontend, backend, database, etc.)", "3. Architecture components will be updated with your chosen technologies", "4. Then proceed with the normal SDD workflow");
+                }
+                return lines.join("\n");
             },
         }),
         "sdd.generate_cicd": tool({

@@ -48,7 +48,7 @@ const STATE_TOOLS = {
     },
     empty: {
         composite: ["sdd.graph_mutation"],
-        standalone: ["sdd.build_graph", "sdd.discover", "sdd.inspect"],
+        standalone: ["sdd.build_graph", "sdd.discover", "sdd.inspect", "sdd.reverse_engineer"],
     },
     partial: {
         composite: ["sdd.graph_mutation", "sdd.graph_query"],

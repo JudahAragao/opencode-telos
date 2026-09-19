@@ -279,7 +279,7 @@ export class YamlGraphRepository {
     invalidateCache() {
         YamlGraphRepository.cache.delete(this.graphPath);
     }
-    createProject(projectId, name, description) {
+    createProject(projectId, name, description, purpose) {
         this.ensureSddDir();
         const now = new Date().toISOString();
         const graph = {
@@ -293,7 +293,7 @@ export class YamlGraphRepository {
                     description,
                     status: "DRAFT",
                     version: 1,
-                    metadata: { name, description },
+                    metadata: { name, description, purpose },
                     created_at: now,
                     updated_at: now,
                 },
@@ -303,6 +303,7 @@ export class YamlGraphRepository {
                 created_at: now,
                 updated_at: now,
                 sdd_version: GRAPH_SCHEMA_VERSION,
+                purpose,
             },
         };
         this.saveGraph(graph);

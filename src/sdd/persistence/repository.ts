@@ -68,7 +68,7 @@ export interface GraphRepository {
   ensureSddDir(): void
 
   /** Create a new project graph */
-  createProject(projectId: string, name: string, description?: string): KnowledgeGraph
+  createProject(projectId: string, name: string, description?: string, purpose?: "documentation" | "reverse_engineering" | "greenfield"): KnowledgeGraph
 
   /** Create a snapshot of the current state */
   createSnapshot(description: string): string

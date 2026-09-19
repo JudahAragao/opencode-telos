@@ -306,7 +306,7 @@ export class YamlGraphRepository implements GraphRepository {
     YamlGraphRepository.cache.delete(this.graphPath)
   }
 
-  createProject(projectId: string, name: string, description?: string): KnowledgeGraph {
+  createProject(projectId: string, name: string, description?: string, purpose?: "documentation" | "reverse_engineering" | "greenfield"): KnowledgeGraph {
     this.ensureSddDir()
     const now = new Date().toISOString()
     const graph: KnowledgeGraph = {
@@ -320,7 +320,7 @@ export class YamlGraphRepository implements GraphRepository {
           description,
           status: "DRAFT",
           version: 1,
-          metadata: { name, description },
+          metadata: { name, description, purpose },
           created_at: now,
           updated_at: now,
         },
@@ -330,6 +330,7 @@ export class YamlGraphRepository implements GraphRepository {
         created_at: now,
         updated_at: now,
         sdd_version: GRAPH_SCHEMA_VERSION,
+        purpose,
       },
     }
     this.saveGraph(graph)

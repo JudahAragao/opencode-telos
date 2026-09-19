@@ -106,3 +106,11 @@ export declare function generateDiscoveryQuestions(analysis: BriefingAnalysis, o
 export declare function updateGraphFromAnswers(graph: KnowledgeGraph, answers: Record<string, string>): void;
 export declare function isBriefingSufficient(analysis: BriefingAnalysis): boolean;
 export declare function formatDiscoverySummary(analysis: BriefingAnalysis): string;
+/**
+ * Generates a mandatory purpose question for brownfield projects.
+ * Returns null for new projects (no existing code detected).
+ *
+ * This question is inserted as the FIRST question in sdd.discover,
+ * before any other discovery questions.
+ */
+export declare function generatePurposeQuestion(projectDir: string): QuestionForUser | null;

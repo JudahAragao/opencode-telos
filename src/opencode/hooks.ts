@@ -699,6 +699,8 @@ export function createSddHooks(projectDir: string): Hooks {
         "sdd.workflow_new_feature", "sdd.workflow_bug_fix",
         "sdd.workflow_hotfix", "sdd.workflow_refactor",
         "sdd.workflow_full_cycle",
+        // Reverse engineering: mutates graph from codebase scan
+        "sdd.reverse_engineer", "sdd.workflow_reverse_engineer",
       ]
       if (mutationTools.includes(input.tool)) {
         invalidateSnapshotCache()
@@ -712,11 +714,14 @@ export function createSddHooks(projectDir: string): Hooks {
         "sdd.update_from_answers",
         "sdd.build_graph",
         "sdd.generate_code",
+        // Reverse engineering builds spec from codebase
+        "sdd.reverse_engineer",
         // Composite tools that update spec
         "sdd.graph_mutation", "sdd.graph_admin",
         "sdd.workflow_new_feature", "sdd.workflow_bug_fix",
         "sdd.workflow_hotfix", "sdd.workflow_refactor",
         "sdd.workflow_full_cycle",
+        "sdd.workflow_reverse_engineer",
       ])
       if (specMutationTools.has(input.tool)) {
         markSpecUpdated(workflowScope(projectDir, input.sessionID))

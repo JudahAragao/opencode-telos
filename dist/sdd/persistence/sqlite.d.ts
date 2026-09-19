@@ -27,7 +27,7 @@ export declare class SqliteGraphRepository {
     isCacheValid(): boolean;
     invalidateCache(): void;
     ensureSddDir(): void;
-    createProject(projectId: string, name: string, description?: string): KnowledgeGraph;
+    createProject(projectId: string, name: string, description?: string, purpose?: "documentation" | "reverse_engineering" | "greenfield"): KnowledgeGraph;
     createSnapshot(description: string): string;
     listSnapshots(): string[];
     migrateTo(target: "yaml" | "sqlite", projectDir: string): GraphRepository;

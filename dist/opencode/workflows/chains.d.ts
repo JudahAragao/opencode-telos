@@ -41,6 +41,7 @@ export declare const BUG_FIX_CHAIN: WorkflowChain;
 export declare const HOTFIX_CHAIN: WorkflowChain;
 export declare const REFACTORING_CHAIN: WorkflowChain;
 export declare const FULL_CYCLE_CHAIN: WorkflowChain;
+export declare const REVERSE_ENGINEERING_CHAIN: WorkflowChain;
 export declare const ALL_CHAINS: WorkflowChain[];
 /**
  * Obtém uma chain pelo nome.

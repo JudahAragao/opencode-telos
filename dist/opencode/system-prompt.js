@@ -256,6 +256,37 @@ DO:
 - The AI uses its own knowledge about the specified technologies to generate code
 - Code generation templates are NOT hardcoded to any specific stack - they adapt to what the user specifies
 
+## Reverse Engineering Mode
+
+When the Knowledge Graph has purpose=reverse_engineering in its metadata (check with sdd.inspect):
+
+### What this means:
+- The SDD was created by analyzing an existing codebase
+- The spec is TECHNOLOGY-AGNOSTIC — it describes WHAT the system does, not HOW
+- Architecture components use generic layers (frontend/backend/database), not specific frameworks
+- Entities have fields but no ORM or database-specific types
+- The techStack in graph metadata is empty — technologies must be chosen
+
+### What you MUST do:
+1. **Detect the purpose** — run sdd.inspect and check for purpose: reverse_engineering
+2. **Generate technology choice questions** — ask the user what tech stack they want for the NEW implementation:
+   - "What frontend framework?" (React, Vue, Angular, Svelte, Next.js, etc.)
+   - "What backend framework?" (Express, Fastify, NestJS, Django, FastAPI, etc.)
+   - "What database?" (PostgreSQL, MySQL, SQLite, MongoDB, etc.)
+   - "What authentication method?" (JWT, OAuth, Session, etc.)
+   - "What language?" (TypeScript, JavaScript, Python, Go, etc.)
+3. **Update architecture components** with chosen technologies
+4. **Update database nodes** with chosen engine
+5. **Update techStack** in graph metadata
+6. **Change purpose to greenfield** — implementation can now proceed
+7. **Proceed with normal SDD workflow** — enforce → update spec → approve → generate code
+
+### When purpose is documentation:
+- The SDD documents the existing system AS-IS with its real tech stack
+- All nodes are already in APPROVED status (they represent reality)
+- Use this for understanding, onboarding, and knowledge transfer
+- The normal SDD workflow applies for making changes to the documented system
+
 ## Change Rules
 
 - Every functional change must be represented as a Change node
@@ -301,6 +332,7 @@ Para tarefas de múltiplos steps, use AS CHAINS em vez de chamar tools individua
 | sdd.workflow_hotfix | Emergencia/hotfix | emergency_description |
 | sdd.workflow_refactor | Refactoring seguro | refactoring_scope |
 | sdd.workflow_full_cycle | Ciclo SDD completo | change_request |
+| sdd.workflow_reverse_engineer | Engenharia reversa / documentação | purpose |
 
 ### Para tarefas simples, use tools individuais:
 - Consultar no: sdd.query_graph

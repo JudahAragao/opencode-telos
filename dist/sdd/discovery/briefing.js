@@ -614,3 +614,50 @@ export function formatDiscoverySummary(analysis) {
     }
     return lines.join("\n");
 }
+// ── Purpose Question (for brownfield projects) ────────────────────
+import { existsSync } from "fs";
+import { join } from "path";
+/**
+ * Detects if the project directory contains existing code (brownfield).
+ * Returns true if source files or project config exist.
+ */
+function isBrownfieldProject(projectDir) {
+    // Check for common source directories
+    const sourceDirs = ["src", "app", "lib", "server", "api", "backend", "frontend"];
+    for (const dir of sourceDirs) {
+        if (existsSync(join(projectDir, dir)))
+            return true;
+    }
+    // Check for project config files that imply existing code
+    const configFiles = ["package.json", "requirements.txt", "go.mod", "Cargo.toml", "pom.xml", "Gemfile", "pyproject.toml"];
+    for (const file of configFiles) {
+        if (existsSync(join(projectDir, file)))
+            return true;
+    }
+    return false;
+}
+/**
+ * Generates a mandatory purpose question for brownfield projects.
+ * Returns null for new projects (no existing code detected).
+ *
+ * This question is inserted as the FIRST question in sdd.discover,
+ * before any other discovery questions.
+ */
+export function generatePurposeQuestion(projectDir) {
+    if (!isBrownfieldProject(projectDir))
+        return null;
+    return {
+        question: "Este projeto já possui código implementado. Qual o objetivo do SDD?",
+        header: "Objetivo do SDD",
+        options: [
+            {
+                label: "Documentação completa",
+                description: "Documentar a estrutura, arquitetura e modelos de dados do sistema existente como está",
+            },
+            {
+                label: "Engenharia reversa",
+                description: "Criar uma especificação agnóstica de tecnologia para reconstruir o sistema em outra stack",
+            },
+        ],
+    };
+}

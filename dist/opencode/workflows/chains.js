@@ -203,6 +203,38 @@ export const FULL_CYCLE_CHAIN = {
             description: "Executar o ciclo completo com todas as validações",
         }],
 };
+// ── Chain: Reverse Engineering ──────────────────────────────────
+export const REVERSE_ENGINEERING_CHAIN = {
+    name: "sdd.workflow_reverse_engineer",
+    description: "Workflow de engenharia reversa: scan do codebase → gerar SDD → validar.",
+    params: [
+        { name: "purpose", type: "string", description: "documentation ou reverse_engineering", required: true },
+        { name: "focus_dirs", type: "string", description: "Diretórios para focar (opcional, separado por vírgula)", required: false },
+    ],
+    steps: [
+        {
+            tool: "sdd.reverse_engineer",
+            args: (_prev, initial) => ({
+                purpose: String(initial.purpose || "reverse_engineering"),
+                focus_dirs: initial.focus_dirs ? String(initial.focus_dirs) : undefined,
+            }),
+            required: true,
+            description: "Analisar codebase e gerar SDD",
+        },
+        {
+            tool: "sdd.validate",
+            args: {},
+            required: true,
+            description: "Validar integridade do grafo gerado",
+        },
+        {
+            tool: "sdd.inspect",
+            args: {},
+            required: false,
+            description: "Revisar o que foi criado",
+        },
+    ],
+};
 // ── Todas as chains ───────────────────────────────────────────────
 export const ALL_CHAINS = [
     NEW_FEATURE_CHAIN,
@@ -210,6 +242,7 @@ export const ALL_CHAINS = [
     HOTFIX_CHAIN,
     REFACTORING_CHAIN,
     FULL_CYCLE_CHAIN,
+    REVERSE_ENGINEERING_CHAIN,
 ];
 /**
  * Obtém uma chain pelo nome.

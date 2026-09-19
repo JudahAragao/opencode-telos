@@ -86,6 +86,7 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.workflow_hotfix": ["workflow", "implementation"],
   "sdd.workflow_refactor": ["workflow", "implementation"],
   "sdd.workflow_full_cycle": ["workflow", "implementation"],
+  "sdd.workflow_reverse_engineer": ["workflow", "discovery"],
 
   // ── Analysis ────────────────────────────────────────────────────
   "sdd.analyze_impact": ["analysis"],
@@ -104,6 +105,7 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.graph_health": ["analysis", "admin"],
   "sdd.graph_health_detail": ["analysis", "admin"],
   "sdd.brownfield_scan": ["analysis"],
+  "sdd.reverse_engineer": ["discovery", "analysis"],
   "sdd.analyze_codebase": ["quality", "analysis"],
   "sdd.detect_sync_conflicts": ["admin", "analysis"],
   "sdd.security_audit": ["analysis", "enterprise"],
@@ -274,6 +276,8 @@ export const CATEGORY_KEYWORDS: Record<IntentCategory, string[]> = {
   discovery: [
     "briefing", "descobrir", "perguntar", "especificação", "requisito",
     "discover", "briefing", "question", "specification", "requirement",
+    "reverse", "engineering", "reversa", "documentar", "documentação", "scan",
+    "existing", "codebase", "existente", "código",
   ],
   implementation: [
     "implementar", "gerar código", "code", "generate", "planejar",

@@ -27,12 +27,14 @@ export interface Relationship {
     type: RelationshipType;
     metadata: Record<string, unknown>;
 }
+export type SddPurpose = "documentation" | "reverse_engineering" | "greenfield";
 export interface ProjectNode extends Node {
     type: "project";
     metadata: {
         name: string;
         description?: string;
         stack?: string[];
+        purpose?: SddPurpose;
     };
 }
 export interface DomainNode extends Node {
@@ -427,6 +429,8 @@ export interface KnowledgeGraph {
         created_at: string;
         updated_at: string;
         sdd_version: string;
+        purpose?: SddPurpose;
+        source_project?: string;
     };
 }
 export interface Transaction {
