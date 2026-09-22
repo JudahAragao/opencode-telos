@@ -212,7 +212,7 @@ function detectNearDuplicates(graph, patterns) {
                         description: `Nodes "${a.name}" and "${b.name}" are ${Math.round(similarity * 100)}% similar — AUTO-MERGE RECOMMENDED`,
                         node_id: a.id,
                         severity: "error",
-                        suggestion: `Auto-merge: keep "${a.name}" (id: ${a.id}), remove "${b.name}" (id: ${b.id}). Use sdd.remove_node on the duplicate after moving its relationships.`,
+                        suggestion: `Auto-merge: keep "${a.name}" (id: ${a.id}), remove "${b.name}" (id: ${b.id}). Use sdd.graph_mutation(action="remove_node") on the duplicate after moving its relationships.`,
                     });
                 }
                 else if (similarity >= 0.85) {

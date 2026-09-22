@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test"
 import { analyzeBriefingDeep } from "../src/sdd/discovery/briefing-analyzer.js"
 import { buildGraphFromAnalysis } from "../src/sdd/discovery/graph-builder.js"
 import { createGraph } from "../src/sdd/graph/engine.js"
+import { KNOWN_RELATIONSHIP_TYPES } from "../src/sdd/graph/schema.js"
 
 const SAMPLE_BRIEFING = `
 # CMS Platform Specification
@@ -213,6 +214,37 @@ describe("GraphBuilder", () => {
 
     // Second build should create fewer or equal nodes
     expect(second.nodesCreated).toBeLessThanOrEqual(first.nodesCreated)
+  })
+
+  test("applies declared analysis relationships and normalizes legacy types", () => {
+    const graph = createGraph("test")
+    const analysis = analyzeBriefingDeep(SAMPLE_BRIEFING)
+    const featureName = analysis.features[0].name
+    const ruleName = analysis.businessRules[0]?.name
+    if (ruleName) {
+      analysis.relationships.push({
+        from: `rule-${ruleName}`,
+        to: `feature-${featureName}`,
+        type: "constrained_by", // sinônimo legado — deve virar "constrains"
+      })
+    }
+
+    buildGraphFromAnalysis(graph, analysis)
+
+    // Nenhuma aresta pode carregar um tipo fora do schema.
+    for (const rel of graph.relationships) {
+      expect(KNOWN_RELATIONSHIP_TYPES.has(rel.type)).toBe(true)
+    }
+
+    if (ruleName) {
+      const coerced = graph.relationships.find(
+        (r) => r.type === "constrains" && (r.metadata as Record<string, unknown>).method === "analysis-declared",
+      )
+      expect(coerced).toBeDefined()
+    }
+    expect(
+      graph.relationships.some((r) => (r.metadata as Record<string, unknown>).method === "analysis-declared"),
+    ).toBe(true)
   })
 
   test("generates summary with breakdown", () => {

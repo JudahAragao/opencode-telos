@@ -422,7 +422,7 @@ export function createSddHooks(projectDir) {
                                 "",
                                 "After sdd.enforce, you MUST update the SDD graph BEFORE writing code:",
                                 "",
-                                "1. Run sdd.add_node to create feature/entity/business_rule nodes",
+                                "1. Run sdd.graph_mutation(action=\"add_node\") to create feature/entity/business_rule nodes",
                                 "2. Run sdd.update_from_answers to populate the specification",
                                 "3. Run sdd.validate to verify the updated spec",
                                 "4. THEN retry this write",
@@ -451,8 +451,8 @@ export function createSddHooks(projectDir) {
                         `  File: ${filePath}`,
                         "",
                         "The Knowledge Graph can ONLY be modified through SDD tools:",
-                        "- sdd.add_node / sdd.update_node / sdd.remove_node",
-                        "- sdd.add_relationship / sdd.remove_relationship",
+                        "- sdd.graph_mutation(action=\"add_node\"|" + "\"update_node\"|" + "\"remove_node\")",
+                        "- sdd.graph_mutation(action=\"add_relationship\"|" + "\"remove_relationship\")",
                         "- sdd.build_graph (initial setup)",
                         "",
                         "Direct file edits to .sdd/ are not allowed.",
@@ -517,7 +517,7 @@ export function createSddHooks(projectDir) {
                             "",
                             "After sdd.enforce, you MUST update the SDD graph BEFORE writing code:",
                             "",
-                            "1. Run sdd.add_node to create feature/entity/business_rule nodes",
+                            "1. Run sdd.graph_mutation(action=\"add_node\") to create feature/entity/business_rule nodes",
                             "2. Run sdd.update_from_answers to populate the specification",
                             "3. Run sdd.validate to verify the updated spec",
                             "4. THEN retry this write",
@@ -559,8 +559,6 @@ export function createSddHooks(projectDir) {
             }
             // Invalidate state snapshot cache after mutations
             const mutationTools = [
-                "sdd.add_node", "sdd.update_node", "sdd.remove_node",
-                "sdd.add_relationship", "sdd.remove_relationship",
                 "sdd.build_graph", "sdd.update_from_answers",
                 "sdd.enforce", "sdd.approve_change", "sdd.complete_change",
                 "sdd.generate_code",
@@ -581,8 +579,6 @@ export function createSddHooks(projectDir) {
             }
             // Mark spec as updated when spec-mutating tools are called
             const specMutationTools = new Set([
-                "sdd.add_node", "sdd.update_node", "sdd.remove_node",
-                "sdd.add_relationship", "sdd.remove_relationship",
                 "sdd.update_from_answers",
                 "sdd.build_graph",
                 "sdd.generate_code",

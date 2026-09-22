@@ -84,6 +84,19 @@ export declare const WORKFLOW_EXEMPT_TOOLS: Set<string>;
  */
 export declare const WORKFLOW_REQUIRED_TOOLS: Set<string>;
 /**
+ * União de todas as tools com política explícita de acesso (isenta ou
+ * obrigatória). É a fonte única da cobertura de classificação: uma tool nova
+ * só deixa de ser bloqueada por `checkToolAccess` se estiver aqui (ou tiver
+ * entradas em COMPOSITE_MUTATING_ACTIONS). O teste-guarda do catálogo exige
+ * que toda tool registrada esteja coberta.
+ */
+export declare const CLASSIFIED_TOOLS: ReadonlySet<string>;
+/**
+ * Uma tool está classificada quando tem política de acesso direta ou é um
+ * container com ações mutantes declaradas.
+ */
+export declare function isToolClassified(toolName: string): boolean;
+/**
  * Check if a tool requires workflow context.
  * Returns null if the tool is allowed, or an error message if blocked.
  */

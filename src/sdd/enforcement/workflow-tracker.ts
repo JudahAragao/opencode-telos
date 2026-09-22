@@ -9,6 +9,8 @@
  * execute synchronously within a single tool-call boundary.
  */
 
+import { getCompositeForTool } from "../../opencode/router/tool-taxonomy.js"
+
 export interface WorkflowState {
   /** Whether sdd.enforce has been called in this session */
   enforced: boolean
@@ -213,39 +215,17 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
   "sdd.initialize",
   "sdd.inspect",
   "sdd.query_graph",
-  "sdd.list_nodes",
-  "sdd.count_nodes",
-  "sdd.get_nodes_by_status",
   "sdd.get_context",
-  "sdd.find_path",
   "sdd.analyze_impact",
   "sdd.validate",
   "sdd.detect_drift",
-  "sdd.config_drift",
-  "sdd.detect_sync_conflicts",
   "sdd.quality",
   "sdd.contradictions",
-  "sdd.verify_usage",
-  "sdd.find_dead_code",
-  "sdd.parse_symbols",
-  "sdd.analyze_complexity",
-  "sdd.code_metrics",
-  "sdd.detect_smells",
-  "sdd.analyze_dependencies",
   "sdd.anti_patterns",
   "sdd.clone_detection",
   "sdd.promises",
   "sdd.coverage",
-  "sdd.check_compliance",
-  "sdd.security_audit",
-  "sdd.analyze_scalability",
-  "sdd.traverse_outgoing",
-  "sdd.traverse_incoming",
-  "sdd.traverse_both",
-  "sdd.get_subgraph",
   "sdd.pending_changes",
-  "sdd.list_snapshots",
-  "sdd.sync_status",
   "sdd.remote_status",
   "sdd.mcp_server_info",
   "sdd.handle_mcp_tool",
@@ -254,13 +234,14 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
   "sdd.enforce_rules",
   "sdd.discover",
   "sdd.update_from_answers",
+  // Engenharia reversa: faz bootstrap do grafo a partir do código existente.
+  // É ponto de entrada (como sdd.build_graph) e não pode exigir Change ativo.
+  "sdd.reverse_engineer",
+  "sdd.workflow_reverse_engineer",
   "sdd.create_change",
   "sdd.approve_change",
   "sdd.complete_change",
   "sdd.verify_implementation",
-  // Read-only enterprise reports remain exempt; mutating enterprise tools are
-  // classified below as workflow-required.
-  "sdd.estimate_cost",
   // Toggle and config. `sdd.toggle` flips enforcement itself; requiring an
   // active workflow would make it impossible to enable SDD through the tool.
   "sdd.toggle",
@@ -268,23 +249,12 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
   // Renovação da janela: preserva o Change ativo em vez de criar um novo.
   "sdd.renew_workflow",
   "sdd.constitution",
-  // Session and export
+  // Session
   "sdd.session_handoff",
-  "sdd.workflow_export",
-  // Permissions
-  "sdd.load_permissions_config",
-  "sdd.check_permission",
-  "sdd.check_change_approval",
-  "sdd.set_role",
-  "sdd.get_user_role",
-  "sdd.audit_log",
   "sdd.detect_remote",
   // Infrastructure
   "sdd.brownfield_scan",
   "sdd.start_dashboard",
-  // Sync
-  // Rollback
-  "sdd.rollback_history",
   // Graph build
   "sdd.build_graph",
   // Operational and composite tools. Composite tools enforce their own
@@ -302,13 +272,7 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
   "sdd.change_history",
   "sdd.impact_report",
   "sdd.full_cycle",
-  "sdd.plan_implementation",
   "sdd.drift_signals",
-  "sdd.graph_health",
-  "sdd.graph_health_detail",
-  "sdd.detect_conventions",
-  "sdd.cache_stats",
-  "sdd.list_whitelist",
   "sdd.graph_query",
   "sdd.traverse",
   "sdd.permissions",
@@ -334,48 +298,41 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
  * These modify the SDD graph and must go through the workflow.
  */
 export const WORKFLOW_REQUIRED_TOOLS = new Set([
-  "sdd.add_node",
-  "sdd.update_node",
-  "sdd.remove_node",
-  "sdd.add_relationship",
-  "sdd.remove_relationship",
   "sdd.generate_code",
-  "sdd.remove_dead_code",
   "sdd.fail_change",
-  "sdd.analyze_codebase",
-  "sdd.graph_prune",
   "sdd.migrate_storage",
-  "sdd.learn_patterns",
-  "sdd.whitelist_drift",
-  "sdd.unwhitelist_drift",
   "sdd.auto_link_tests",
   "sdd.infer_relationships",
-  "sdd.save_permissions_config",
-  "sdd.sync_pull",
-  "sdd.sync_push",
-  "sdd.merge_graphs",
-  "sdd.rollback",
-  "sdd.create_snapshot",
   "sdd.install_hooks",
   "sdd.generate_cicd",
-  "sdd.migrate_storage",
   "sdd.bug_fix",
   "sdd.hotfix",
   "sdd.refactoring",
   "sdd.deprecate",
-  "sdd.create_migration",
-  "sdd.create_experiment",
-  "sdd.create_flag",
-  "sdd.create_tenant",
-  "sdd.onboard_developer",
-  "sdd.report_incident",
-  "sdd.create_sla",
-  "sdd.generate_docs",
-  "sdd.knowledge_transfer",
-  "sdd.disaster_recovery_plan",
-  "sdd.setup_monitoring",
-  "sdd.generate_dashboard",
 ])
+
+/**
+ * União de todas as tools com política explícita de acesso (isenta ou
+ * obrigatória). É a fonte única da cobertura de classificação: uma tool nova
+ * só deixa de ser bloqueada por `checkToolAccess` se estiver aqui (ou tiver
+ * entradas em COMPOSITE_MUTATING_ACTIONS). O teste-guarda do catálogo exige
+ * que toda tool registrada esteja coberta.
+ */
+export const CLASSIFIED_TOOLS: ReadonlySet<string> = new Set([
+  ...WORKFLOW_EXEMPT_TOOLS,
+  ...WORKFLOW_REQUIRED_TOOLS,
+])
+
+/**
+ * Uma tool está classificada quando tem política de acesso direta ou é um
+ * container com ações mutantes declaradas.
+ */
+export function isToolClassified(toolName: string): boolean {
+  return (
+    CLASSIFIED_TOOLS.has(toolName) ||
+    Object.prototype.hasOwnProperty.call(COMPOSITE_MUTATING_ACTIONS, toolName)
+  )
+}
 
 /** Actions inside composite tools that change project state. */
 const COMPOSITE_MUTATING_ACTIONS: Record<string, ReadonlySet<string>> = {
@@ -434,6 +391,20 @@ export function checkToolAccess(
       }
     }
     return { allowed: true }
+  }
+
+  // Tools removidas: em vez do genérico "não classificada", redireciona para o
+  // composite canônico. É o "alias de erro": o nome antigo não é anunciado nem
+  // registrado, mas uma chamada residual recebe o caminho correto.
+  const replacement = getCompositeForTool(toolName)
+  if (replacement) {
+    return {
+      allowed: false,
+      reason:
+        `[SDD] Tool "${toolName}" foi removida — a capacidade agora é ` +
+        `\`${replacement.composite}(action="${replacement.action}")\`. ` +
+        `Use o caminho canônico.`,
+    }
   }
 
   // Fail closed. New SDD tools must be explicitly classified before they can

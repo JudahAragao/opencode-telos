@@ -69,6 +69,8 @@ const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[
     standalone: [
       "sdd.enforce", "sdd.build_graph", "sdd.discover",
       "sdd.pending_changes", "sdd.change_history",
+      // Rastreabilidade e releases: manutenção do grafo já pronto.
+      "sdd.infer_relationships", "sdd.milestone", "sdd.integrate_tasks",
     ],
   },
   has_change: {
@@ -79,6 +81,8 @@ const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[
     standalone: [
       "sdd.enforce", "sdd.approve_change", "sdd.update_from_answers",
       "sdd.pending_changes", "sdd.change_history", "sdd.impact_report",
+      // O Change atualiza a rastreabilidade e entra num release.
+      "sdd.infer_relationships", "sdd.milestone", "sdd.integrate_tasks",
     ],
   },
   has_approved_change: {
@@ -90,6 +94,8 @@ const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[
     standalone: [
       "sdd.generate_code", "sdd.complete_change", "sdd.fail_change",
       "sdd.validate", "sdd.detect_drift",
+      // Fechamento do release após concluir o Change.
+      "sdd.milestone", "sdd.integrate_tasks",
     ],
   },
   emergency: {

@@ -18,7 +18,15 @@
  */
 export type IntentCategory = "mutation" | "query" | "workflow" | "analysis" | "quality" | "enterprise" | "admin" | "discovery" | "implementation" | "info";
 /**
- * Mapeamento de tools standalone para categorias de intenção.
+ * Mapeamento de tools standalone CANÔNICAS para categorias de intenção.
+ *
+ * Apenas capacidades sem substituta composta aparecem aqui. Toda tool cuja
+ * ação já vive num composite (`TOOL_TAXONOMY[i].actions[].replaces`) é
+ * depreciada e NÃO entra neste mapa: `createSddTools()` também a filtra, então
+ * existe um único nome por capacidade no catálogo anunciado ao LLM.
+ *
+ * tests/tool-catalog.test.ts garante que este mapa é idêntico às tools
+ * standalone registradas, e que nenhuma entrada é depreciada.
  */
 export declare const STANDALONE_CATEGORIES: Record<string, IntentCategory[]>;
 /**

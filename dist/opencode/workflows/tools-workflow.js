@@ -44,9 +44,11 @@ function createChainTool(chain) {
             }
             // Tool executor: chama as tools SDD diretamente
             const executeTool = async (toolName, toolArgs) => {
-                // Import dinâmico para evitar circular dependencies
-                const { createSddTools } = await import("../tools.js");
-                const tools = createSddTools();
+                // Import dinâmico para evitar circular dependencies.
+                // Usa o mapa COMPLETO: as chains são código nosso e podem orquestrar
+                // handlers internos que já não são anunciados (find_dead_code etc.).
+                const { createSddToolDefinitions } = await import("../tools.js");
+                const tools = createSddToolDefinitions();
                 const sddTool = tools[toolName];
                 if (!sddTool) {
                     return `Error: Tool ${toolName} not found`;

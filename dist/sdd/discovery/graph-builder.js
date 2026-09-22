@@ -1,6 +1,7 @@
 import { addNode, addRelationship, getNode } from "../graph/engine.js";
 import { ensureGraphIntegrity } from "../graph/integrity.js";
 import { runRelationshipInference } from "./relationship-inferencer.js";
+import { isRelationshipAllowed, normalizeRelationshipType } from "../graph/schema.js";
 import { progressEmitter } from "../../server/events.js";
 function safeId(projectId, type, name) {
     const clean = name
@@ -192,6 +193,78 @@ function buildRequirementNodes(graph, requirements) {
             count++;
         }
         catch { /* skip */ }
+    }
+    return count;
+}
+// ─── Declared relationships (from the LLM analysis) ────────────────
+/**
+ * Prefixos usados pelos extratores (`entity-Nome`, `feature-Nome`, …) mapeados
+ * para o tipo curto que `safeId` usa, permitindo resolver a referência para o
+ * ID real do grafo.
+ */
+const PREFIX_TO_SAFE_TYPE = {
+    feature: "feature", feat: "feature",
+    entity: "entity", ent: "entity",
+    requirement: "requirement", req: "req",
+    rule: "rule", business_rule: "rule", businessrule: "rule",
+    arch: "arch", architecture: "arch", architecture_component: "arch",
+    endpoint: "endpoint", ep: "endpoint",
+};
+/**
+ * Resolve a referência de uma aresta declarada (ID real, ID prefixado do
+ * extrator, ou nome do nó) para um nó existente no grafo.
+ */
+function resolveRelationshipEndpoint(graph, ref) {
+    if (!ref)
+        return undefined;
+    const direct = getNode(graph, ref);
+    if (direct)
+        return direct;
+    const dashIndex = ref.indexOf("-");
+    if (dashIndex > 0) {
+        const prefix = ref.slice(0, dashIndex).toLowerCase();
+        const rest = ref.slice(dashIndex + 1);
+        const safeType = PREFIX_TO_SAFE_TYPE[prefix];
+        if (safeType) {
+            const node = getNode(graph, safeId(graph.project_id, safeType, rest));
+            if (node)
+                return node;
+        }
+    }
+    const lower = ref.toLowerCase();
+    return graph.nodes.find((node) => node.name.toLowerCase() === lower);
+}
+/**
+ * Aplica os relacionamentos declarados pela análise (LLM ou regex), validando
+ * o tipo contra o schema canônico. Antes desta versão eles eram ignorados, o
+ * que descartava silenciosamente a rastreabilidade extraída do briefing.
+ */
+function applyAnalysisRelationships(graph, analysis) {
+    let count = 0;
+    for (const rel of analysis.relationships ?? []) {
+        if (!rel?.from || !rel?.to)
+            continue;
+        const type = normalizeRelationshipType(rel.type);
+        if (!type)
+            continue;
+        const from = resolveRelationshipEndpoint(graph, rel.from);
+        const to = resolveRelationshipEndpoint(graph, rel.to);
+        if (!from || !to || from.id === to.id)
+            continue;
+        if (!isRelationshipAllowed(from.type, type, to.type))
+            continue;
+        try {
+            addRelationship(graph, from.id, to.id, type, {
+                inferred: true,
+                method: "analysis-declared",
+                confidence: 0.9,
+                created_by: "graph-builder",
+            });
+            count++;
+        }
+        catch {
+            // Já existe ou criaria ciclo — a inferência cobre o que faltar.
+        }
     }
     return count;
 }
@@ -460,6 +533,8 @@ export function buildGraphFromAnalysis(graph, analysis) {
     progressEmitter.nextStep("relationships", "Building relationships between nodes...");
     const relationshipsCreated = buildRelationships(graph, analysis);
     progressEmitter.stepProgress("relationships", `Created ${relationshipsCreated} relationships`);
+    // Relacionamentos declarados pela análise do briefing (validados/normalizados)
+    const declaredRelationships = applyAnalysisRelationships(graph, analysis);
     // Inferência de rastreabilidade: cobre os vínculos que a heurística por
     // keyword não alcança (endpoint/file --implements--> feature,
     // endpoint --operates_on--> entity, requirement --specifies--> feature).
@@ -473,7 +548,7 @@ export function buildGraphFromAnalysis(graph, analysis) {
         `${integrityReport.summary.orphans_found} orphans, ` +
         `${integrityReport.summary.disconnected_groups_found} disconnected groups`);
     const nodesCreated = Object.values(byType).reduce((a, b) => a + b, 0);
-    const totalRelationships = relationshipsCreated + inference.applied;
+    const totalRelationships = relationshipsCreated + declaredRelationships + inference.applied;
     const totalFixes = integrityReport.summary.fixes_applied;
     // Complete build
     progressEmitter.complete(`Graph built: ${nodesCreated} nodes, ${totalRelationships} relationships, ${totalFixes} integrity fixes`, { nodesCreated, relationshipsCreated: totalRelationships, integrityReport, byType });

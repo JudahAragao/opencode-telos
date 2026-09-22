@@ -318,7 +318,7 @@ export function formatCoverageReport(report: CoverageReport): string {
       lines.push(`- ... and ${report.orphan_tests.length - 15} more`)
     }
     lines.push("")
-    lines.push("Use `sdd.add_relationship` to link: `from=requirement_id, to=test_id, type=tested_by`")
+    lines.push("Use `sdd.graph_mutation(action=\"add_relationship\")` to link: `from=requirement_id, to=test_id, type=tested_by`")
   }
 
   return lines.join("\n")

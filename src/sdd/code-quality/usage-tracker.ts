@@ -114,7 +114,7 @@ export function trackUsage(
           file_path: filePath,
           reason: 'Arquivo não importado E não conectado a spec',
           severity: 'warning',
-          recommendation: 'Pode ser removido via sdd.remove_dead_code.',
+          recommendation: 'Pode ser removido via sdd.code_quality(action="remove_dead_code").',
           is_connected_to_spec: false,
           connected_spec_nodes: [],
         })

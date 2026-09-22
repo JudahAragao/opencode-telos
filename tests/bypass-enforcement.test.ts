@@ -21,8 +21,8 @@ describe("Bypass Enforcement", () => {
       const first = workflowScope("/project", "session-a")
       const second = workflowScope("/project", "session-b")
       markEnforced("CHG-A", first)
-      expect(checkToolAccess("sdd.add_node", second).allowed).toBe(false)
-      expect(checkToolAccess("sdd.add_node", first).allowed).toBe(true)
+      expect(checkToolAccess("sdd.graph_mutation", second, "add_node").allowed).toBe(false)
+      expect(checkToolAccess("sdd.graph_mutation", first, "add_node").allowed).toBe(true)
     })
 
     it("blocks mutating composite actions while allowing their read actions", () => {
@@ -62,14 +62,16 @@ describe("Bypass Enforcement", () => {
   })
 
   describe("Graph mutation tools blocked without workflow", () => {
+    // As mutações de grafo agora vivem no composite `sdd.graph_mutation` (os
+    // nomes antigos foram removidos). A lista cobre os standalones mutantes
+    // que exigem workflow ativo.
     const mutationTools = [
-      "sdd.add_node",
-      "sdd.update_node",
-      "sdd.remove_node",
-      "sdd.add_relationship",
-      "sdd.remove_relationship",
       "sdd.generate_code",
-      "sdd.remove_dead_code",
+      "sdd.fail_change",
+      "sdd.bug_fix",
+      "sdd.auto_link_tests",
+      "sdd.infer_relationships",
+      "sdd.migrate_storage",
     ]
 
     for (const tool of mutationTools) {
@@ -87,15 +89,43 @@ describe("Bypass Enforcement", () => {
     }
   })
 
+  describe("Composite graph mutations are gated per action", () => {
+    const mutatingActions = ["add_node", "update_node", "remove_node", "add_relationship", "remove_relationship"]
+
+    for (const action of mutatingActions) {
+      it(`sdd.graph_mutation:${action} is blocked without workflow`, () => {
+        expect(checkToolAccess("sdd.graph_mutation", undefined, action).allowed).toBe(false)
+      })
+
+      it(`sdd.graph_mutation:${action} is allowed with active workflow`, () => {
+        markEnforced("CHG-001")
+        expect(checkToolAccess("sdd.graph_mutation", undefined, action).allowed).toBe(true)
+      })
+    }
+  })
+
+  describe("Removed tools redirect to the canonical composite", () => {
+    const removed = ["sdd.add_node", "sdd.verify_usage", "sdd.list_snapshots", "sdd.security_audit"]
+
+    for (const tool of removed) {
+      it(`${tool} is denied with a redirect, never with a generic error`, () => {
+        const result = checkToolAccess(tool)
+        expect(result.allowed).toBe(false)
+        expect(result.reason).toContain("foi removida")
+        expect(result.reason).toMatch(/sdd\.[a-z_]+\(action="/)
+      })
+    }
+  })
+
   describe("Read-only tools always allowed", () => {
     const readOnlyTools = [
       "sdd.inspect",
       "sdd.query_graph",
       "sdd.validate",
       "sdd.detect_drift",
-      "sdd.list_nodes",
+      "sdd.drift_signals",
       "sdd.get_context",
-      "sdd.find_path",
+      "sdd.coverage",
       "sdd.analyze_impact",
       "sdd.quality",
       "sdd.pending_changes",
@@ -119,6 +149,10 @@ describe("Bypass Enforcement", () => {
       "sdd.complete_change",
       "sdd.build_graph",
       "sdd.initialize",
+      // Reverse engineering bootstraps the graph from code, so it is an entry
+      // point too — it must never be denied by the fail-closed policy.
+      "sdd.reverse_engineer",
+      "sdd.workflow_reverse_engineer",
     ]
 
     for (const tool of entryTools) {
@@ -148,13 +182,19 @@ describe("Bypass Enforcement", () => {
 
   describe("Tool classification completeness", () => {
     it("all mutation tools are in REQUIRED set", () => {
-      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.add_node")).toBe(true)
-      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.update_node")).toBe(true)
-      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.remove_node")).toBe(true)
-      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.add_relationship")).toBe(true)
-      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.remove_relationship")).toBe(true)
       expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.generate_code")).toBe(true)
-      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.remove_dead_code")).toBe(true)
+      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.fail_change")).toBe(true)
+      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.bug_fix")).toBe(true)
+      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.auto_link_tests")).toBe(true)
+      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.infer_relationships")).toBe(true)
+      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.migrate_storage")).toBe(true)
+    })
+
+    it("no removed tool is classified", () => {
+      for (const tool of ["sdd.add_node", "sdd.remove_dead_code", "sdd.list_nodes"]) {
+        expect(WORKFLOW_REQUIRED_TOOLS.has(tool)).toBe(false)
+        expect(WORKFLOW_EXEMPT_TOOLS.has(tool)).toBe(false)
+      }
     })
 
     it("no mutation tool is in EXEMPT set", () => {

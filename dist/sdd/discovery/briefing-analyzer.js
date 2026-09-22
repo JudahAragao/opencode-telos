@@ -575,10 +575,11 @@ export function analyzeBriefingDeep(text) {
         const matchingFeature = features.find((f) => f.name.toLowerCase().includes(rule.name.toLowerCase().split(" ")[0]) ||
             rule.name.toLowerCase().includes(f.name.toLowerCase().split(" ")[0]));
         if (matchingFeature) {
+            // Direção canônica: business_rule --constrains--> feature.
             relationships.push({
-                from: `feature-${matchingFeature.name}`,
-                to: `rule-${rule.name}`,
-                type: "constrained_by",
+                from: `rule-${rule.name}`,
+                to: `feature-${matchingFeature.name}`,
+                type: "constrains",
             });
         }
     }

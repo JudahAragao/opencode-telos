@@ -31,7 +31,7 @@ export declare function columnToStatus(column: TaskColumn): NodeStatus;
 export declare function getTaskNodes(graph: KnowledgeGraph): TaskNode[];
 export declare function getTask(graph: KnowledgeGraph, id: string): TaskNode | undefined;
 /**
- * Next `TASK-###` id, matching the format produced by `sdd.add_node`
+ * Next `TASK-###` id, matching the format produced by `sdd.graph_mutation(action="add_node")`
  * (`${project_id}-TASK-001`). Scans for the highest existing suffix instead of
  * counting nodes so removals never cause a collision.
  */

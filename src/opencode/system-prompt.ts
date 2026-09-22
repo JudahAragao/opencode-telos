@@ -1,6 +1,35 @@
 import type { KnowledgeGraph } from "../sdd/domain/types.js"
 import { getNode } from "../sdd/graph/engine.js"
 import { bfsBoth } from "../sdd/graph/traverse.js"
+import { TOOL_TAXONOMY } from "./router/tool-taxonomy.js"
+import { STANDALONE_CATEGORIES } from "./router/categories.js"
+
+/**
+ * Referência de tools GERADA a partir da taxonomia — fonte única.
+ *
+ * Nenhum nome de tool é escrito à mão neste documento: incluir um nome
+ * depreciado no prompt fazia o modelo chamar um caminho inexistente. Como a
+ * lista vem de `TOOL_TAXONOMY` e `STANDALONE_CATEGORIES`, ela acompanha
+ * automaticamente qualquer remoção/adição de tool.
+ */
+export const SDD_TOOL_REFERENCE: string = (() => {
+  const lines: string[] = []
+
+  lines.push("### Tools Compositas (sub-comandos via action=)")
+  for (const tool of TOOL_TAXONOMY) {
+    lines.push(`- \`${tool.name}\` — ${tool.description}`)
+    for (const action of tool.actions) {
+      lines.push(`  - \`${tool.name}(action=\"${action.name}\")\`: ${action.description}`)
+    }
+  }
+
+  const standalone = Object.keys(STANDALONE_CATEGORIES).sort()
+  lines.push("")
+  lines.push(`### Tools Individuais (${standalone.length})`)
+  for (const name of standalone) lines.push(`- \`${name}\``)
+
+  return lines.join("\n")
+})()
 
 export const SDD_SYSTEM_PROMPT = `
 You are operating under Spec-Driven Development (SDD).
@@ -32,7 +61,7 @@ The SDD Knowledge Graph (stored in .sdd/) is the ONLY source of specification.
 ### ALWAYS use the Knowledge Graph instead:
 - Store ALL specification data as nodes and relationships in the .sdd/ graph
 - Use sdd.query_graph and sdd.inspect to read specifications
-- Use sdd.add_node, sdd.add_relationship, sdd.update_node to write specifications
+- Use sdd.graph_mutation(action="add_node|add_relationship|update_node") to write specifications
 - Use sdd.get_context to build focused context packs from the graph
 - Use sdd.validate to verify specification integrity
 
@@ -85,7 +114,7 @@ When calling sdd.build_graph, you MUST:
 3. Pass the extraction as the \`analysis_json\` parameter
 
 The analysis_json MUST be a valid JSON object with this structure:
-{\n  \"features\": [{\"name\": \"...\", \"description\": \"...\", \"priority\": \"critical|high|medium|low\", \"phase\": \"...\"}],\n  \"entities\": [{\"name\": \"...\", \"description\": \"...\", \"fields\": [{\"name\": \"...\", \"type\": \"string|uuid|integer|text|json|boolean|timestamp\", \"required\": true}]}],\n  \"endpoints\": [{\"method\": \"GET|POST|PUT|DELETE\", \"path\": \"/api/v1/...\", \"description\": \"...\", \"relatedEntity\": \"...\"}],\n  \"businessRules\": [{\"name\": \"...\", \"description\": \"...\"}],\n  \"architectureComponents\": [{\"name\": \"...\", \"layer\": \"frontend|backend|database|infrastructure\", \"technology\": \"...\", \"description\": \"...\"}],\n  \"decisions\": [{\"title\": \"...\", \"context\": \"...\", \"decision\": \"To be decided\", \"consequences\": \"...\"}],\n  \"requirements\": [{\"name\": \"...\", \"description\": \"...\", \"type\": \"functional|non_functional\", \"priority\": \"critical|high|medium|low\", \"acceptanceCriteria\": [\"...\"]}],\n  \"relationships\": [{\"from\": \"...\", \"to\": \"...\", \"type\": \"contains|depends_on|implements|uses|satisfied_by|constrained_by\"}],\n  \"domains\": [\"cms\", \"security\", \"devops\"],\n  \"techStack\": {\"frontend\": \"Astro\", \"backend\": \"Node.js\", \"database\": \"PostgreSQL\"}\n}
+{\n  \"features\": [{\"name\": \"...\", \"description\": \"...\", \"priority\": \"critical|high|medium|low\", \"phase\": \"...\"}],\n  \"entities\": [{\"name\": \"...\", \"description\": \"...\", \"fields\": [{\"name\": \"...\", \"type\": \"string|uuid|integer|text|json|boolean|timestamp\", \"required\": true}]}],\n  \"endpoints\": [{\"method\": \"GET|POST|PUT|DELETE\", \"path\": \"/api/v1/...\", \"description\": \"...\", \"relatedEntity\": \"...\"}],\n  \"businessRules\": [{\"name\": \"...\", \"description\": \"...\"}],\n  \"architectureComponents\": [{\"name\": \"...\", \"layer\": \"frontend|backend|database|infrastructure\", \"technology\": \"...\", \"description\": \"...\"}],\n  \"decisions\": [{\"title\": \"...\", \"context\": \"...\", \"decision\": \"To be decided\", \"consequences\": \"...\"}],\n  \"requirements\": [{\"name\": \"...\", \"description\": \"...\", \"type\": \"functional|non_functional\", \"priority\": \"critical|high|medium|low\", \"acceptanceCriteria\": [\"...\"]}],\n  \"relationships\": [{\"from\": \"...\", \"to\": \"...\", \"type\": \"contains|depends_on|implements|uses|satisfied_by|constrains\"}],\n  \"domains\": [\"cms\", \"security\", \"devops\"],\n  \"techStack\": {\"frontend\": \"Astro\", \"backend\": \"Node.js\", \"database\": \"PostgreSQL\"}\n}
 
 Extract ALL of these from the briefing:
 - **features**: Every distinct capability, module, or system described
@@ -154,8 +183,8 @@ The graph has INTEGRITY CHECKSUMS. Any modification outside SDD tools is:
 4. FLAGGED in drift detection as a spec-code mismatch
 
 The ONLY way to modify the graph is through SDD tools:
-- sdd.add_node, sdd.update_node, sdd.remove_node
-- sdd.add_relationship, sdd.remove_relationship
+- sdd.graph_mutation(action="add_node|update_node|remove_node")
+- sdd.graph_mutation(action="add_relationship|remove_relationship")
 - sdd.create_change, sdd.approve_change, sdd.complete_change
 - sdd.update_from_answers
 
@@ -198,14 +227,14 @@ If the workflow window expires mid-task, renew the SAME Change with **sdd.renew_
 - First check if graph exists with sdd.inspect
 - If empty, run sdd.build_graph first
 - Then run sdd.enforce to classify and create Change
-- Update specification with sdd.add_node if needed
+- Update specification with sdd.graph_mutation(action="add_node") if needed
 - Validate with sdd.validate
 - THEN generate code with sdd.generate_code
 
 ### If user says "modify feature X":
 - First run sdd.enforce
 - Identify what needs to change in the specification
-- Update the specification nodes with sdd.update_node
+- Update the specification nodes with sdd.graph_mutation(action="update_node")
 - Validate
 - Regenerate affected code
 - Complete the change
@@ -342,17 +371,7 @@ Para tarefas de múltiplos steps, use AS CHAINS em vez de chamar tools individua
 - Aprovar change: sdd.approve_change
 - Adicionar no: sdd.graph_mutation(action="add_node")
 
-### Tools Compositas (sub-comandos via action=):
-- sdd.graph_mutation(action="add_node|update_node|remove_node|add_relationship|remove_relationship")
-- sdd.graph_query(action="count_nodes|get_nodes_by_status|list_nodes")
-- sdd.traverse(action="outgoing|incoming|both|subgraph|find_path")
-- sdd.permissions(action="set_role|check|audit|config|role|approval")
-- sdd.snapshot(action="create|rollback|history|list")
-- sdd.sync(action="status|pull|push|conflicts|merge")
-- sdd.graph_admin(action="health|health_detail|prune|cache|conventions|learn")
-- sdd.code_quality(action="complexity|metrics|smells|dependencies|usage|dead_code|parse_symbols|plan_implementation|analyze_codebase")
-- sdd.enterprise(action="migration|experiment|flag|tenant|security_audit|scalability|compliance|monitoring|dashboard|incident|sla|cost|docs|onboarding|knowledge_transfer|disaster_recovery|config_drift|workflow_export")
-- sdd.drift_whitelist(action="add|remove|list")
+${SDD_TOOL_REFERENCE}
 
 ## Enterprise Workflows
 
@@ -389,28 +408,28 @@ When detecting deprecation (words: deprecar, deprecated, remover, descontinuar):
 
 ### Data Migration
 When detecting migrations (words: migrar, migration, schema, ALTER TABLE):
-1. Use \`sdd.create_migration\` for migration workflow
+1. Use \`sdd.enterprise(action="migration")\` for migration workflow
 2. Analyze current vs target schema
 3. Generate migration and rollback scripts
 4. Create MigrationNode
 
 ### A/B Testing
 When detecting experiments (words: A/B, experimento, variante, teste):
-1. Use \`sdd.create_experiment\` for experiment setup
+1. Use \`sdd.enterprise(action="experiment")\` for experiment setup
 2. Define hypothesis and variants
 3. Set metrics and duration
 4. Create ExperimentNode
 
 ### Feature Flags
 When detecting feature flags (words: feature flag, flag, toggle, switch):
-1. Use \`sdd.create_flag\` for flag creation
+1. Use \`sdd.enterprise(action="flag")\` for flag creation
 2. Define rollout percentage
 3. Set target audience
 4. Create FeatureFlagNode
 
 ### Multi-tenancy
 When detecting multi-tenancy (words: multi-tenant, tenant, isolamento, Organização):
-1. Use \`sdd.create_tenant\` for tenant setup
+1. Use \`sdd.enterprise(action="tenant")\` for tenant setup
 2. Choose isolation strategy
 3. Modify entities with tenant_id
 4. Generate tenant middleware
@@ -418,14 +437,14 @@ When detecting multi-tenancy (words: multi-tenant, tenant, isolamento, Organiza�
 
 ### Scalability Analysis
 When detecting scalability concerns (words: escalabilidade, escalável, gargalo, performance):
-1. Use \`sdd.analyze_scalability\` for analysis
+1. Use \`sdd.enterprise(action="scalability")\` for analysis
 2. Identify bottlenecks
 3. Recommend patterns
 4. Add scalability validations
 
 ### Security Audit
 When detecting security concerns (words: segurança, security, vulnerabilidade, XSS, SQL injection):
-1. Use \`sdd.security_audit\` for audit
+1. Use \`sdd.enterprise(action="security_audit")\` for audit
 2. Check authentication on endpoints
 3. Verify input validation
 4. Identify common vulnerabilities
@@ -433,14 +452,14 @@ When detecting security concerns (words: segurança, security, vulnerabilidade, 
 
 ### Compliance
 When detecting compliance (words: compliance, GDPR, HIPAA, regulatório):
-1. Use \`sdd.check_compliance\` for validation
+1. Use \`sdd.enterprise(action="compliance")\` for validation
 2. Check against regulatory standards
 3. List unmet requirements
 4. Suggest corrections
 
 ### Cost Management
 When detecting cost concerns (words: custo, costo, orçamento, budget, estimativa):
-1. Use \`sdd.estimate_cost\` for estimation
+1. Use \`sdd.enterprise(action="cost")\` for estimation
 2. Analyze infrastructure costs
 3. Estimate development hours
 4. Add cost factor to quality score
@@ -449,48 +468,48 @@ When detecting cost concerns (words: custo, costo, orçamento, budget, estimativ
 Documentation is ONLY generated when the user explicitly requests it via command or message.
 NEVER auto-generate documentation during discovery, implementation, or other workflows.
 When user requests documentation (words: documentação, docs, API reference, README, /sdd-docs):
-1. Use \`sdd.generate_docs\` for documentation generation
+1. Use \`sdd.enterprise(action="docs")\` for documentation generation
 2. Generate from Knowledge Graph
 3. Support multiple formats (api, user_guide, developer_guide, architecture)
 
 ### Onboarding
 When detecting onboarding (words: onboarding, novo dev, incorporar, entrar no projeto):
-1. Use \`sdd.onboard_developer\` for onboarding guide
+1. Use \`sdd.enterprise(action="onboarding")\` for onboarding guide
 2. Generate guide from Knowledge Graph
 3. List key files to understand
 4. Suggest first task
 
 ### Knowledge Transfer
 When detecting knowledge transfer (words: transferência, knowledge transfer, documentar):
-1. Use \`sdd.knowledge_transfer\` for transfer document
+1. Use \`sdd.enterprise(action="knowledge_transfer")\` for transfer document
 2. Collect architectural decisions
 3. List key patterns
 4. Document common issues
 
 ### Disaster Recovery
 When detecting DR needs (words: disaster recovery, DR, recuperação, backup):
-1. Use \`sdd.disaster_recovery_plan\` for DR plan
+1. Use \`sdd.enterprise(action="disaster_recovery")\` for DR plan
 2. Define RTO/RPO
 3. Backup strategy
 4. Failover procedure
 
 ### Monitoring
 When detecting monitoring (words: monitoramento, monitoring, métricas, alertas):
-1. Use \`sdd.setup_monitoring\` for setup
+1. Use \`sdd.enterprise(action="monitoring")\` for setup
 2. Define relevant metrics
 3. Configure dashboards
 4. Set up alerts
 
 ### Incident Management
 When detecting incidents (words: incidente, incident, fora do ar, down, SEV):
-1. Use \`sdd.report_incident\` for reporting
+1. Use \`sdd.enterprise(action="incident")\` for reporting
 2. Create IncidentNode with severity
 3. Start timeline
 4. Notify stakeholders
 
 ### SLA Tracking
 When detecting SLA (words: SLA, acordo de nível de serviço, uptime):
-1. Use \`sdd.create_sla\` for SLA creation
+1. Use \`sdd.enterprise(action="sla")\` for SLA creation
 2. Define metrics and targets
 3. Set measurement period
 4. Configure violation alerts
@@ -499,26 +518,26 @@ When detecting SLA (words: SLA, acordo de nível de serviço, uptime):
 
 ### Cyclomatic Complexity
 When detecting complexity concerns (words: complexidade, complexo, difícil de entender):
-1. Use \`sdd.analyze_complexity\` to analyze code
+1. Use \`sdd.code_quality(action="complexity")\` to analyze code
 2. Identify functions with high complexity
 3. Recommend refactoring for functions with cyclomatic > 10
 
 ### Code Metrics
 When detecting metrics needs (words: métricas, metrics, linhas de código):
-1. Use \`sdd.code_metrics\` to calculate metrics
+1. Use \`sdd.code_quality(action="metrics")\` to calculate metrics
 2. Check lines per function
 3. Check nesting depth
 4. Check parameter count
 
 ### Code Smells
 When detecting code smells (words: code smell, cheiro, código sujo):
-1. Use \`sdd.detect_smells\` to detect problems
+1. Use \`sdd.code_quality(action="smells")\` to detect problems
 2. Identify God Classes, Feature Envy, Switch Statements
 3. Recommend refactoring patterns
 
 ### Dependency Analysis
 When detecting dependency concerns (words: dependências, ciclo, acoplamento):
-1. Use \`sdd.analyze_dependencies\` to analyze graph
+1. Use \`sdd.code_quality(action="dependencies")\` to analyze graph
 2. Detect circular dependencies
 3. Measure coupling metrics
 4. Recommend dependency inversion
@@ -527,24 +546,24 @@ When detecting dependency concerns (words: dependências, ciclo, acoplamento):
 
 ### Usage Verification
 When creating or modifying code (always):
-1. Use \`sdd.verify_usage\` to check if code is used
+1. Use \`sdd.code_quality(action="usage")\` to check if code is used
 2. Identify orphan files not imported anywhere
 3. Identify dead symbols not called anywhere
 4. Recommend removal or connection
 
 ### Dead Code Detection
 When detecting unused code (words: não usado, morto, import não utilizado):
-1. Use \`sdd.find_dead_code\` to analyze imports
+1. Use \`sdd.code_quality(action="dead_code")\` to analyze imports
 2. **READ-ONLY**: This tool ONLY detects and reports - NEVER deletes files
 3. Detect unused imports
 4. Detect barrel imports
 5. Detect deep imports
-6. To remove dead code, MUST use \`sdd.remove_dead_code\` (requires SDD workflow)
+6. To remove dead code, MUST use \`sdd.code_quality(action="remove_dead_code")\` (requires SDD workflow)
 
 ### Dead Code Removal (SDD Workflow Required)
 **NEVER delete files directly.** To remove dead code:
-1. Use \`sdd.find_dead_code\` first to identify what to remove
-2. Use \`sdd.remove_dead_code\` which automatically:
+1. Use \`sdd.code_quality(action="dead_code")\` first to identify what to remove
+2. Use \`sdd.code_quality(action="remove_dead_code")\` which automatically:
    a. Creates a ChangeNode with type "removal"
    b. Adds affected_files and affected_nodes
    c. Requires approval before deletion
@@ -554,14 +573,14 @@ When detecting unused code (words: não usado, morto, import não utilizado):
 
 ### Symbol Extraction
 When planning implementation (words: planejar, implementar, criar):
-1. Use \`sdd.parse_symbols\` to extract symbols
+1. Use \`sdd.code_quality(action="parse_symbols")\` to extract symbols
 2. Create FileNode and SymbolNode in graph
 3. Connect to feature/entity nodes
 4. Ensure traceability
 
 ### Implementation Planning
 When adding new functionality (words: adicionar, nova funcionalidade, feature):
-1. Use \`sdd.plan_implementation\` to connect code to spec
+1. Use \`sdd.code_quality(action="plan_implementation")\` to connect code to spec
 2. Create FileNode for each file
 3. Create SymbolNode for each symbol
 4. Create relationships (implements, contains, defines)

@@ -237,7 +237,7 @@ export function checkSpecEvidence(graph: KnowledgeGraph, changeId: string): Comp
       allowed: false,
       reason:
         `Change ${changeId} has no specification evidence: it references no node that exists in the graph. ` +
-        "Update the spec (sdd.add_node / sdd.update_node / sdd.build_graph) or set no_requirement_impact=true when the change genuinely alters no specified behaviour.",
+        "Update the spec (sdd.graph_mutation(action=\"add_node\") / sdd.graph_mutation(action=\"update_node\") / sdd.build_graph) or set no_requirement_impact=true when the change genuinely alters no specified behaviour.",
       pending_promises: [],
     }
   }

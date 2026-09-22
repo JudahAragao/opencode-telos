@@ -222,7 +222,7 @@ export function buildChangeImplementationPrompt(change, task) {
         files.length > 0
             ? `Arquivos cobertos: ${files.join(", ")}`
             : "⚠️ O Change não declara `affected_files`, então o hook de escrita vai recusar Write/Edit. " +
-                "Atualize o escopo do Change (`sdd.update_node` com `metadata.affected_files`) antes de editar qualquer arquivo.",
+                "Atualize o escopo do Change (`sdd.graph_mutation(action=\"update_node\")` com `metadata.affected_files`) antes de editar qualquer arquivo.",
         "",
         "Não altere arquivos fora do escopo declarado.",
     ];

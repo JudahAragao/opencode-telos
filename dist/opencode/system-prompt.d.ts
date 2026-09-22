@@ -1,4 +1,13 @@
 import type { KnowledgeGraph } from "../sdd/domain/types.js";
+/**
+ * Referência de tools GERADA a partir da taxonomia — fonte única.
+ *
+ * Nenhum nome de tool é escrito à mão neste documento: incluir um nome
+ * depreciado no prompt fazia o modelo chamar um caminho inexistente. Como a
+ * lista vem de `TOOL_TAXONOMY` e `STANDALONE_CATEGORIES`, ela acompanha
+ * automaticamente qualquer remoção/adição de tool.
+ */
+export declare const SDD_TOOL_REFERENCE: string;
 export declare const SDD_SYSTEM_PROMPT: string;
 /**
  * Session prompt deliberately kept small. The complete policy remains

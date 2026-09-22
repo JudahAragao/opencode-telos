@@ -9,6 +9,7 @@
  */
 import { tool } from "@opencode-ai/plugin";
 import { sddDebug } from "../../sdd/log.js";
+import { describeRelationshipTypes, normalizeRelationshipType } from "../../sdd/graph/schema.js";
 import { createRepository } from "../../sdd/persistence/repository.js";
 import { getNodeIndexed, updateNode, removeNode, addRelationship, removeRelationship, getNodesByTypeIndexed, getGraphStatsIndexed, } from "../../sdd/graph/engine.js";
 import { bfsOutgoing, bfsBoth, bfsIncoming, getSubgraph, findPath } from "../../sdd/graph/traverse.js";
@@ -38,8 +39,10 @@ function loadOrEmpty(directory) {
     return { project_id: "pending", version: GRAPH_SCHEMA_VERSION, nodes: [], relationships: [], metadata: { created_at: "", updated_at: "", sdd_version: GRAPH_SCHEMA_VERSION } };
 }
 async function executeOriginalTool(name, args, ctx) {
-    const { createSddTools } = await import("../tools.js");
-    const definition = createSddTools()[name];
+    // As sub-actions executam os handlers ORIGINAIS, que vivem no mapa completo
+    // (as tools depreciadas não são registradas publicamente por createSddTools()).
+    const { createSddToolDefinitions } = await import("../tools.js");
+    const definition = createSddToolDefinitions()[name];
     if (!definition)
         return `Error: Tool ${name} not found`;
     const result = await definition.execute(args, ctx);
@@ -163,10 +166,14 @@ export function createGraphMutationTool() {
                 case "add_relationship": {
                     if (!args.from_id || !args.to_id || !args.rel_type)
                         return "from_id, to_id, and rel_type are required";
+                    const relType = normalizeRelationshipType(args.rel_type);
+                    if (!relType) {
+                        return `Unknown relationship type "${args.rel_type}". Valid types: ${describeRelationshipTypes()}`;
+                    }
                     try {
-                        addRelationship(graph, args.from_id, args.to_id, args.rel_type);
+                        addRelationship(graph, args.from_id, args.to_id, relType);
                         repo.saveGraph(graph);
-                        return `Relationship created: ${args.from_id} --[${args.rel_type}]--> ${args.to_id}`;
+                        return `Relationship created: ${args.from_id} --[${relType}]--> ${args.to_id}`;
                     }
                     catch (e) {
                         return `Error: ${e instanceof Error ? e.message : String(e)}`;
@@ -175,9 +182,13 @@ export function createGraphMutationTool() {
                 case "remove_relationship": {
                     if (!args.from_id || !args.to_id || !args.rel_type)
                         return "from_id, to_id, and rel_type are required";
-                    removeRelationship(graph, args.from_id, args.to_id, args.rel_type);
+                    const relType = normalizeRelationshipType(args.rel_type);
+                    if (!relType) {
+                        return `Unknown relationship type "${args.rel_type}". Valid types: ${describeRelationshipTypes()}`;
+                    }
+                    removeRelationship(graph, args.from_id, args.to_id, relType);
                     repo.saveGraph(graph);
-                    return `Relationship removed: ${args.from_id} --[${args.rel_type}]--> ${args.to_id}`;
+                    return `Relationship removed: ${args.from_id} --[${relType}]--> ${args.to_id}`;
                 }
                 default:
                     return `Unknown action: ${args.action}`;
@@ -620,14 +631,14 @@ export function createCodeQualityTool() {
                     return formatDependencyReport(result);
                 }
                 case "usage": {
-                    const { createSddTools } = await import("../tools.js");
-                    return String(await createSddTools()["sdd.verify_usage"].execute({}, ctx));
+                    const { createSddToolDefinitions } = await import("../tools.js");
+                    return String(await createSddToolDefinitions()["sdd.verify_usage"].execute({}, ctx));
                 }
                 case "dead_code": {
                     if (!args.file_path)
                         return "file_path is required";
-                    const { createSddTools } = await import("../tools.js");
-                    return String(await createSddTools()["sdd.find_dead_code"].execute({ file: args.file_path }, ctx));
+                    const { createSddToolDefinitions } = await import("../tools.js");
+                    return String(await createSddToolDefinitions()["sdd.find_dead_code"].execute({ file: args.file_path }, ctx));
                 }
                 case "remove_dead_code": {
                     if (!args.file_path)
@@ -646,8 +657,8 @@ export function createCodeQualityTool() {
                 case "plan_implementation": {
                     if (!args.feature_id || !args.files)
                         return "feature_id and files are required";
-                    const { createSddTools } = await import("../tools.js");
-                    return String(await createSddTools()["sdd.plan_implementation"].execute({ feature_id: args.feature_id, files: args.files }, ctx));
+                    const { createSddToolDefinitions } = await import("../tools.js");
+                    return String(await createSddToolDefinitions()["sdd.plan_implementation"].execute({ feature_id: args.feature_id, files: args.files }, ctx));
                 }
                 case "analyze_codebase": {
                     return executeOriginalTool("sdd.analyze_codebase", {}, ctx);

@@ -10,6 +10,71 @@
  * Todo o resto do sistema (integridade, inferência, validação, migração)
  * deve consultar este módulo em vez de manter listas locais divergentes.
  */
+/**
+ * Lista runtime de TODOS os tipos de relacionamento válidos.
+ *
+ * O union de `RelationshipType` é apagado em runtime; esta lista é a forma
+ * consultável. O bloco de asserção abaixo falha em compilação se um membro do
+ * union ficar de fora, então ela não pode divergir silenciosamente.
+ */
+export const RELATIONSHIP_TYPES = [
+    "contains", "depends_on", "requires", "implements", "implemented_by",
+    "satisfied_by", "affects", "modifies", "creates", "deletes", "uses",
+    "calls", "persists_to", "exposes", "tested_by", "tests", "derived_from",
+    "contradicts", "supersedes", "replaces", "blocked_by", "belongs_to",
+    "owned_by", "triggered_by", "flows_to", "deprecates", "migrates_to",
+    "experimented_by", "flagged_by", "validates", "influences", "constrains",
+    "applies_to", "owned_by_tenant", "monitored_by", "alerted_by",
+    "incident_in", "sla_for", "defines", "specifies", "operates_on", "traces_to",
+];
+const _assertNoMissingRelationshipType = true;
+void _assertNoMissingRelationshipType;
+/** Conjunto de tipos válidos, para validação O(1). */
+export const KNOWN_RELATIONSHIP_TYPES = new Set(RELATIONSHIP_TYPES);
+/**
+ * Sinônimos aceitos na entrada e normalizados para o tipo canônico.
+ * A extração por regex e alguns prompts antigos emitiram nomes que não existem
+ * no union (`constrained_by`); normalizar evita a aresta ser descartada.
+ */
+const RELATIONSHIP_SYNONYMS = {
+    constrained_by: "constrains",
+    constrain_by: "constrains",
+    constrainedby: "constrains",
+    satisfies: "satisfied_by",
+    satisfy: "satisfied_by",
+    implements_by: "implemented_by",
+    implement_by: "implemented_by",
+    implementedby: "implemented_by",
+    depend_on: "depends_on",
+    depends: "depends_on",
+    operate_on: "operates_on",
+    operates: "operates_on",
+    test_by: "tested_by",
+    tests_by: "tested_by",
+    specify: "specifies",
+    persisted_to: "persists_to",
+    belongs: "belongs_to",
+};
+/**
+ * Normaliza um tipo de relacionamento vindo de input externo (LLM, regex,
+ * migração). Retorna `null` quando o valor não é válido nem um sinônimo.
+ */
+export function normalizeRelationshipType(value) {
+    if (typeof value !== "string")
+        return null;
+    const key = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (KNOWN_RELATIONSHIP_TYPES.has(key))
+        return key;
+    return RELATIONSHIP_SYNONYMS[key] ?? null;
+}
+/** Verifica se um valor é um tipo de relacionamento válido. */
+export function isKnownRelationshipType(value) {
+    return normalizeRelationshipType(value) !== null;
+}
+/** Lista legível dos tipos válidos, para prompts e mensagens de erro. */
+export function describeRelationshipTypes() {
+    return RELATIONSHIP_TYPES.join(", ");
+}
 /** Qualquer tipo de nó — usado para regras universais. */
 const ANY = [
     "project", "domain", "feature", "requirement", "business_rule", "actor",

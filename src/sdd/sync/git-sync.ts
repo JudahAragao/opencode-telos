@@ -397,11 +397,11 @@ export function formatSyncStatus(status: SyncStatus): string {
   }
 
   if (status.behind > 0) {
-    lines.push("\n⚠️ **Run `sdd.sync_pull` to get latest changes**")
+    lines.push("\n⚠️ **Run `sdd.sync(action=\"pull\")` to get latest changes**")
   }
 
   if (status.ahead > 0) {
-    lines.push("\n📤 **Run `sdd.sync_push` to share your changes**")
+    lines.push("\n📤 **Run `sdd.sync(action=\"push\")` to share your changes**")
   }
 
   return lines.join("\n")

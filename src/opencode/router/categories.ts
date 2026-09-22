@@ -30,22 +30,21 @@ export type IntentCategory =
   | "info"          // Informação: status, histórico, help
 
 /**
- * Mapeamento de tools standalone para categorias de intenção.
+ * Mapeamento de tools standalone CANÔNICAS para categorias de intenção.
+ *
+ * Apenas capacidades sem substituta composta aparecem aqui. Toda tool cuja
+ * ação já vive num composite (`TOOL_TAXONOMY[i].actions[].replaces`) é
+ * depreciada e NÃO entra neste mapa: `createSddTools()` também a filtra, então
+ * existe um único nome por capacidade no catálogo anunciado ao LLM.
+ *
+ * tests/tool-catalog.test.ts garante que este mapa é idêntico às tools
+ * standalone registradas, e que nenhuma entrada é depreciada.
  */
 export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   // ── Mutation ────────────────────────────────────────────────────
   "sdd.initialize": ["mutation"],
   "sdd.build_graph": ["mutation", "discovery"],
   "sdd.update_from_answers": ["mutation", "discovery"],
-  "sdd.add_node": ["mutation"],
-  "sdd.update_node": ["mutation"],
-  "sdd.remove_node": ["mutation"],
-  "sdd.add_relationship": ["mutation"],
-  "sdd.remove_relationship": ["mutation"],
-  "sdd.remove_dead_code": ["quality", "mutation"],
-  "sdd.graph_prune": ["admin", "mutation"],
-  "sdd.whitelist_drift": ["analysis", "mutation"],
-  "sdd.unwhitelist_drift": ["analysis", "mutation"],
   "sdd.auto_link_tests": ["implementation", "mutation"],
   "sdd.infer_relationships": ["analysis", "mutation"],
   "sdd.milestone": ["workflow", "analysis", "mutation"],
@@ -55,16 +54,6 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.inspect": ["query"],
   "sdd.query_graph": ["query"],
   "sdd.get_context": ["query"],
-  "sdd.list_nodes": ["query"],
-  "sdd.count_nodes": ["query"],
-  "sdd.get_nodes_by_status": ["query"],
-  "sdd.find_path": ["query"],
-  "sdd.traverse_outgoing": ["query"],
-  "sdd.traverse_incoming": ["query"],
-  "sdd.traverse_both": ["query"],
-  "sdd.get_subgraph": ["query"],
-  "sdd.list_whitelist": ["analysis", "query"],
-  "sdd.list_snapshots": ["admin", "query"],
 
   // ── Discovery ───────────────────────────────────────────────────
   "sdd.discover": ["discovery"],
@@ -80,7 +69,6 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.fail_change": ["workflow"],
   "sdd.pending_changes": ["workflow", "info"],
   "sdd.verify_implementation": ["implementation", "workflow"],
-  "sdd.check_change_approval": ["admin", "workflow"],
   "sdd.check_migrations": ["admin", "workflow"],
   "sdd.run_migrations": ["admin", "workflow"],
   "sdd.workflow_new_feature": ["workflow", "implementation"],
@@ -96,7 +84,6 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.validate": ["analysis"],
   "sdd.detect_drift": ["analysis"],
   "sdd.drift_signals": ["analysis"],
-  "sdd.config_drift": ["analysis"],
   "sdd.anti_patterns": ["analysis"],
   "sdd.clone_detection": ["analysis"],
   "sdd.contradictions": ["analysis"],
@@ -104,27 +91,8 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.promises": ["analysis"],
   "sdd.constitution": ["analysis"],
   "sdd.quality": ["analysis", "quality"],
-  "sdd.graph_health": ["analysis", "admin"],
-  "sdd.graph_health_detail": ["analysis", "admin"],
   "sdd.brownfield_scan": ["analysis"],
   "sdd.reverse_engineer": ["discovery", "analysis"],
-  "sdd.analyze_codebase": ["quality", "analysis"],
-  "sdd.detect_sync_conflicts": ["admin", "analysis"],
-  "sdd.security_audit": ["analysis", "enterprise"],
-  "sdd.analyze_scalability": ["analysis", "enterprise"],
-  "sdd.check_compliance": ["analysis", "enterprise"],
-
-  // ── Quality ─────────────────────────────────────────────────────
-  "sdd.analyze_complexity": ["quality"],
-  "sdd.code_metrics": ["quality"],
-  "sdd.detect_smells": ["quality"],
-  "sdd.analyze_dependencies": ["quality"],
-  "sdd.verify_usage": ["quality"],
-  "sdd.find_dead_code": ["quality"],
-  "sdd.parse_symbols": ["quality", "implementation"],
-  "sdd.plan_implementation": ["quality", "implementation"],
-  "sdd.detect_conventions": ["admin", "quality"],
-  "sdd.learn_patterns": ["admin", "quality"],
 
   // ── Implementation ──────────────────────────────────────────────
   "sdd.generate_code": ["implementation"],
@@ -136,45 +104,17 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.hotfix": ["workflow", "implementation", "enterprise"],
   "sdd.refactoring": ["workflow", "implementation", "enterprise"],
   "sdd.deprecate": ["workflow", "enterprise"],
-  "sdd.create_migration": ["workflow", "enterprise"],
-  "sdd.create_experiment": ["workflow", "enterprise"],
-  "sdd.create_flag": ["workflow", "enterprise"],
-  "sdd.create_tenant": ["workflow", "enterprise"],
-  "sdd.onboard_developer": ["workflow", "enterprise"],
-  "sdd.setup_monitoring": ["workflow", "enterprise"],
-  "sdd.generate_dashboard": ["enterprise", "info"],
-  "sdd.report_incident": ["workflow", "enterprise"],
-  "sdd.create_sla": ["workflow", "enterprise"],
-  "sdd.estimate_cost": ["enterprise"],
-  "sdd.generate_docs": ["workflow", "enterprise"],
-  "sdd.knowledge_transfer": ["workflow", "enterprise"],
-  "sdd.disaster_recovery_plan": ["workflow", "enterprise"],
 
   // ── Admin ───────────────────────────────────────────────────────
   "sdd.toggle": ["admin"],
   "sdd.toggle_status": ["admin"],
-  "sdd.sync_status": ["admin"],
-  "sdd.sync_pull": ["admin"],
-  "sdd.sync_push": ["admin"],
-  "sdd.merge_graphs": ["admin"],
-  "sdd.create_snapshot": ["admin"],
-  "sdd.rollback": ["admin"],
-  "sdd.rollback_history": ["admin", "info"],
-  "sdd.set_role": ["admin"],
-  "sdd.check_permission": ["admin"],
-  "sdd.get_user_role": ["admin"],
-  "sdd.load_permissions_config": ["admin"],
-  "sdd.save_permissions_config": ["admin"],
-  "sdd.audit_log": ["admin", "info"],
   "sdd.remote_status": ["admin", "info"],
   "sdd.migrate_storage": ["admin"],
-  "sdd.cache_stats": ["admin", "info"],
   "sdd.start_dashboard": ["admin", "info"],
 
   // ── Info ────────────────────────────────────────────────────────
   "sdd.change_history": ["info"],
   "sdd.session_handoff": ["info"],
-  "sdd.workflow_export": ["info"],
   "sdd.mcp_server_info": ["info"],
   "sdd.handle_mcp_tool": ["info"],
   "sdd.telemetry": ["info"],

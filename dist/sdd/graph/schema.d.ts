@@ -28,6 +28,25 @@ export interface RelationshipRule {
     kind: RelationshipKind;
 }
 /**
+ * Lista runtime de TODOS os tipos de relacionamento válidos.
+ *
+ * O union de `RelationshipType` é apagado em runtime; esta lista é a forma
+ * consultável. O bloco de asserção abaixo falha em compilação se um membro do
+ * union ficar de fora, então ela não pode divergir silenciosamente.
+ */
+export declare const RELATIONSHIP_TYPES: readonly ["contains", "depends_on", "requires", "implements", "implemented_by", "satisfied_by", "affects", "modifies", "creates", "deletes", "uses", "calls", "persists_to", "exposes", "tested_by", "tests", "derived_from", "contradicts", "supersedes", "replaces", "blocked_by", "belongs_to", "owned_by", "triggered_by", "flows_to", "deprecates", "migrates_to", "experimented_by", "flagged_by", "validates", "influences", "constrains", "applies_to", "owned_by_tenant", "monitored_by", "alerted_by", "incident_in", "sla_for", "defines", "specifies", "operates_on", "traces_to"];
+/** Conjunto de tipos válidos, para validação O(1). */
+export declare const KNOWN_RELATIONSHIP_TYPES: ReadonlySet<string>;
+/**
+ * Normaliza um tipo de relacionamento vindo de input externo (LLM, regex,
+ * migração). Retorna `null` quando o valor não é válido nem um sinônimo.
+ */
+export declare function normalizeRelationshipType(value: unknown): RelationshipType | null;
+/** Verifica se um valor é um tipo de relacionamento válido. */
+export declare function isKnownRelationshipType(value: unknown): boolean;
+/** Lista legível dos tipos válidos, para prompts e mensagens de erro. */
+export declare function describeRelationshipTypes(): string;
+/**
  * Matriz canônica. A ordem importa apenas para a busca de convenção em
  * `getCanonicalRelationshipType` (regras mais específicas primeiro).
  */

@@ -748,9 +748,7 @@ export class CacheManager {
     getToolDependentTypes(toolName) {
         const map = {
             "sdd.query_graph": [], // depends on any type
-            "sdd.list_nodes": [], // depends on queried type
-            "sdd.get_nodes_by_status": [],
-            "sdd.count_nodes": [],
+            "sdd.graph_query": [], // composite: count_nodes/get_nodes_by_status/list_nodes
             "sdd.inspect": [],
             "sdd.validate": ["feature", "requirement", "entity", "api", "endpoint", "table", "task", "test", "change", "constitution", "business_rule"],
             "sdd.detect_drift": ["file", "task", "change", "entity", "api"],

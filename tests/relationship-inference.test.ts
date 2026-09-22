@@ -1,9 +1,11 @@
 import { describe, test, expect, beforeEach } from "bun:test"
 import { createGraph, addNode, addRelationship } from "../src/sdd/graph/engine.js"
 import {
+  describeRelationshipTypes,
   getInverseRelationshipType,
   isRelationshipAllowed,
   isTraceabilityRelationship,
+  normalizeRelationshipType,
   relationshipKey,
 } from "../src/sdd/graph/schema.js"
 import {
@@ -51,6 +53,22 @@ describe("Relationship schema", () => {
     expect(isTraceabilityRelationship("specifies")).toBe(true)
     expect(isTraceabilityRelationship("traces_to")).toBe(false)
     expect(isTraceabilityRelationship("contains")).toBe(false)
+  })
+
+  test("describes only valid types (never the legacy constrained_by)", () => {
+    const described = describeRelationshipTypes()
+    expect(described).toContain("constrains")
+    expect(described).toContain("specifies")
+    expect(described).not.toContain("constrained_by")
+  })
+
+  test("normalizes synonyms and rejects unknown types", () => {
+    expect(normalizeRelationshipType("constrained_by")).toBe("constrains")
+    expect(normalizeRelationshipType("satisfies")).toBe("satisfied_by")
+    expect(normalizeRelationshipType("IMPLEMENTS")).toBe("implements")
+    expect(normalizeRelationshipType("depends-on")).toBe("depends_on")
+    expect(normalizeRelationshipType("not-a-real-type")).toBeNull()
+    expect(normalizeRelationshipType(42)).toBeNull()
   })
 })
 

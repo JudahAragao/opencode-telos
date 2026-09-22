@@ -19,6 +19,8 @@ import {
   getGraphStatsIndexed,
 } from "../sdd/graph/engine.js"
 import { GraphIndices } from "../sdd/graph/index.js"
+import { describeRelationshipTypes, normalizeRelationshipType } from "../sdd/graph/schema.js"
+import { isDeprecatedTool } from "./router/tool-taxonomy.js"
 import {
   TASK_COLUMN_LABELS,
   TASK_COLUMNS,
@@ -208,7 +210,15 @@ function truncateList(items: string[], maxItems: number = 20): string[] {
   return [...items.slice(0, maxItems), `... and ${items.length - maxItems} more`]
 }
 
-export function createSddTools(): Record<string, ToolDefinition> {
+/**
+ * Definições COMPLETAS de tools (canônicas + depreciadas).
+ *
+ * Não é a superfície pública: `createSddTools()` filtra as depreciadas. Este
+ * mapa existe para que os composites executem os handlers originais de cada
+ * sub-action (`sdd.add_node`, `sdd.verify_usage`, ...) sem manter os nomes
+ * antigos anunciados ao modelo.
+ */
+export function createSddToolDefinitions(): Record<string, ToolDefinition> {
   const tools: Record<string, ToolDefinition> = {
     "sdd.initialize": tool({
       description:
@@ -446,12 +456,17 @@ export function createSddTools(): Record<string, ToolDefinition> {
       args: {
         from_id: tool.schema.string().describe("Source node ID"),
         to_id: tool.schema.string().describe("Target node ID"),
-        type: tool.schema.string().describe("Relationship type (contains, depends_on, implements, etc.)"),
+        type: tool.schema.string().describe(`Relationship type. Valid: ${describeRelationshipTypes()}`),
       },
       async execute(args, ctx) {
         const repo = getRepo(ctx.directory)
         if (!repo.isInitialized()) return "SDD not initialized."
         const graph = repo.loadGraph()
+
+        const relType = normalizeRelationshipType(args.type)
+        if (!relType) {
+          return `Unknown relationship type "${args.type}". Valid types: ${describeRelationshipTypes()}`
+        }
 
         // ── Pre-mutation: warn about orphan creation ──
         const fromNode = graph.nodes.find(n => n.id === args.from_id)
@@ -469,10 +484,10 @@ export function createSddTools(): Record<string, ToolDefinition> {
         }
 
         try {
-          addRelationship(graph, args.from_id, args.to_id, args.type as any)
+          addRelationship(graph, args.from_id, args.to_id, relType)
           repo.saveGraph(graph)
-          invalidateCacheForMutation(ctx.directory, [], [args.type])
-          return `Relationship created: ${args.from_id} --[${args.type}]--> ${args.to_id}`
+          invalidateCacheForMutation(ctx.directory, [], [relType])
+          return `Relationship created: ${args.from_id} --[${relType}]--> ${args.to_id}`
         } catch (e) {
           return `Error: ${e instanceof Error ? e.message : String(e)}`
         }
@@ -1805,7 +1820,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
         // user so full_cycle cannot claim to update the spec without doing it.
         lines.push("\n### Step 2: Specification Update")
         try {
-          const buildTool = createSddTools()["sdd.build_graph"]
+          const buildTool = createSddToolDefinitions()["sdd.build_graph"]
           const buildResult = await buildTool.execute({ briefing: args.request }, ctx)
           const buildText = typeof buildResult === "string" ? buildResult : JSON.stringify(buildResult)
           lines.push(buildText)
@@ -4846,4 +4861,25 @@ export function createSddTools(): Record<string, ToolDefinition> {
     ...createWorkflowTools(),
   }
   return attachResponseCache(tools)
+}
+
+/**
+ * Catálogo PÚBLICO de tools: exatamente o que é registrado no runtime e
+ * anunciado ao LLM.
+ *
+ * Exclui as tools depreciadas — toda capacidade que já é oferecida por uma
+ * tool composta (`sdd.{composite}(action=...)`). Os handlers continuam
+ * disponíveis internamente via `createSddToolDefinitions()`, mas apenas um
+ * nome por capacidade chega ao modelo. Anunciar dois caminhos para a mesma
+ * ação (ex.: `sdd.add_node` e `sdd.graph_mutation(action="add_node")`) é o que
+ * fazia o LLM se perder.
+ */
+export function createSddTools(): Record<string, ToolDefinition> {
+  const all = createSddToolDefinitions()
+  const publicTools: Record<string, ToolDefinition> = {}
+  for (const [name, definition] of Object.entries(all)) {
+    if (isDeprecatedTool(name)) continue
+    publicTools[name] = definition
+  }
+  return publicTools
 }

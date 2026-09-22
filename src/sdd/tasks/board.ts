@@ -124,7 +124,7 @@ export function getTask(graph: KnowledgeGraph, id: string): TaskNode | undefined
 }
 
 /**
- * Next `TASK-###` id, matching the format produced by `sdd.add_node`
+ * Next `TASK-###` id, matching the format produced by `sdd.graph_mutation(action="add_node")`
  * (`${project_id}-TASK-001`). Scans for the highest existing suffix instead of
  * counting nodes so removals never cause a collision.
  */
@@ -534,7 +534,7 @@ export function buildIntegrationBrief(graph: KnowledgeGraph): string {
   }
 
   lines.push(
-    "**Como integrar:** vincule a task ao `feature`/`requirement` correspondente com `sdd.add_relationship` " +
+    "**Como integrar:** vincule a task ao `feature`/`requirement` correspondente com `sdd.graph_mutation(action=\"add_relationship\")` " +
       "(tipo `implements`), crie `test` quando houver cobertura (`tested_by`) e registre `decision`/`file` " +
       "quando fizer sentido. Não altere arquivos de código-fonte nesta etapa — ela é só de especificação. " +
       'Ao terminar, chame `sdd.integrate_tasks` com `action="mark_integrated"` e o `task_id` — a task integrada ' +

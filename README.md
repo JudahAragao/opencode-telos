@@ -325,7 +325,7 @@ Check if the spec is complete before generating code
 ```
 Add a Tenant entity with fields id (uuid), name (string), created_at (timestamp)
 ```
-The agent runs `sdd.add_node` directly.
+The agent runs `sdd.graph_mutation(action="add_node")` directly.
 
 **Add a relationship:**
 ```
@@ -432,7 +432,6 @@ writes source code itself.
 | `sdd.initialize` | Initializes SDD for the project |
 | `sdd.toggle` | Enables/disables SDD enforcement (write) |
 | `sdd.toggle_status` | Shows the current toggle state (read-only) |
-| `sdd.list_snapshots` | Lists snapshots available for rollback |
 
 ### Navigation and search
 
@@ -440,31 +439,10 @@ writes source code itself.
 |---|---|
 | `sdd.inspect` | Shows the current state of the graph |
 | `sdd.query_graph` | Searches nodes by text, type or ID |
-| `sdd.list_nodes` | Lists nodes by type |
-| `sdd.count_nodes` | Counts nodes by type |
-| `sdd.get_nodes_by_status` | Lists nodes filtered by status |
 | `sdd.get_context` | Context pack for a node |
-| `sdd.find_path` | Finds a path between nodes |
 | `sdd.analyze_impact` | Impact analysis via traversal |
 
-### Graph traversal
-
-| Tool | Description |
-|---|---|
-| `sdd.traverse_outgoing` | BFS following outgoing edges |
-| `sdd.traverse_incoming` | BFS following incoming edges |
-| `sdd.traverse_both` | Bidirectional BFS |
-| `sdd.get_subgraph` | Extracts a subgraph from a node |
-
-### Node and relationship CRUD
-
-| Tool | Description |
-|---|---|
-| `sdd.add_node` | Adds feature, requirement, entity, etc. |
-| `sdd.update_node` | Updates fields of an existing node |
-| `sdd.remove_node` | Removes a node from the graph |
-| `sdd.add_relationship` | Creates relationships between nodes |
-| `sdd.remove_relationship` | Removes a relationship |
+> Node listing/counting/status filtering, traversal and path finding live in the composite tools below (`sdd.graph_query`, `sdd.traverse`).
 
 ### Graph building
 
@@ -477,7 +455,7 @@ writes source code itself.
 
 ### Composite tools
 
-The router groups related tools into **composite tools** that accept an `action` parameter, replacing the original standalone tools (kept for compatibility):
+The router groups related tools into **composite tools** that accept an `action` parameter. They are the single canonical path for these capabilities: the original standalone tools (`sdd.add_node`, `sdd.analyze_complexity`, `sdd.create_snapshot`, ...) were **removed** from the catalog and are no longer registered or announced. A residual call to an old name is rejected with a redirect to the canonical form.
 
 | Tool | Actions |
 |---|---|
@@ -553,9 +531,6 @@ again would create a new Change and orphan the previous one.
 | `sdd.constitution` | Manages the project constitution (principles) |
 | `sdd.quality` | Calculates the quality score with trend |
 | `sdd.contradictions` | Detects contradictions in the graph |
-| `sdd.verify_usage` | Verifies SDD feature usage |
-| `sdd.graph_health` | Analyzes graph health (orphans, density, type distribution) |
-| `sdd.graph_health_detail` | Detailed health analysis (stale changes, cycles, god nodes) |
 
 ### Migrations
 
@@ -570,12 +545,7 @@ again would create a new Change and orphan the previous one.
 | Tool | Description |
 |---|---|
 | `sdd.detect_drift` | Detects specification ↔ code drift |
-| `sdd.config_drift` | Detects drift in configs |
-| `sdd.detect_sync_conflicts` | Detects conflicts between local and remote graphs |
 | `sdd.drift_signals` | Detects advanced drift signals (mutant duplicates, architecture violations, pattern fragmentation) |
-| `sdd.whitelist_drift` | Adds a file/pattern to the drift whitelist |
-| `sdd.unwhitelist_drift` | Removes a file from the drift whitelist |
-| `sdd.list_whitelist` | Lists files/patterns in the drift whitelist |
 
 ### Patterns and anti-patterns
 
@@ -588,7 +558,6 @@ again would create a new Change and orphan the previous one.
 
 | Tool | Description |
 |---|---|
-| `sdd.plan_implementation` | Generates an implementation plan |
 | `sdd.generate_code` | Generates code (templates or via AI for arbitrary stacks) |
 | `sdd.enforce` | Enforces the SDD-first workflow |
 | `sdd.enforce_rules` | Shows the enforcement rules |
@@ -599,67 +568,15 @@ again would create a new Change and orphan the previous one.
 | Tool | Description |
 |---|---|
 | `sdd.verify_implementation` | Runs the project-declared verification scripts (lint, typecheck, test, build, etc.) **plus** the requirement→test evidence for the Change. A report is required before completing the Change. |
-| `sdd.analyze_scalability` | Scalability analysis |
-
-### Code quality
-
-| Tool | Description |
-|---|---|
-| `sdd.analyze_complexity` | Analyzes cyclomatic and cognitive complexity |
-| `sdd.code_metrics` | Code metrics (LOC, SLOC, nesting depth) |
-| `sdd.detect_smells` | Detects code smells |
-| `sdd.analyze_dependencies` | Analyzes the dependency graph and coupling |
-| `sdd.find_dead_code` | Finds unused code |
-| `sdd.remove_dead_code` | Removes identified dead code |
-| `sdd.parse_symbols` | Parses symbols (functions, classes, interfaces) |
-| `sdd.verify_usage` | Verifies if code is actually used/imported |
-| `sdd.detect_conventions` | Detects project coding conventions |
-| `sdd.learn_patterns` | Learns common patterns, defaults and relationship conventions from the graph |
-| `sdd.plan_implementation` | Plans implementation connecting code to spec nodes |
 
 ### Analysis
 
 | Tool | Description |
 |---|---|
-| `sdd.check_compliance` | Compliance check (GDPR, LGPD, HIPAA, SOC2, PCI_DSS, ISO27001) |
-| `sdd.security_audit` | Security audit |
 | `sdd.drift_signals` | Detects advanced drift signals (mutant duplicates, architecture violations, pattern fragmentation) |
 | `sdd.brownfield_scan` | Analyzes an existing project for integration |
 
-### Codebase intelligence
-
-| Tool | Description |
-|---|---|
-| `sdd.analyze_codebase` | Analyzes the complete codebase and creates file/symbol nodes |
-
-### Sync and collaboration
-
-| Tool | Description |
-|---|---|
-| `sdd.sync_status` | Checks sync status with remote |
-| `sdd.sync_pull` | Pulls latest changes from remote |
-| `sdd.sync_push` | Pushes SDD changes to remote |
-| `sdd.merge_graphs` | Merges two graphs |
-
-### Rollback
-
-| Tool | Description |
-|---|---|
-| `sdd.create_snapshot` | Creates a snapshot before changes |
-| `sdd.rollback` | Rolls back a change (git → snapshot → backup) |
-| `sdd.rollback_history` | Rollback history |
-
-### Permissions
-
-| Tool | Description |
-|---|---|
-| `sdd.load_permissions_config` | Loads the permissions config |
-| `sdd.save_permissions_config` | Saves the permissions config |
-| `sdd.check_permission` | Checks a user's permission |
-| `sdd.check_change_approval` | Checks whether a change requires approval |
-| `sdd.set_role` | Sets a user's role |
-| `sdd.get_user_role` | Returns a user's role |
-| `sdd.audit_log` | Views the audit log |
+> Code quality analysis, codebase intelligence, sync, rollback and permissions are composite tools (`sdd.code_quality`, `sdd.sync`, `sdd.snapshot`, `sdd.permissions`).
 
 ### Enterprise workflows
 
@@ -669,37 +586,20 @@ again would create a new Change and orphan the previous one.
 | `sdd.hotfix` | Retrospective hotfix documentation | POST_HOC |
 | `sdd.refactoring` | Refactoring with dependency verification | REVIEW |
 | `sdd.deprecate` | Deprecation with migration plan | APPROVAL |
-| `sdd.create_migration` | Data migration with rollback | APPROVAL |
-| `sdd.create_experiment` | A/B experiment | REVIEW |
-| `sdd.create_flag` | Feature flag | AUTO |
-| `sdd.create_tenant` | Multi-tenancy | APPROVAL |
-| `sdd.onboard_developer` | Onboarding guide | - |
-| `sdd.report_incident` | Report an incident | - |
-| `sdd.create_sla` | Create an SLA | - |
 
-### Monitoring and observability
-
-| Tool | Description |
-|---|---|
-| `sdd.setup_monitoring` | Monitoring configuration |
-| `sdd.generate_dashboard` | Generate monitoring dashboard |
+> Migrations, experiments, feature flags, multi-tenancy, monitoring, dashboards, incidents, SLAs, docs, onboarding, knowledge transfer, disaster recovery, config drift and workflow export are actions of `sdd.enterprise`.
 
 ### Documentation and knowledge
 
 | Tool | Description |
 |---|---|
-| `sdd.generate_docs` | Generate documentation (API, user guide, dev guide, architecture) |
-| `sdd.knowledge_transfer` | Knowledge transfer |
 | `sdd.session_handoff` | Generates a session handoff package |
-| `sdd.workflow_export` | Exports the SDD state as a report |
 
 ### Cost and CI/CD
 
 | Tool | Description |
 |---|---|
-| `sdd.estimate_cost` | Cost estimation |
 | `sdd.generate_cicd` | Generates CI/CD config (platform: github, gitlab, jenkins, docker, or all) |
-| `sdd.disaster_recovery_plan` | Disaster recovery plan |
 
 ### Infrastructure
 
@@ -712,8 +612,6 @@ again would create a new Change and orphan the previous one.
 | `sdd.handle_mcp_tool` | Processes a tool via the MCP protocol |
 | `sdd.telemetry` | Shows local performance, estimated token, and cache telemetry (nothing leaves the machine) |
 | `sdd.record_feedback` | Records a local human correction for an extracted fact/classification |
-| `sdd.cache_stats` | Shows cache statistics (hit rates, sizes, invalidation count) |
-| `sdd.detect_conventions` | Detects project conventions (naming, imports, async patterns) |
 
 ### Promises
 
@@ -952,10 +850,10 @@ Shows whether the remote is configured and whether the token is present.
 
 ```
 # Check a user's permission
-sdd.check_permission(user: "joao", permission: "approve_architecture")
+sdd.permissions(action: "check", user: "joao", permission: "approve_architecture")
 
 # Set a role manually (local)
-sdd.set_role(user: "maria", role: "architect")
+sdd.permissions(action: "set_role", user: "maria", role: "architect")
 
 # Check remote status
 sdd.remote_status
@@ -972,21 +870,21 @@ When you type something like:
 - "Emergency: system is down" → Detects **hotfix** and disables enforcement
 - "Refactor the auth module" → Detects **refactoring** and suggests `sdd.refactoring`
 - "Deprecate the /api/v1 route" → Detects **deprecation** and suggests `sdd.deprecate`
-- "Migrate the users table data" → Detects **migration** and suggests `sdd.create_migration`
-- "Create an A/B experiment" → Detects **A/B testing** and suggests `sdd.create_experiment`
-- "Add a feature flag" → Detects **feature flag** and suggests `sdd.create_flag`
-- "Add multi-tenancy to the system" → Detects **multi-tenancy** and suggests `sdd.create_tenant`
-- "Onboarding for a new dev" → Detects **onboarding** and suggests `sdd.onboard_developer`
-- "Run a security audit" → Detects **security** and suggests `sdd.security_audit`
-- "Analyze scalability" → Detects **scalability** and suggests `sdd.analyze_scalability`
-- "Check GDPR compliance" → Detects **compliance** and suggests `sdd.check_compliance`
-- "Set up monitoring" → Detects **monitoring** and suggests `sdd.setup_monitoring`
-- "Report an incident" → Detects **incident** and suggests `sdd.report_incident`
-- "Create a 99.9% SLA" → Detects **SLA** and suggests `sdd.create_sla`
-- "Estimate costs" → Detects **cost** and suggests `sdd.estimate_cost`
-- "Generate documentation" → Detects **documentation** and suggests `sdd.generate_docs`
-- "Knowledge transfer" → Detects **knowledge** and suggests `sdd.knowledge_transfer`
-- "Disaster recovery plan" → Detects **disaster** and suggests `sdd.disaster_recovery_plan`
+- "Migrate the users table data" → Detects **migration** and suggests `sdd.enterprise(action="migration")`
+- "Create an A/B experiment" → Detects **A/B testing** and suggests `sdd.enterprise(action="experiment")`
+- "Add a feature flag" → Detects **feature flag** and suggests `sdd.enterprise(action="flag")`
+- "Add multi-tenancy to the system" → Detects **multi-tenancy** and suggests `sdd.enterprise(action="tenant")`
+- "Onboarding for a new dev" → Detects **onboarding** and suggests `sdd.enterprise(action="onboarding")`
+- "Run a security audit" → Detects **security** and suggests `sdd.enterprise(action="security_audit")`
+- "Analyze scalability" → Detects **scalability** and suggests `sdd.enterprise(action="scalability")`
+- "Check GDPR compliance" → Detects **compliance** and suggests `sdd.enterprise(action="compliance")`
+- "Set up monitoring" → Detects **monitoring** and suggests `sdd.enterprise(action="monitoring")`
+- "Report an incident" → Detects **incident** and suggests `sdd.enterprise(action="incident")`
+- "Create a 99.9% SLA" → Detects **SLA** and suggests `sdd.enterprise(action="sla")`
+- "Estimate costs" → Detects **cost** and suggests `sdd.enterprise(action="cost")`
+- "Generate documentation" → Detects **documentation** and suggests `sdd.enterprise(action="docs")`
+- "Knowledge transfer" → Detects **knowledge** and suggests `sdd.enterprise(action="knowledge_transfer")`
+- "Disaster recovery plan" → Detects **disaster** and suggests `sdd.enterprise(action="disaster_recovery")`
 
 ### Available tools
 
@@ -996,22 +894,7 @@ When you type something like:
 | `sdd.hotfix` | Retrospective hotfix documentation | POST_HOC |
 | `sdd.refactoring` | Refactoring with dependency verification | REVIEW |
 | `sdd.deprecate` | Deprecation with migration plan | APPROVAL |
-| `sdd.create_migration` | Data migration with rollback | APPROVAL |
-| `sdd.create_experiment` | A/B experiment | REVIEW |
-| `sdd.create_flag` | Feature flag | AUTO |
-| `sdd.create_tenant` | Multi-tenancy | APPROVAL |
-| `sdd.onboard_developer` | Onboarding guide | - |
-| `sdd.security_audit` | Security audit | - |
-| `sdd.analyze_scalability` | Scalability analysis | - |
-| `sdd.check_compliance` | Compliance check (GDPR, LGPD, HIPAA, SOC2, PCI_DSS, ISO27001) | - |
-| `sdd.setup_monitoring` | Monitoring configuration | - |
-| `sdd.generate_dashboard` | Generate monitoring dashboard | - |
-| `sdd.report_incident` | Report an incident | - |
-| `sdd.create_sla` | Create an SLA | - |
-| `sdd.estimate_cost` | Cost estimation | - |
-| `sdd.generate_docs` | Generate documentation | - |
-| `sdd.knowledge_transfer` | Knowledge transfer | - |
-| `sdd.disaster_recovery_plan` | Disaster recovery plan | - |
+| `sdd.enterprise` | migration, experiment, flag, tenant, security_audit, scalability, compliance, monitoring, dashboard, incident, sla, cost, docs, onboarding, knowledge_transfer, disaster_recovery, config_drift, workflow_export | per action |
 
 ### Usage examples
 
@@ -1032,10 +915,10 @@ sdd.refactoring(target: "auth", description: "Extract validation", type: "extrac
 sdd.deprecate(target: "/api/v1/users", removal_date: "2025-12-31", endpoints: ["/api/v1/users"])
 
 # Migration
-sdd.create_migration(source: "users_v1", target: "users_v2", description: "Add email field")
+sdd.enterprise(action: "migration", source: "users_v1", target: "users_v2", description: "Add email field")
 
 # A/B Testing
-sdd.create_experiment(
+sdd.enterprise(action: "experiment",
   hypothesis: "New button increases conversion",
   variants: [
     { name: "control", description: "Blue button", traffic_percentage: 50 },
@@ -1046,47 +929,47 @@ sdd.create_experiment(
 )
 
 # Feature Flag
-sdd.create_flag(name: "new_dashboard", description: "New dashboard", rollout: 10)
+sdd.enterprise(action: "flag", name: "new_dashboard", description: "New dashboard", rollout: 10)
 
 # Multi-tenancy
-sdd.create_tenant(name: "acme_corp", type: "shared_database", isolation: "row")
+sdd.enterprise(action: "tenant", name: "acme_corp", type: "shared_database", isolation: "row")
 
 # Onboarding
-sdd.onboard_developer(developer_name: "John")
+sdd.enterprise(action: "onboarding", developer_name: "John")
 
 # Security Audit
-sdd.security_audit()
+sdd.enterprise(action: "security_audit")
 
 # Scalability Analysis
-sdd.analyze_scalability()
+sdd.enterprise(action: "scalability")
 
 # Compliance
-sdd.check_compliance(standard: "GDPR")
-sdd.check_compliance(standard: "LGPD")
+sdd.enterprise(action: "compliance", standard: "GDPR")
+sdd.enterprise(action: "compliance", standard: "LGPD")
 
 # Monitoring
-sdd.setup_monitoring()
+sdd.enterprise(action: "monitoring")
 
 # Incident Management
-sdd.report_incident(title: "System is down", severity: "SEV1", impact: "All users affected")
+sdd.enterprise(action: "incident", title: "System is down", severity: "SEV1", impact: "All users affected")
 
 # SLA
-sdd.create_sla(name: "Uptime", metric: "availability", target: 99.9, period: "monthly")
+sdd.enterprise(action: "sla", name: "Uptime", metric: "availability", target: 99.9, period: "monthly")
 
 # Cost Estimation
-sdd.estimate_cost()
+sdd.enterprise(action: "cost")
 
 # Documentation
-sdd.generate_docs(type: "api")
+sdd.enterprise(action: "docs", type: "api")
 
 # Knowledge Transfer
-sdd.knowledge_transfer()
+sdd.enterprise(action: "knowledge_transfer")
 
 # Disaster Recovery
-sdd.disaster_recovery_plan()
+sdd.enterprise(action: "disaster_recovery")
 
 # Dashboard Generation
-sdd.generate_dashboard(type: "overview")
+sdd.enterprise(action: "dashboard", type: "overview")
 ```
 
 ## Project structure
