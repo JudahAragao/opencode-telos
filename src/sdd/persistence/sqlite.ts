@@ -91,6 +91,14 @@ export class SqliteGraphRepository {
       CREATE INDEX IF NOT EXISTS idx_rels_type ON relationships(type);
       CREATE INDEX IF NOT EXISTS idx_rels_from_type ON relationships(from_id, type);
       CREATE INDEX IF NOT EXISTS idx_rels_to_type ON relationships(to_id, type);
+
+      -- Rastreabilidade: consultas "todas as arestas de um tipo" (cobertura,
+      -- inferência e validação) varrem por tipo primeiro.
+      CREATE INDEX IF NOT EXISTS idx_rels_type_from ON relationships(type, from_id);
+      CREATE INDEX IF NOT EXISTS idx_rels_type_to ON relationships(type, to_id);
+
+      -- Índice por tipo de nó + nome acelera a ligação feature↔código.
+      CREATE INDEX IF NOT EXISTS idx_nodes_type_name ON nodes(type, name);
     `)
 
     return this.db

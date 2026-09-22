@@ -248,6 +248,11 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
     // before its dispatcher can inspect the requested action.
     "sdd.check_migrations",
     "sdd.run_migrations",
+    // Milestones e Kanban: o container é isento para que ações de leitura
+    // (list/report) sempre passem; as mutações são gated logo abaixo em
+    // COMPOSITE_MUTATING_ACTIONS.
+    "sdd.milestone",
+    "sdd.integrate_tasks",
     "sdd.record_feedback",
     "sdd.telemetry",
     "sdd.change_history",
@@ -299,6 +304,7 @@ export const WORKFLOW_REQUIRED_TOOLS = new Set([
     "sdd.whitelist_drift",
     "sdd.unwhitelist_drift",
     "sdd.auto_link_tests",
+    "sdd.infer_relationships",
     "sdd.save_permissions_config",
     "sdd.sync_pull",
     "sdd.sync_push",
@@ -335,6 +341,10 @@ const COMPOSITE_MUTATING_ACTIONS = {
     "sdd.drift_whitelist": new Set(["add", "remove"]),
     "sdd.code_quality": new Set(["plan_implementation", "remove_dead_code", "analyze_codebase"]),
     "sdd.enterprise": new Set(["migration", "experiment", "flag", "tenant", "monitoring", "dashboard", "incident", "sla", "docs", "onboarding", "knowledge_transfer", "disaster_recovery"]),
+    // Standalone tools with a mixed read/write action set (isenta o container,
+    // mas exige workflow ativo para as ações mutantes).
+    "sdd.milestone": new Set(["create", "add", "remove", "assign", "close"]),
+    "sdd.integrate_tasks": new Set(["create", "update", "remove", "mark_integrated", "open_change", "approve_change"]),
 };
 /**
  * Check if a tool requires workflow context.

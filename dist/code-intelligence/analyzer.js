@@ -2,6 +2,7 @@ import { addNode, addRelationship, removeNode, updateNode } from "../sdd/graph/e
 import { readFileSync, existsSync, readdirSync } from "fs";
 import { join, relative, extname, dirname, resolve } from "path";
 import { stableId } from "./ast/common.js";
+import { runRelationshipInference } from "../sdd/discovery/relationship-inferencer.js";
 import { loadAstCache, parseWithCache, saveAstCache } from "./ast/cache.js";
 import { sddDebug } from "../sdd/log.js";
 const LANGUAGE_MAP = {
@@ -302,6 +303,9 @@ export function analyzeCodebase(graph, projectDir) {
             }
         }
     }
+    // Rastreabilidade: liga arquivos/módulos recém-indexados às features que
+    // eles implementam (file --implements--> feature) usando o path como pista.
+    runRelationshipInference(graph, { includeMilestones: false });
     saveAstCache(projectDir, astCache);
     return { files_analyzed: filesAnalyzed, symbols_found: symbolsFound, test_requirement_links: testReqLinks, orphan_tests: orphanTests };
 }

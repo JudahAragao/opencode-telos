@@ -4477,6 +4477,208 @@ export function createSddTools(): Record<string, ToolDefinition> {
       },
     }),
 
+    "sdd.infer_relationships": tool({
+      description:
+        "Reconstrói a rastreabilidade do Knowledge Graph: infere arestas que a " +
+        "construção por keyword deixou de fora (requirement --specifies--> feature, " +
+        "endpoint/file --implements--> feature, endpoint --operates_on--> entity, " +
+        "task --implements--> requirement/feature, task/change --belongs_to--> milestone), " +
+        "normaliza pares inversos redundantes e garante os nós de milestone. " +
+        "Idempotente e não destrutivo: use dry_run=true para revisar antes de aplicar.",
+      args: {
+        dry_run: tool.schema.boolean().optional().describe("Pré-visualiza as arestas sem gravá-las (default: false)"),
+        min_confidence: tool.schema.number().optional().describe("Confiança mínima 0..1 (default: 0.5)"),
+        include_milestones: tool.schema.boolean().optional().describe("Criar/ligar milestones (default: true)"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+
+        const { inferRelationships, runRelationshipInference } = await import(
+          "../sdd/discovery/relationship-inferencer.js"
+        )
+        const minConfidence = args.min_confidence ?? 0.5
+        const includeMilestones = args.include_milestones ?? true
+
+        if (args.dry_run) {
+          const proposals = inferRelationships(graph, { minConfidence })
+          const lines = [
+            "## Inferência de Relacionamentos (Dry Run)",
+            "",
+            `**Arestas propostas:** ${proposals.length}`,
+            "",
+          ]
+          if (proposals.length === 0) {
+            lines.push("Nenhuma aresta nova a inferir — a rastreabilidade já está completa.")
+            return lines.join("\n")
+          }
+          const byType: Record<string, number> = {}
+          for (const proposal of proposals) {
+            byType[proposal.type] = (byType[proposal.type] ?? 0) + 1
+          }
+          lines.push("### Por tipo")
+          for (const [type, count] of Object.entries(byType).sort((a, b) => b[1] - a[1])) {
+            lines.push(`- **${type}:** ${count}`)
+          }
+          lines.push("", "### Amostra")
+          for (const proposal of proposals.slice(0, 25)) {
+            lines.push(
+              `- ${proposal.from} --[${proposal.type}]--> ${proposal.to} ` +
+                `(${proposal.method}, conf ${proposal.confidence.toFixed(2)})`,
+            )
+          }
+          if (proposals.length > 25) lines.push(`- ... e mais ${proposals.length - 25}`)
+          lines.push("", "Rode sem `dry_run` para aplicar.")
+          return lines.join("\n")
+        }
+
+        const result = runRelationshipInference(graph, { minConfidence, includeMilestones })
+        if (result.applied > 0 || result.normalized > 0 || result.milestones_created > 0) {
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["milestone"], Object.keys(result.by_type))
+        }
+
+        const lines = [
+          "## Inferência de Relacionamentos Concluída",
+          "",
+          `**Arestas aplicadas:** ${result.applied}`,
+          `**Inversos normalizados:** ${result.normalized}`,
+          `**Milestones criados:** ${result.milestones_created}`,
+          `**Ignorados:** ${result.skipped}`,
+        ]
+        const types = Object.entries(result.by_type).sort((a, b) => b[1] - a[1])
+        if (types.length > 0) {
+          lines.push("", "### Por tipo")
+          for (const [type, count] of types) lines.push(`- **${type}:** ${count}`)
+        }
+        return lines.join("\n")
+      },
+    }),
+
+    "sdd.milestone": tool({
+      description:
+        "Gerencia milestones (âncora de release) e gera o relatório de rastreabilidade por release. " +
+        "Ações: create/list/add/remove/assign/close/report. Um milestone agrupa changes, tasks, " +
+        "features e requirements; o report mostra o escopo do release, o progresso e os gaps " +
+        "(requisitos sem teste, features sem implementação, endpoints/arquivos sem feature).",
+      args: {
+        action: tool.schema
+          .enum(["create", "list", "add", "remove", "assign", "close", "report"])
+          .optional()
+          .describe("Operação (default: list)"),
+        milestone_id: tool.schema.string().optional().describe("ID do milestone (add/remove/assign/close/report)"),
+        name: tool.schema.string().optional().describe("Nome do milestone (create)"),
+        release_version: tool.schema.string().optional().describe("Versão do release (create)"),
+        target_date: tool.schema.string().optional().describe("Data alvo ISO YYYY-MM-DD (create)"),
+        objective: tool.schema.string().optional().describe("Objetivo do milestone (create)"),
+        status: tool.schema.string().optional().describe("Status do nó (create/close)"),
+        node_ids: tool.schema.string().optional().describe("IDs de nós separados por vírgula (add/remove/assign)"),
+        from_id: tool.schema.string().optional().describe("Milestone de origem (assign)"),
+        to_id: tool.schema.string().optional().describe("Milestone de destino (assign)"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+        const {
+          createMilestone,
+          linkNodesToMilestone,
+          unlinkNodesFromMilestone,
+          moveNodesToMilestone,
+          closeMilestone,
+          getMilestoneNodes,
+          buildReleaseReport,
+          formatReleaseReport,
+        } = await import("../sdd/release/milestone.js")
+
+        const action = args.action ?? "list"
+        const parseIds = (value?: string): string[] =>
+          (value ?? "").split(",").map((v) => v.trim()).filter((v) => v.length > 0)
+        const nameOf = (id: string) => graph.nodes.find((n) => n.id === id)?.name ?? id
+
+        try {
+          if (action === "create") {
+            if (!args.name) return "`name` é obrigatório para create."
+            const milestone = createMilestone(graph, {
+              name: args.name,
+              release_version: args.release_version,
+              target_date: args.target_date,
+              objective: args.objective,
+              status: args.status as any,
+            })
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["milestone"], ["contains"])
+            return [
+              "## Milestone criado",
+              `**ID:** ${milestone.id}`,
+              `**Nome:** ${milestone.name}`,
+              milestone.metadata.release_version ? `**Release:** ${milestone.metadata.release_version}` : "",
+              "",
+              "Vincule changes/tasks com `sdd.milestone` action=\"add\".",
+            ].filter(Boolean).join("\n")
+          }
+
+          if (action === "list") {
+            const milestones = getMilestoneNodes(graph)
+            if (milestones.length === 0) return "Nenhum milestone definido. Use action=\"create\"."
+            const report = buildReleaseReport(graph)
+            const lines = [`## Milestones (${milestones.length})\n`]
+            for (const item of report.milestones) {
+              const version = item.release_version ? ` · ${item.release_version}` : ""
+              lines.push(`- **${item.name}**${version} [${item.status}] — ${item.counts.changes} change(s), ${item.counts.tasks} task(s), ${item.progress_percent}% concluído`)
+              lines.push(`  \`${item.id}\``)
+            }
+            return lines.join("\n")
+          }
+
+          if (action === "add" || action === "remove") {
+            if (!args.milestone_id) return "`milestone_id` é obrigatório."
+            const ids = parseIds(args.node_ids)
+            if (ids.length === 0) return "`node_ids` é obrigatório."
+            const result = action === "add"
+              ? linkNodesToMilestone(graph, args.milestone_id, ids)
+              : { linked: 0, skipped: 0, not_found: [], removed: unlinkNodesFromMilestone(graph, args.milestone_id, ids) }
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["milestone"], ["contains", "belongs_to"])
+            if (action === "add") {
+              return [
+                `## Milestone add`,
+                `**Vinculados:** ${result.linked}`,
+                `**Já vinculados:** ${result.skipped}`,
+                result.not_found.length > 0 ? `**Não encontrados/não suportados:** ${result.not_found.join(", ")}` : "",
+              ].filter(Boolean).join("\n")
+            }
+            return `## Milestone remove\n**Desvinculados:** ${(result as any).removed}`
+          }
+
+          if (action === "assign") {
+            if (!args.from_id || !args.to_id) return "`from_id` e `to_id` são obrigatórios."
+            const ids = parseIds(args.node_ids)
+            if (ids.length === 0) return "`node_ids` é obrigatório."
+            const result = moveNodesToMilestone(graph, args.from_id, args.to_id, ids)
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["milestone"], ["contains", "belongs_to"])
+            return `## Milestone assign\n**Movidos:** ${result.linked}\n**Ignorados:** ${result.skipped}`
+          }
+
+          if (action === "close") {
+            if (!args.milestone_id) return "`milestone_id` é obrigatório."
+            const milestone = closeMilestone(graph, args.milestone_id, (args.status as any) ?? "COMPLETED")
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["milestone"], [])
+            return `## Milestone encerrado\n**${milestone.name}** → ${milestone.status}`
+          }
+
+          // report
+          const report = buildReleaseReport(graph, args.milestone_id)
+          return formatReleaseReport(report, nameOf)
+        } catch (error) {
+          return `Error: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    }),
+
     "sdd.integrate_tasks": tool({
       description:
         "Kanban task board bridge: list tasks pending AI integration, create/update/remove tasks, " +

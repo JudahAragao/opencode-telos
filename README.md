@@ -472,6 +472,8 @@ writes source code itself.
 |---|---|
 | `sdd.build_graph` | Builds a complete Knowledge Graph from a briefing (entities, features, requirements, relationships). The primary tool for bootstrapping a specification: prefers an `analysis_json` with the agent's structured analysis. |
 | `sdd.auto_link_tests` | Links orphan tests to requirements by name/import analysis (`tested_by`), optionally as a dry run |
+| `sdd.infer_relationships` | Rebuilds graph traceability: infers the missing semantic edges (`requirement --specifies--> feature`, `endpoint/file --implements--> feature`, `endpoint --operates_on--> entity`, `task/change --belongs_to--> milestone`), normalizes redundant inverse pairs and creates milestone nodes. Idempotent; `dry_run` previews the edges |
+| `sdd.milestone` | Manages release milestones and reports traceability per release: `create`, `list`, `add`, `remove`, `assign`, `close`, `report`. The report shows the release scope, task progress and gaps (requirements without tests, features without implementation, endpoints/files without a feature) |
 
 ### Composite tools
 

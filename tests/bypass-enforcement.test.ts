@@ -168,5 +168,25 @@ describe("Bypass Enforcement", () => {
       expect(WORKFLOW_EXEMPT_TOOLS.has("sdd.query_graph")).toBe(true)
       expect(WORKFLOW_EXEMPT_TOOLS.has("sdd.validate")).toBe(true)
     })
+
+    it("gates milestone mutations while allowing read actions", () => {
+      const scope = workflowScope("/project", "milestone-session")
+
+      // Leitura sempre permitida (container isento).
+      expect(checkToolAccess("sdd.milestone", scope, "list").allowed).toBe(true)
+      expect(checkToolAccess("sdd.milestone", scope, "report").allowed).toBe(true)
+
+      // Mutação exige workflow ativo.
+      expect(checkToolAccess("sdd.milestone", scope, "create").allowed).toBe(false)
+      markEnforced("CHG-MS", scope)
+      expect(checkToolAccess("sdd.milestone", scope, "create").allowed).toBe(true)
+    })
+
+    it("classifies relationship inference and Kanban bridge tools", () => {
+      expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.infer_relationships")).toBe(true)
+      expect(WORKFLOW_EXEMPT_TOOLS.has("sdd.integrate_tasks")).toBe(true)
+      expect(checkToolAccess("sdd.integrate_tasks", "task-test", "list").allowed).toBe(true)
+      expect(checkToolAccess("sdd.integrate_tasks", "task-test", "create").allowed).toBe(false)
+    })
   })
 })

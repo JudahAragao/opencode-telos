@@ -47,6 +47,7 @@ const SPEC_NODE_TYPES = new Set([
   "use_case",
   "database",
   "table",
+  "milestone",
 ])
 
 const TEST_FILE_PATTERN = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.[a-z0-9]+$/i

@@ -47,6 +47,8 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.whitelist_drift": ["analysis", "mutation"],
   "sdd.unwhitelist_drift": ["analysis", "mutation"],
   "sdd.auto_link_tests": ["implementation", "mutation"],
+  "sdd.infer_relationships": ["analysis", "mutation"],
+  "sdd.milestone": ["workflow", "analysis", "mutation"],
   "sdd.integrate_tasks": ["workflow", "implementation", "mutation"],
 
   // ── Query ───────────────────────────────────────────────────────

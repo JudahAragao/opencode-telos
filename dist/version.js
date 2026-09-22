@@ -7,7 +7,7 @@
  * à mão — edite o package.json e rode o script.
  */
 // BEGIN GENERATED: PLUGIN_VERSION (scripts/sync-version.cjs)
-export const PLUGIN_VERSION = "1.5.0";
+export const PLUGIN_VERSION = "1.6.0";
 // END GENERATED: PLUGIN_VERSION
 /**
  * Versão do formato de dados do Knowledge Graph em `.sdd/` (usada em

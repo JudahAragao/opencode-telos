@@ -208,4 +208,42 @@ describe("validateGraph", () => {
     // Should detect dangling references
     expect(result.errors.length + result.warnings.length).toBeGreaterThan(0)
   })
+
+  test("flags traceability gaps on an unlinked graph", () => {
+    const graph = createGraph("test")
+    const now = new Date().toISOString()
+    addNode(graph, { id: "PRJ-1", type: "project", name: "TestProject", status: "DRAFT", version: 1, metadata: {}, created_at: now, updated_at: now })
+    addNode(graph, { id: "FEAT-1", type: "feature", name: "Auth", status: "DRAFT", version: 1, metadata: {}, created_at: now, updated_at: now })
+    addNode(graph, { id: "REQ-1", type: "requirement", name: "Login", status: "DRAFT", version: 1, metadata: {}, created_at: now, updated_at: now })
+    addNode(graph, { id: "EP-1", type: "endpoint", name: "POST /login", status: "DRAFT", version: 1, metadata: { method: "POST", path: "/login" }, created_at: now, updated_at: now })
+    addNode(graph, { id: "FILE-1", type: "file", name: "src/auth.ts", status: "DRAFT", version: 1, metadata: { path: "src/auth.ts" }, created_at: now, updated_at: now })
+    addNode(graph, { id: "TASK-1", type: "task", name: "Implement login", status: "todo", version: 1, metadata: {}, created_at: now, updated_at: now })
+
+    const result = validateGraph(graph)
+    const codes = result.warnings.map((w) => w.code)
+    expect(codes).toContain("ENDPOINT_NO_FEATURE")
+    expect(codes).toContain("ENDPOINT_NO_ENTITY")
+    expect(codes).toContain("FILE_NO_FEATURE")
+    expect(codes).toContain("REQUIREMENT_NO_FEATURE")
+    expect(codes).toContain("TASK_NO_CHANGE")
+  })
+
+  test("traceability warnings disappear when edges are present", () => {
+    const graph = createGraph("test")
+    const now = new Date().toISOString()
+    addNode(graph, { id: "PRJ-1", type: "project", name: "TestProject", status: "DRAFT", version: 1, metadata: {}, created_at: now, updated_at: now })
+    addNode(graph, { id: "FEAT-1", type: "feature", name: "Auth", status: "DRAFT", version: 1, metadata: {}, created_at: now, updated_at: now })
+    addNode(graph, { id: "REQ-1", type: "requirement", name: "Login", status: "DRAFT", version: 1, metadata: {}, created_at: now, updated_at: now })
+    addNode(graph, { id: "EP-1", type: "endpoint", name: "POST /login", status: "DRAFT", version: 1, metadata: { method: "POST", path: "/login" }, created_at: now, updated_at: now })
+    addNode(graph, { id: "ENT-1", type: "entity", name: "User", status: "DRAFT", version: 1, metadata: {}, created_at: now, updated_at: now })
+    addRelationship(graph, "REQ-1", "FEAT-1", "specifies")
+    addRelationship(graph, "EP-1", "FEAT-1", "implements")
+    addRelationship(graph, "EP-1", "ENT-1", "operates_on")
+
+    const result = validateGraph(graph)
+    const codes = result.warnings.map((w) => w.code)
+    expect(codes).not.toContain("ENDPOINT_NO_FEATURE")
+    expect(codes).not.toContain("ENDPOINT_NO_ENTITY")
+    expect(codes).not.toContain("REQUIREMENT_NO_FEATURE")
+  })
 })

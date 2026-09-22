@@ -1,5 +1,6 @@
 import { addNode, addRelationship, getNode } from "../graph/engine.js";
 import { ensureGraphIntegrity } from "../graph/integrity.js";
+import { runRelationshipInference } from "./relationship-inferencer.js";
 import { progressEmitter } from "../../server/events.js";
 function safeId(projectId, type, name) {
     const clean = name
@@ -263,7 +264,7 @@ function buildRelationships(graph, analysis) {
             }
         }
     }
-    // 5. Connect requirements to features
+    // 5. Connect requirements to features (requirement --specifies--> feature)
     for (const req of analysis.requirements) {
         const reqId = safeId(graph.project_id, "req", req.name);
         for (const feature of analysis.features) {
@@ -272,7 +273,7 @@ function buildRelationships(graph, analysis) {
                 if (req.name.toLowerCase().includes(feature.name.toLowerCase()) ||
                     feature.name.toLowerCase().includes(req.name.toLowerCase())) {
                     try {
-                        addRelationship(graph, featureId, reqId, "satisfied_by");
+                        addRelationship(graph, reqId, featureId, "specifies");
                         count++;
                     }
                     catch { /* skip */ }
@@ -459,6 +460,12 @@ export function buildGraphFromAnalysis(graph, analysis) {
     progressEmitter.nextStep("relationships", "Building relationships between nodes...");
     const relationshipsCreated = buildRelationships(graph, analysis);
     progressEmitter.stepProgress("relationships", `Created ${relationshipsCreated} relationships`);
+    // Inferência de rastreabilidade: cobre os vínculos que a heurística por
+    // keyword não alcança (endpoint/file --implements--> feature,
+    // endpoint --operates_on--> entity, requirement --specifies--> feature).
+    progressEmitter.nextStep("relationships", "Inferindo relacionamentos de rastreabilidade...");
+    const inference = runRelationshipInference(graph);
+    progressEmitter.stepProgress("relationships", `Inference: ${inference.applied} edges applied, ${inference.normalized} normalized, ${inference.milestones_created} milestones`);
     // Ensure full graph integrity: connect orphans, merge disconnected groups, clean redundancies
     progressEmitter.nextStep("connectivity", "Ensuring graph integrity...");
     const integrityReport = ensureGraphIntegrity(graph, { auto_fix: true });
@@ -466,15 +473,16 @@ export function buildGraphFromAnalysis(graph, analysis) {
         `${integrityReport.summary.orphans_found} orphans, ` +
         `${integrityReport.summary.disconnected_groups_found} disconnected groups`);
     const nodesCreated = Object.values(byType).reduce((a, b) => a + b, 0);
+    const totalRelationships = relationshipsCreated + inference.applied;
     const totalFixes = integrityReport.summary.fixes_applied;
     // Complete build
-    progressEmitter.complete(`Graph built: ${nodesCreated} nodes, ${relationshipsCreated} relationships, ${totalFixes} integrity fixes`, { nodesCreated, relationshipsCreated, integrityReport, byType });
+    progressEmitter.complete(`Graph built: ${nodesCreated} nodes, ${totalRelationships} relationships, ${totalFixes} integrity fixes`, { nodesCreated, relationshipsCreated: totalRelationships, integrityReport, byType });
     // Build summary
     const lines = [
         "## Graph Build Complete",
         "",
         `**Total nodes created:** ${nodesCreated}`,
-        `**Total relationships created:** ${relationshipsCreated}`,
+        `**Total relationships created:** ${totalRelationships}`,
         `**Integrity fixes applied:** ${totalFixes}`,
         `**Graph connected:** ${integrityReport.summary.graph_connected ? "Yes" : "No"}`,
         "",
@@ -502,7 +510,7 @@ export function buildGraphFromAnalysis(graph, analysis) {
     lines.push("4. Review and update node statuses as needed");
     return {
         nodesCreated,
-        relationshipsCreated,
+        relationshipsCreated: totalRelationships,
         byType,
         summary: lines.join("\n"),
     };

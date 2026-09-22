@@ -361,6 +361,102 @@ function validateCompleteness(
 
   // ── Deep semantic validation ───────────────────────────────────────
   validateSemanticDeep(graph, errors, warnings)
+
+  // ── Traceability coverage ──────────────────────────────────────────
+  validateTraceability(graph, warnings)
+}
+
+/**
+ * Verifica se a cadeia de rastreabilidade está completa:
+ * feature → requirement → endpoint/file → task → change.
+ *
+ * Diferente de `contains`/`belongs_to`, que apenas mantêm o grafo conectado,
+ * estas são arestas semânticas. O auto-fix de órfãos (que liga ao project root)
+ * NÃO satisfaz estes checks de propósito.
+ */
+function validateTraceability(
+  graph: KnowledgeGraph,
+  warnings: ValidationWarning[],
+): void {
+  const typeById = new Map(graph.nodes.map((n) => [n.id, n.type] as const))
+  const featureIds = new Set(graph.nodes.filter((n) => n.type === "feature").map((n) => n.id))
+
+  const linksFeature = (nodeId: string): boolean =>
+    graph.relationships.some(
+      (r) => r.from === nodeId && featureIds.has(r.to) &&
+        ["implements", "satisfied_by", "uses", "contains", "specifies", "traces_to"].includes(r.type),
+    )
+
+  const hasFeature = featureIds.size > 0
+
+  // Endpoints precisam declarar a feature que implementam e a entidade que operam.
+  for (const endpoint of graph.nodes.filter((n) => n.type === "endpoint")) {
+    if (hasFeature && !linksFeature(endpoint.id)) {
+      warnings.push({
+        code: "ENDPOINT_NO_FEATURE",
+        message: `Endpoint "${endpoint.name}" has no link to the feature it implements`,
+        node_id: endpoint.id,
+      })
+    }
+    const operatesOnEntity = graph.relationships.some(
+      (r) => r.from === endpoint.id &&
+        ["operates_on", "exposes", "persists_to"].includes(r.type) &&
+        (typeById.get(r.to) === "entity" || typeById.get(r.to) === "table" || typeById.get(r.to) === "value_object"),
+    )
+    if (!operatesOnEntity) {
+      warnings.push({
+        code: "ENDPOINT_NO_ENTITY",
+        message: `Endpoint "${endpoint.name}" does not declare any entity it operates on`,
+        node_id: endpoint.id,
+      })
+    }
+  }
+
+  // Arquivos de código precisam estar ligados à feature que realizam.
+  if (hasFeature) {
+    for (const file of graph.nodes.filter((n) => n.type === "file")) {
+      if (!linksFeature(file.id)) {
+        warnings.push({
+          code: "FILE_NO_FEATURE",
+          message: `File "${file.name}" is not linked to any feature it implements`,
+          node_id: file.id,
+        })
+      }
+    }
+  }
+
+  // Requirements precisam especificar alguma feature.
+  if (hasFeature) {
+    for (const req of graph.nodes.filter((n) => n.type === "requirement")) {
+      const specifies = graph.relationships.some(
+        (r) => r.from === req.id && ["specifies", "traces_to"].includes(r.type),
+      )
+      if (!specifies) {
+        warnings.push({
+          code: "REQUIREMENT_NO_FEATURE",
+          message: `Requirement "${req.name}" does not specify any feature`,
+          node_id: req.id,
+        })
+      }
+    }
+  }
+
+  // Tasks precisam estar ligadas a um Change (autorização de trabalho).
+  for (const task of graph.nodes.filter((n) => n.type === "task")) {
+    const declared = (task.metadata as Record<string, unknown>).change_id
+    const hasChange = typeof declared === "string" && typeById.get(declared) === "change"
+    const linkedChange = !hasChange && graph.relationships.some(
+      (r) => (r.from === task.id || r.to === task.id) &&
+        typeById.get(r.from === task.id ? r.to : r.from) === "change",
+    )
+    if (!hasChange && !linkedChange) {
+      warnings.push({
+        code: "TASK_NO_CHANGE",
+        message: `Task "${task.name}" has no Change linked (required to authorize code work)`,
+        node_id: task.id,
+      })
+    }
+  }
 }
 
 /**

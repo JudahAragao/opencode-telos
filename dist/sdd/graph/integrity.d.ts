@@ -50,7 +50,7 @@ export interface RedundantRelationship {
     from: string;
     to: string;
     type: string;
-    reason: "duplicate" | "self_loop" | "reversed_exists";
+    reason: "duplicate" | "self_loop" | "reversed_exists" | "inverse_pair";
 }
 export interface IntegrityFix {
     action: "connected_orphan" | "merged_group" | "removed_duplicate" | "removed_self_loop" | "removed_reversed";

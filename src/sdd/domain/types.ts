@@ -68,6 +68,7 @@ export type NodeType =
   | "alert"
   | "incident"
   | "sla"
+  | "milestone"
 
 export type RelationshipType =
   | "contains"
@@ -109,6 +110,9 @@ export type RelationshipType =
   | "incident_in"
   | "sla_for"
   | "defines"
+  | "specifies"
+  | "operates_on"
+  | "traces_to"
 
 export interface Node {
   id: string
@@ -544,6 +548,26 @@ export interface SLANode extends Node {
   }
 }
 
+/**
+ * Agrupador de mudanças/tasks sob um objetivo entregável.
+ * Não substitui `change`: um milestone agrupa changes, um change descreve uma
+ * alteração concreta de comportamento.
+ */
+export interface MilestoneNode extends Node {
+  type: "milestone"
+  metadata: {
+    milestone_name: string
+    target_date?: string
+    /** Descrição opcional do objetivo de entrega. */
+    objective?: string
+    /** IDs de changes/tasks pertencentes ao milestone. */
+    change_ids?: string[]
+    release_version?: string
+    /** ISO timestamp de encerramento do milestone. */
+    closed_at?: string
+  }
+}
+
 export interface SpecPromise {
   id: string
   description: string
@@ -592,6 +616,7 @@ export type AnyNode =
   | AlertNode
   | IncidentNode
   | SLANode
+  | MilestoneNode
 
 export interface KnowledgeGraph {
   version: string

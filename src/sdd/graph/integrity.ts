@@ -7,6 +7,12 @@ import {
   getNode,
   addRelationship,
 } from "./engine.js"
+import {
+  getInverseRelationshipType,
+  inverseKeyOf,
+  preferredInverseType,
+  relationshipKey,
+} from "./schema.js"
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -61,7 +67,7 @@ export interface RedundantRelationship {
   from: string
   to: string
   type: string
-  reason: "duplicate" | "self_loop" | "reversed_exists"
+  reason: "duplicate" | "self_loop" | "reversed_exists" | "inverse_pair"
 }
 
 export interface IntegrityFix {
@@ -213,49 +219,60 @@ function filterGraphToFocus(graph: KnowledgeGraph, focusIds: Set<string>): Knowl
 
 function detectRedundantRelationships(graph: KnowledgeGraph): RedundantRelationship[] {
   const redundants: RedundantRelationship[] = []
+  const flagged = new Set<string>()
   const seen = new Set<string>()
+  const byKey = new Map<string, KnowledgeGraph["relationships"][number]>()
+
+  const flag = (rel: KnowledgeGraph["relationships"][number], reason: RedundantRelationship["reason"]) => {
+    const key = relationshipKey(rel.from, rel.to, rel.type)
+    if (flagged.has(`${key}::${reason}`)) return
+    flagged.add(`${key}::${reason}`)
+    redundants.push({
+      relationship_id: rel.id,
+      from: rel.from,
+      to: rel.to,
+      type: rel.type,
+      reason,
+    })
+  }
 
   for (const rel of graph.relationships) {
     // Self-loops are always redundant
     if (rel.from === rel.to) {
-      redundants.push({
-        relationship_id: rel.id,
-        from: rel.from,
-        to: rel.to,
-        type: rel.type,
-        reason: "self_loop",
-      })
+      flag(rel, "self_loop")
       continue
     }
 
     // Exact duplicates (same from, to, type)
-    const key = `${rel.from}||${rel.to}||${rel.type}`
+    const key = relationshipKey(rel.from, rel.to, rel.type)
     if (seen.has(key)) {
-      redundants.push({
-        relationship_id: rel.id,
-        from: rel.from,
-        to: rel.to,
-        type: rel.type,
-        reason: "duplicate",
-      })
+      flag(rel, "duplicate")
       continue
     }
     seen.add(key)
+    byKey.set(key, rel)
 
-    // Reversed relationship exists (A→B and B→A with same type)
-    const reverseKey = `${rel.to}||${rel.from}||${rel.type}`
-    if (seen.has(reverseKey)) {
-      // Only flag if the relationship is not bidirectional by design
-      if (!isBidirectionalType(rel.type)) {
-        redundants.push({
-          relationship_id: rel.id,
-          from: rel.from,
-          to: rel.to,
-          type: rel.type,
-          reason: "reversed_exists",
-        })
-      }
+    // Reversed relationship with the SAME type (A→B and B→A, type X).
+    const reverseKey = relationshipKey(rel.to, rel.from, rel.type)
+    if (seen.has(reverseKey) && !isBidirectionalType(rel.type)) {
+      flag(rel, "reversed_exists")
     }
+  }
+
+  // Inverse pairs (different types describing the same fact), e.g.
+  // `requirement --specifies--> feature` + `feature --satisfied_by--> requirement`.
+  for (const rel of graph.relationships) {
+    const inverseType = getInverseRelationshipType(rel.type)
+    if (!inverseType) continue
+    const inverseKey = inverseKeyOf(rel.from, rel.to, rel.type)
+    if (!inverseKey) continue
+    const inverseRel = byKey.get(inverseKey)
+    if (!inverseRel || inverseRel === rel) continue
+
+    // Keep the preferred type; flag the other edge.
+    const preferred = preferredInverseType(rel.type, inverseRel.type)
+    const loser = preferred === "a" ? inverseRel : rel
+    flag(loser, "inverse_pair")
   }
 
   return redundants
@@ -462,12 +479,23 @@ function suggestRelationshipType(
     ["feature", "entity", "uses"],
     ["feature", "architecture_component", "uses"],
     ["feature", "requirement", "satisfied_by"],
-    // Requirements
-    ["requirement", "feature", "implemented_by"],
-    ["requirement", "task", "implemented_by"],
-    // Endpoints expose entities
+    // Requirements specify features
+    ["requirement", "feature", "specifies"],
+    ["requirement", "use_case", "specifies"],
+    // Implementation: endpoints/files realize features
+    ["endpoint", "feature", "implements"],
+    ["file", "feature", "implements"],
+    ["module", "feature", "implements"],
+    ["symbol", "requirement", "implements"],
+    // Endpoints operate on entities
+    ["endpoint", "entity", "operates_on"],
     ["endpoint", "entity", "exposes"],
     ["api", "endpoint", "contains"],
+    // Tasks and changes belong to milestones
+    ["task", "milestone", "belongs_to"],
+    ["change", "milestone", "belongs_to"],
+    ["milestone", "task", "contains"],
+    ["milestone", "change", "contains"],
     // Entities persist to database
     ["entity", "database", "persists_to"],
     ["entity", "table", "persists_to"],
@@ -532,6 +560,7 @@ function getHierarchyLevel(type: string): number {
     symbol: 5,
     change: 2,
     constitution: 1,
+    milestone: 2,
   }
   return levels[type] ?? 3
 }

@@ -3,6 +3,7 @@ import { calculateQualityScore, formatQualityReport } from "../sdd/quality/score
 import { detectDrift, formatDriftReport } from "../sdd/drift/detector.js"
 import { validateGraph, formatValidationResult } from "../sdd/validation/validator.js"
 import { generateHandoff, formatHandoffPack } from "../sdd/session/handoff.js"
+import { buildReleaseReport, formatReleaseReport } from "../sdd/release/milestone.js"
 import { PLUGIN_VERSION } from "../version.js"
 
 export interface McpServerConfig {
@@ -42,6 +43,11 @@ export function createMcpServer(projectDir: string) {
           description: "Get session handoff pack",
           inputSchema: { type: "object" as const, properties: {} },
         },
+        {
+          name: "sdd_get_release",
+          description: "Get traceability report per release milestone",
+          inputSchema: { type: "object" as const, properties: {} },
+        },
       ]
     },
     async handleToolCall(toolName: string, _args: Record<string, unknown>) {
@@ -69,6 +75,11 @@ export function createMcpServer(projectDir: string) {
         case "sdd_get_handoff": {
           const handoff = generateHandoff(graph, projectDir)
           return { content: [{ type: "text", text: formatHandoffPack(handoff) }] }
+        }
+        case "sdd_get_release": {
+          const nameOf = (id: string) => graph.nodes.find((n) => n.id === id)?.name ?? id
+          const report = buildReleaseReport(graph)
+          return { content: [{ type: "text", text: formatReleaseReport(report, nameOf) }] }
         }
         default:
           return { error: `Unknown tool: ${toolName}` }
