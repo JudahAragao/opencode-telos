@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach } from "bun:test"
 import { mkdtempSync, mkdirSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { createSddTools, createSddToolDefinitions } from "../src/opencode/tools"
+import { createSddTools } from "../src/opencode/tools"
 import { CLASSIFIED_TOOLS, isToolClassified } from "../src/sdd/enforcement/workflow-tracker"
 import { ALL_TOOL_NAMES, getToolsForSession } from "../src/opencode/router/tool-registry"
-import { hasToolCategory, getToolCategories, STANDALONE_CATEGORIES } from "../src/opencode/router/categories"
-import { STANDALONE_TOOLS, TOOL_TAXONOMY, DEPRECATED_TOOLS, isDeprecatedTool, getCompositeForTool } from "../src/opencode/router/tool-taxonomy"
+import { hasToolCategory, getToolCategories } from "../src/opencode/router/categories"
+import { STANDALONE_TOOLS, TOOL_TAXONOMY } from "../src/opencode/router/tool-taxonomy"
 import { runSddCommand, extractSddCommandText } from "../src/opencode/command"
 import { SDD_SYSTEM_PROMPT, SDD_TOOL_REFERENCE } from "../src/opencode/system-prompt"
 
@@ -39,8 +39,6 @@ describe("Tool catalog completeness", () => {
   })
 
   it("every registered tool has an explicit access policy", () => {
-    // Guard contra o fail-closed: uma tool sem classificação seria anunciada
-    // e depois recusada em runtime por checkToolAccess.
     const unclassified = registeredTools.filter((name) => !isToolClassified(name))
     expect(unclassified).toEqual([])
   })
@@ -51,63 +49,50 @@ describe("Tool catalog completeness", () => {
   })
 })
 
-describe("Deprecated tools are removed from the public surface", () => {
+describe("Public surface has no legacy names", () => {
   const registered = createSddTools()
 
-  it("registers no deprecated tool", () => {
-    const deprecatedRegistered = Object.keys(registered).filter((name) => isDeprecatedTool(name))
-    expect(deprecatedRegistered).toEqual([])
-  })
-
-  it("does not announce a deprecated tool anywhere", () => {
-    const announced = new Set([...ALL_TOOL_NAMES, ...STANDALONE_TOOLS])
-    const leaked = DEPRECATED_TOOLS.filter((name) => announced.has(name))
-    expect(leaked).toEqual([])
-  })
-
-  it("keeps no category entry for a deprecated tool", () => {
-    const leaked = DEPRECATED_TOOLS.filter((name) => name in STANDALONE_CATEGORIES)
-    expect(leaked).toEqual([])
-  })
-
-  it("still exposes every removed handler internally for the composites", () => {
-    // Os composites executam os handlers originais: eles não podem sumir do
-    // mapa interno, apenas do catálogo público.
-    const internal = Object.keys(createSddToolDefinitions())
-    const missing = DEPRECATED_TOOLS.filter((name) => !internal.includes(name))
-    expect(missing).toEqual([])
-  })
-
-  it("every deprecated tool resolves to a composite + action", () => {
-    const withoutTarget = DEPRECATED_TOOLS.filter((name) => !getCompositeForTool(name))
-    expect(withoutTarget).toEqual([])
-  })
-
-  it("the system prompt never names a deprecated tool", () => {
-    const leaked = DEPRECATED_TOOLS.filter((name) => SDD_SYSTEM_PROMPT.includes(name))
+  it("the system prompt never names a legacy tool", () => {
+    const legacyNames = [
+      "sdd.add_node", "sdd.update_node", "sdd.remove_node",
+      "sdd.add_relationship", "sdd.remove_relationship",
+      "sdd.list_nodes", "sdd.count_nodes", "sdd.get_nodes_by_status",
+      "sdd.find_path", "sdd.traverse_outgoing", "sdd.traverse_incoming",
+      "sdd.traverse_both", "sdd.get_subgraph",
+      "sdd.set_role", "sdd.check_permission", "sdd.audit_log",
+      "sdd.load_permissions_config", "sdd.check_change_approval",
+      "sdd.save_permissions_config", "sdd.get_user_role",
+      "sdd.create_snapshot", "sdd.rollback", "sdd.rollback_history", "sdd.list_snapshots",
+      "sdd.sync_status", "sdd.sync_pull", "sdd.sync_push",
+      "sdd.detect_sync_conflicts", "sdd.merge_graphs",
+      "sdd.graph_health", "sdd.graph_health_detail", "sdd.graph_prune",
+      "sdd.cache_stats", "sdd.detect_conventions", "sdd.learn_patterns",
+      "sdd.analyze_complexity", "sdd.code_metrics", "sdd.detect_smells",
+      "sdd.analyze_dependencies", "sdd.verify_usage", "sdd.find_dead_code",
+      "sdd.remove_dead_code", "sdd.parse_symbols", "sdd.plan_implementation",
+      "sdd.analyze_codebase",
+      "sdd.create_migration", "sdd.create_experiment", "sdd.create_flag",
+      "sdd.create_tenant", "sdd.onboard_developer", "sdd.security_audit",
+      "sdd.analyze_scalability", "sdd.check_compliance", "sdd.setup_monitoring",
+      "sdd.generate_dashboard", "sdd.report_incident", "sdd.create_sla",
+      "sdd.estimate_cost", "sdd.generate_docs", "sdd.knowledge_transfer",
+      "sdd.disaster_recovery_plan", "sdd.config_drift", "sdd.workflow_export",
+      "sdd.whitelist_drift", "sdd.unwhitelist_drift", "sdd.list_whitelist",
+    ]
+    const leaked = legacyNames.filter((name) => SDD_SYSTEM_PROMPT.includes(name))
     expect(leaked).toEqual([])
   })
 
   it("the generated tool reference is derived from the taxonomy", () => {
-    // Fonte única: todo composite e cada uma de suas actions aparecem na
-    // referência gerada, e nenhum nome removido aparece nela.
     for (const tool of TOOL_TAXONOMY) {
       expect(SDD_TOOL_REFERENCE).toContain(tool.name)
       for (const action of tool.actions) {
         expect(SDD_TOOL_REFERENCE).toContain(`${tool.name}(action="${action.name}")`)
       }
     }
-    const leaked = DEPRECATED_TOOLS.filter((name) => SDD_TOOL_REFERENCE.includes(name))
-    expect(leaked).toEqual([])
   })
 
-  it("every composite action target is actually callable", () => {
-    for (const tool of TOOL_TAXONOMY) {
-      for (const action of tool.actions) {
-        expect(getCompositeForTool(action.replaces[0])).toEqual({ composite: tool.name, action: action.name })
-      }
-    }
-    // A superfície pública tem exatamente um nome por capacidade.
+  it("every composite is in the registered tools", () => {
     expect(Object.keys(registered)).toEqual(expect.arrayContaining(TOOL_TAXONOMY.map((t) => t.name)))
   })
 })

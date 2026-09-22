@@ -1,9 +1,8 @@
 /**
- * Composite Tools — Tools compostas que substituem múltiplas tools originais.
+ * Composite Tools — Tools compostas que agrupam capacidades relacionadas.
  *
- * Cada tool composta aceita um parâmetro `action` e delega para a lógica
- * correspondente nos módulos SDD. As tools originais são mantidas como
- * deprecated por compatibilidade.
+ * Cada tool composta aceita um parâmetro `action` e delega para funções
+ * handler internas (tool-handlers.ts) ou implementação inline.
  *
  * Consumido por: createSddTools() em tools.ts
  */

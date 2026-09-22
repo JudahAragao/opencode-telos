@@ -1,9 +1,8 @@
 /**
- * Composite Tools — Tools compostas que substituem múltiplas tools originais.
+ * Composite Tools — Tools compostas que agrupam capacidades relacionadas.
  *
- * Cada tool composta aceita um parâmetro `action` e delega para a lógica
- * correspondente nos módulos SDD. As tools originais são mantidas como
- * deprecated por compatibilidade.
+ * Cada tool composta aceita um parâmetro `action` e delega para funções
+ * handler internas (tool-handlers.ts) ou implementação inline.
  *
  * Consumido por: createSddTools() em tools.ts
  */
@@ -47,6 +46,27 @@ import type { KnowledgeGraph, AnyNode, NodeType } from "../../sdd/domain/types.j
 import { pruneGraph, formatPruneReport } from "../../sdd/graph/pruner.js"
 import { projectPath } from "../../sdd/security/paths.js"
 import { GRAPH_SCHEMA_VERSION } from "../../version.js"
+import {
+  savePermissionsConfigHandler,
+  listSnapshotsHandler,
+  verifyUsageHandler,
+  findDeadCodeHandler,
+  removeDeadCodeHandler,
+  planImplementationHandler,
+  analyzeCodebaseHandler,
+  createMigrationHandler,
+  createExperimentHandler,
+  createFlagHandler,
+  createTenantHandler,
+  generateDashboardHandler,
+  reportIncidentHandler,
+  createSlaHandler,
+  estimateCostHandler,
+  knowledgeTransferHandler,
+  disasterRecoveryPlanHandler,
+  configDriftHandler,
+  workflowExportHandler,
+} from "../tool-handlers.js"
 
 function getRepo(directory: string): GraphRepository {
   return createRepository(directory)
@@ -56,16 +76,6 @@ function loadOrEmpty(directory: string): KnowledgeGraph {
   const repo = getRepo(directory)
   if (repo.isInitialized()) return repo.loadGraph()
   return { project_id: "pending", version: GRAPH_SCHEMA_VERSION, nodes: [], relationships: [], metadata: { created_at: "", updated_at: "", sdd_version: GRAPH_SCHEMA_VERSION } }
-}
-
-async function executeOriginalTool(name: string, args: Record<string, unknown>, ctx: any): Promise<string> {
-  // As sub-actions executam os handlers ORIGINAIS, que vivem no mapa completo
-  // (as tools depreciadas não são registradas publicamente por createSddTools()).
-  const { createSddToolDefinitions } = await import("../tools.js")
-  const definition = createSddToolDefinitions()[name]
-  if (!definition) return `Error: Tool ${name} not found`
-  const result = await definition.execute(args as any, ctx)
-  return typeof result === "string" ? result : result.output
 }
 
 function parseJson(value?: string): Record<string, unknown> {
@@ -366,7 +376,7 @@ export function createPermissionsTool(): ToolDefinition {
         }
         case "save_config": {
           if (!args.config_json) return "config_json is required"
-          return executeOriginalTool("sdd.save_permissions_config", { config_json: args.config_json }, ctx)
+          return savePermissionsConfigHandler({ config_json: args.config_json }, ctx)
         }
         case "role": {
           const role = getUserRoleWithAuth(ctx.directory, args.user || currentUser)
@@ -416,7 +426,7 @@ export function createSnapshotTool(): ToolDefinition {
           return formatRollbackHistory(history)
         }
         case "list": {
-          return executeOriginalTool("sdd.list_snapshots", {}, ctx)
+          return listSnapshotsHandler({}, ctx)
         }
         default:
           return `Unknown action: ${args.action}`
@@ -617,17 +627,15 @@ export function createCodeQualityTool(): ToolDefinition {
           return formatDependencyReport(result)
         }
         case "usage": {
-          const { createSddToolDefinitions } = await import("../tools.js")
-          return String(await createSddToolDefinitions()["sdd.verify_usage"].execute({}, ctx))
+          return verifyUsageHandler({}, ctx)
         }
         case "dead_code": {
           if (!args.file_path) return "file_path is required"
-          const { createSddToolDefinitions } = await import("../tools.js")
-          return String(await createSddToolDefinitions()["sdd.find_dead_code"].execute({ file: args.file_path }, ctx))
+          return findDeadCodeHandler({ file: args.file_path }, ctx)
         }
         case "remove_dead_code": {
           if (!args.file_path) return "file_path is required"
-          return executeOriginalTool("sdd.remove_dead_code", { file: args.file_path, dry_run: args.dry_run }, ctx)
+          return removeDeadCodeHandler({ file: args.file_path, dry_run: args.dry_run }, ctx)
         }
         case "parse_symbols": {
           if (!args.file_path) return "file_path is required"
@@ -639,11 +647,10 @@ export function createCodeQualityTool(): ToolDefinition {
         }
         case "plan_implementation": {
           if (!args.feature_id || !args.files) return "feature_id and files are required"
-          const { createSddToolDefinitions } = await import("../tools.js")
-          return String(await createSddToolDefinitions()["sdd.plan_implementation"].execute({ feature_id: args.feature_id, files: args.files }, ctx))
+          return planImplementationHandler({ feature_id: args.feature_id, files: args.files }, ctx)
         }
         case "analyze_codebase": {
-          return executeOriginalTool("sdd.analyze_codebase", {}, ctx)
+          return analyzeCodebaseHandler({}, ctx)
         }
         default:
           return `Unknown action: ${args.action}`
@@ -669,10 +676,10 @@ export function createEnterpriseTool(): ToolDefinition {
       const graph = loadOrEmpty(ctx.directory)
 
       switch (args.action) {
-        case "migration": return executeOriginalTool("sdd.create_migration", parseJson(args.params_json), ctx)
-        case "experiment": return executeOriginalTool("sdd.create_experiment", parseJson(args.params_json), ctx)
-        case "flag": return executeOriginalTool("sdd.create_flag", parseJson(args.params_json), ctx)
-        case "tenant": return executeOriginalTool("sdd.create_tenant", parseJson(args.params_json), ctx)
+        case "migration": return createMigrationHandler(parseJson(args.params_json), ctx)
+        case "experiment": return createExperimentHandler(parseJson(args.params_json), ctx)
+        case "flag": return createFlagHandler(parseJson(args.params_json), ctx)
+        case "tenant": return createTenantHandler(parseJson(args.params_json), ctx)
         case "security_audit": {
           const { performSecurityAudit, formatSecurityAudit } = await import("../../sdd/analysis/security.js")
           const result = performSecurityAudit(graph)
@@ -704,14 +711,14 @@ export function createEnterpriseTool(): ToolDefinition {
           const { generateOnboardingGuide } = await import("../../sdd/workflows/onboarding.js")
           return generateOnboardingGuide(graph, {} as any)
         }
-        case "dashboard": return executeOriginalTool("sdd.generate_dashboard", parseJson(args.params_json), ctx)
-        case "incident": return executeOriginalTool("sdd.report_incident", parseJson(args.params_json), ctx)
-        case "sla": return executeOriginalTool("sdd.create_sla", parseJson(args.params_json), ctx)
-        case "cost": return executeOriginalTool("sdd.estimate_cost", parseJson(args.params_json), ctx)
-        case "knowledge_transfer": return executeOriginalTool("sdd.knowledge_transfer", parseJson(args.params_json), ctx)
-        case "disaster_recovery": return executeOriginalTool("sdd.disaster_recovery_plan", parseJson(args.params_json), ctx)
-        case "config_drift": return executeOriginalTool("sdd.config_drift", parseJson(args.params_json), ctx)
-        case "workflow_export": return executeOriginalTool("sdd.workflow_export", parseJson(args.params_json), ctx)
+        case "dashboard": return generateDashboardHandler(parseJson(args.params_json), ctx)
+        case "incident": return reportIncidentHandler(parseJson(args.params_json), ctx)
+        case "sla": return createSlaHandler(parseJson(args.params_json), ctx)
+        case "cost": return estimateCostHandler(parseJson(args.params_json), ctx)
+        case "knowledge_transfer": return knowledgeTransferHandler(parseJson(args.params_json), ctx)
+        case "disaster_recovery": return disasterRecoveryPlanHandler(parseJson(args.params_json), ctx)
+        case "config_drift": return configDriftHandler(parseJson(args.params_json), ctx)
+        case "workflow_export": return workflowExportHandler(parseJson(args.params_json), ctx)
         default:
           return `Unknown action: ${args.action}`
       }

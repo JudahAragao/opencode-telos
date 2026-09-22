@@ -17,4 +17,4 @@ export { rankSimilarity } from "./embeddings.js";
 // Categories
 export { getToolCategories, hasToolCategory, getToolsByCategory, getCategoriesInToolSet, CATEGORY_KEYWORDS, STANDALONE_CATEGORIES, COMPOSITE_CATEGORIES, } from "./categories.js";
 // Tool Taxonomy
-export { TOOL_TAXONOMY, STANDALONE_TOOLS, DEPRECATED_TOOLS, TOOL_TO_COMPOSITE, isDeprecatedTool, getCompositeForTool, countActiveTools, } from "./tool-taxonomy.js";
+export { TOOL_TAXONOMY, STANDALONE_TOOLS, countActiveTools, } from "./tool-taxonomy.js";

@@ -8,7 +8,6 @@
  * Uses module-level state (not AsyncLocalStorage) because OpenCode tools
  * execute synchronously within a single tool-call boundary.
  */
-import { getCompositeForTool } from "../../opencode/router/tool-taxonomy.js";
 const DEFAULT_SCOPE = "__default__";
 const states = new Map();
 /** Isolate concurrent OpenCode sessions while retaining directory-only API compatibility. */
@@ -332,18 +331,6 @@ export function checkToolAccess(toolName, scope = DEFAULT_SCOPE, action) {
             };
         }
         return { allowed: true };
-    }
-    // Tools removidas: em vez do genérico "não classificada", redireciona para o
-    // composite canônico. É o "alias de erro": o nome antigo não é anunciado nem
-    // registrado, mas uma chamada residual recebe o caminho correto.
-    const replacement = getCompositeForTool(toolName);
-    if (replacement) {
-        return {
-            allowed: false,
-            reason: `[SDD] Tool "${toolName}" foi removida — a capacidade agora é ` +
-                `\`${replacement.composite}(action="${replacement.action}")\`. ` +
-                `Use o caminho canônico.`,
-        };
     }
     // Fail closed. New SDD tools must be explicitly classified before they can
     // mutate a project.

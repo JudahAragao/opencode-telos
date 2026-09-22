@@ -14,5 +14,5 @@ export type { ToolRegistryResult } from "./tool-registry.js";
 export { rankSimilarity } from "./embeddings.js";
 export { getToolCategories, hasToolCategory, getToolsByCategory, getCategoriesInToolSet, CATEGORY_KEYWORDS, STANDALONE_CATEGORIES, COMPOSITE_CATEGORIES, } from "./categories.js";
 export type { IntentCategory } from "./categories.js";
-export { TOOL_TAXONOMY, STANDALONE_TOOLS, DEPRECATED_TOOLS, TOOL_TO_COMPOSITE, isDeprecatedTool, getCompositeForTool, countActiveTools, } from "./tool-taxonomy.js";
+export { TOOL_TAXONOMY, STANDALONE_TOOLS, countActiveTools, } from "./tool-taxonomy.js";
 export type { CompositeTool, SubAction, ToolCategory } from "./tool-taxonomy.js";

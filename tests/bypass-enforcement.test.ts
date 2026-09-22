@@ -104,19 +104,6 @@ describe("Bypass Enforcement", () => {
     }
   })
 
-  describe("Removed tools redirect to the canonical composite", () => {
-    const removed = ["sdd.add_node", "sdd.verify_usage", "sdd.list_snapshots", "sdd.security_audit"]
-
-    for (const tool of removed) {
-      it(`${tool} is denied with a redirect, never with a generic error`, () => {
-        const result = checkToolAccess(tool)
-        expect(result.allowed).toBe(false)
-        expect(result.reason).toContain("foi removida")
-        expect(result.reason).toMatch(/sdd\.[a-z_]+\(action="/)
-      })
-    }
-  })
-
   describe("Read-only tools always allowed", () => {
     const readOnlyTools = [
       "sdd.inspect",
@@ -188,13 +175,6 @@ describe("Bypass Enforcement", () => {
       expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.auto_link_tests")).toBe(true)
       expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.infer_relationships")).toBe(true)
       expect(WORKFLOW_REQUIRED_TOOLS.has("sdd.migrate_storage")).toBe(true)
-    })
-
-    it("no removed tool is classified", () => {
-      for (const tool of ["sdd.add_node", "sdd.remove_dead_code", "sdd.list_nodes"]) {
-        expect(WORKFLOW_REQUIRED_TOOLS.has(tool)).toBe(false)
-        expect(WORKFLOW_EXEMPT_TOOLS.has(tool)).toBe(false)
-      }
     })
 
     it("no mutation tool is in EXEMPT set", () => {

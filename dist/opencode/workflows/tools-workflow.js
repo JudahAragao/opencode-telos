@@ -47,8 +47,8 @@ function createChainTool(chain) {
                 // Import dinâmico para evitar circular dependencies.
                 // Usa o mapa COMPLETO: as chains são código nosso e podem orquestrar
                 // handlers internos que já não são anunciados (find_dead_code etc.).
-                const { createSddToolDefinitions } = await import("../tools.js");
-                const tools = createSddToolDefinitions();
+                const { createSddTools } = await import("../tools.js");
+                const tools = createSddTools();
                 const sddTool = tools[toolName];
                 if (!sddTool) {
                     return `Error: Tool ${toolName} not found`;
