@@ -187,6 +187,8 @@ export class SqliteGraphRepository {
         created_at: metaMap.get("created_at") || new Date().toISOString(),
         updated_at: metaMap.get("updated_at") || new Date().toISOString(),
         sdd_version: metaMap.get("sdd_version") || GRAPH_SCHEMA_VERSION,
+        purpose: metaMap.get("purpose") as KnowledgeGraph["metadata"]["purpose"],
+        source_project: metaMap.get("source_project"),
       },
     }
 
@@ -230,6 +232,8 @@ export class SqliteGraphRepository {
         upsertMeta.run("created_at", graph.metadata.created_at)
         upsertMeta.run("updated_at", graph.metadata.updated_at)
         upsertMeta.run("sdd_version", graph.metadata.sdd_version)
+        if (graph.metadata.purpose) upsertMeta.run("purpose", graph.metadata.purpose)
+        if (graph.metadata.source_project) upsertMeta.run("source_project", graph.metadata.source_project)
 
       // Save nodes in batches for performance
       const upsertNode = db.prepare(`

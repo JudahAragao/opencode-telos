@@ -283,8 +283,11 @@ function validateRequirementsSmart(
 
     // O(1) check using index
     const outgoing = indices.getOutgoing(req.id)
+    const incoming = indices.getIncoming(req.id)
     const hasTask = outgoing.some(
       (r) => r.type === "implemented_by" || r.type === "contains" || r.type === "belongs_to",
+    ) || incoming.some(
+      (r) => r.type === "implements" && indices.byId.get(r.from)?.type === "task",
     )
     // VERIFIED requirements are already validated, skip warning
     if (!hasTask && req.status !== "VERIFIED") {

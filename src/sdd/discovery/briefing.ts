@@ -1,5 +1,5 @@
 import type { KnowledgeGraph, GapClassification } from "../domain/types.js"
-import { addNode } from "../graph/engine.js"
+import { addNode, getNode, updateNode } from "../graph/engine.js"
 
 export interface BriefingAnalysis {
   known_facts: Record<string, string>
@@ -597,13 +597,44 @@ export function updateGraphFromAnswers(
 ): void {
   const now = new Date().toISOString()
 
+  const upsertAnswerNode = (node: Parameters<typeof addNode>[1]): void => {
+    const existing = getNode(graph, node.id)
+    if (existing) {
+      updateNode(graph, node.id, {
+        description: node.description,
+        status: node.status,
+        metadata: node.metadata,
+      } as any)
+      return
+    }
+    addNode(graph, node)
+  }
+
   for (const [question, answer] of Object.entries(answers)) {
     const lowerQ = question.toLowerCase()
+
+    // Brownfield purpose is a project-level decision and must survive the
+    // discovery round instead of being silently ignored.
+    if (lowerQ.includes("objetivo do sdd")) {
+      const project = getNode(graph, graph.project_id)
+      if (project) {
+        const normalized = answer.toLowerCase()
+        const purpose = normalized.includes("engenharia reversa")
+          ? "reverse_engineering"
+          : normalized.includes("documentação") || normalized.includes("documentacao")
+            ? "documentation"
+            : "greenfield"
+        updateNode(graph, project.id, {
+          metadata: { ...project.metadata, purpose },
+        } as any)
+        graph.metadata.purpose = purpose
+      }
+    }
 
     // Auth type
     if (lowerQ.includes("login") || lowerQ.includes("autenticação")) {
       let authType = answer
-      addNode(graph, {
+      upsertAnswerNode({
         id: `${graph.project_id}-AUTH`,
         type: "architecture_component",
         name: "Authentication",
@@ -618,7 +649,7 @@ export function updateGraphFromAnswers(
 
     // Frontend
     if (lowerQ.includes("frontend")) {
-      addNode(graph, {
+      upsertAnswerNode({
         id: `${graph.project_id}-FE`,
         type: "architecture_component",
         name: "Frontend",
@@ -633,7 +664,7 @@ export function updateGraphFromAnswers(
 
     // Backend
     if (lowerQ.includes("backend")) {
-      addNode(graph, {
+      upsertAnswerNode({
         id: `${graph.project_id}-BE`,
         type: "architecture_component",
         name: "Backend",
@@ -648,7 +679,7 @@ export function updateGraphFromAnswers(
 
     // Database
     if (lowerQ.includes("banco") || lowerQ.includes("database")) {
-      addNode(graph, {
+      upsertAnswerNode({
         id: `${graph.project_id}-DB`,
         type: "database",
         name: "Database",
@@ -665,7 +696,7 @@ export function updateGraphFromAnswers(
     if (lowerQ.includes("tenant")) {
       const isMultiTenant = /sim|yes|true/i.test(answer) || /multi/i.test(answer)
       if (isMultiTenant) {
-        addNode(graph, {
+        upsertAnswerNode({
           id: `${graph.project_id}-TENANT`,
           type: "entity",
           name: "Tenant",
@@ -688,7 +719,7 @@ export function updateGraphFromAnswers(
     // Delete behavior
     if (lowerQ.includes("exclusão") || lowerQ.includes("delete")) {
       const isSoftDelete = /soft|reversível|reversivel/i.test(answer)
-      addNode(graph, {
+      upsertAnswerNode({
         id: `${graph.project_id}-RULE-DELETE`,
         type: "business_rule",
         name: "Delete Behavior",

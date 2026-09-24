@@ -245,8 +245,10 @@ function validateSemantic(
     if (isNodeExcludedOrDeprecated(req.id, req.status, removed, deprecated)) continue
     const hasTask = graph.relationships.some(
       (r) =>
-        r.from === req.id &&
-        (r.type === "implemented_by" || r.type === "contains" || r.type === "belongs_to"),
+        (r.from === req.id &&
+          (r.type === "implemented_by" || r.type === "contains" || r.type === "belongs_to")) ||
+        (r.to === req.id && r.type === "implements" &&
+          graph.nodes.some((node) => node.id === r.from && node.type === "task")),
     )
     // VERIFIED requirements are already validated, skip warning
     if (!hasTask && req.status !== "VERIFIED") {
@@ -449,7 +451,9 @@ function validateTraceability(
       (r) => (r.from === task.id || r.to === task.id) &&
         typeById.get(r.from === task.id ? r.to : r.from) === "change",
     )
-    if (!hasChange && !linkedChange) {
+    const metadata = task.metadata as Record<string, unknown>
+    const pendingIntegration = metadata.integration_status === "pending"
+    if (!hasChange && !linkedChange && !pendingIntegration) {
       warnings.push({
         code: "TASK_NO_CHANGE",
         message: `Task "${task.name}" has no Change linked (required to authorize code work)`,

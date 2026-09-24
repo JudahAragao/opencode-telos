@@ -397,7 +397,7 @@ export function createTask(graph: KnowledgeGraph, input: CreateTaskInput): TaskN
     board_column: column,
     integration_status: input.integration_status ?? "pending",
     origin: input.origin ?? "dashboard",
-    created_from: "dashboard",
+    created_from: input.origin ?? "dashboard",
   }
   if (input.goal) metadata.goal = input.goal
   if (input.files?.length) metadata.files = input.files

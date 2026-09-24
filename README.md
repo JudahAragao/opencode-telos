@@ -233,7 +233,7 @@ OpenCode displays a menu for each missing question:
     Soft delete (reversible)
 ```
 
-You select an option or type your own answer. The plugin updates the Knowledge Graph automatically.
+You select an option or type your own answer. The plugin sends the answers together with the original briefing, rebuilds the Knowledge Graph, and creates an idempotent implementation-task backlog. Generated tasks start as pending integration; use `/sdd tasks integrate` when you are ready to authorize implementation.
 
 ### Step 3: Specify the stack via .md files (optional)
 

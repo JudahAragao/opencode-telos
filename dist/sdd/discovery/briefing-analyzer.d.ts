@@ -44,6 +44,23 @@ export interface ExtractedRequirement {
     priority: "critical" | "high" | "medium" | "low";
     acceptanceCriteria: string[];
 }
+/**
+ * Work item derived from a requirement/feature during graph bootstrap.
+ * Tasks are deliberately separate from requirements: a requirement describes
+ * the desired behaviour, while a task describes the implementation work that
+ * will later be integrated into an SDD Change.
+ */
+export interface ExtractedTask {
+    name: string;
+    description: string;
+    goal?: string;
+    files?: string[];
+    acceptance?: string[];
+    priority?: "critical" | "high" | "medium" | "low";
+    requirement?: string;
+    feature?: string;
+    endpoint?: string;
+}
 export interface ExtractedRelationship {
     from: string;
     to: string;
@@ -57,6 +74,7 @@ export interface BriefingDeepAnalysis {
     architectureComponents: ExtractedArchitectureComponent[];
     decisions: ExtractedDecision[];
     requirements: ExtractedRequirement[];
+    tasks: ExtractedTask[];
     relationships: ExtractedRelationship[];
     domains: string[];
     techStack: Record<string, string>;

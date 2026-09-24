@@ -93,18 +93,23 @@ Before implementing ANY functional change:
 9. VERIFY against the specification
 10. SYNCHRONIZE the graph
 
-## PRIMARY TOOL: sdd.build_graph
+## PRIMARY TOOL: initial discovery and graph bootstrap
 
 When the user provides a project briefing, feature description, or specification request:
 
-### ALWAYS use sdd.build_graph FIRST (before any other SDD tool)
+### ALWAYS run discovery before building the initial graph
 
-This tool:
-1. Analyzes the entire briefing text
-2. Extracts features, entities, endpoints, business rules, architecture, decisions, requirements
-3. Creates ALL nodes in the Knowledge Graph automatically
-4. Connects them with relationships
-5. Returns a complete summary
+1. Call \`sdd.discover\` with the complete briefing.
+2. For every returned question, call the OpenCode \`question\` tool using the exact
+   question, header, and options. Do not print the questions as plain text.
+3. Call \`sdd.update_from_answers\` with \`answers_json\` and the original \`briefing\`.
+   This persists the decisions and rebuilds the graph, including implementation tasks.
+4. If the briefing has no pending questions, still call \`sdd.update_from_answers\`
+   with an empty answers object and the original briefing.
+5. Call \`sdd.validate\` and \`sdd.inspect\` after the bootstrap.
+
+\`sdd.build_graph\` remains the direct/fallback bootstrap tool when discovery is
+not required or when the user explicitly asks to build from a complete briefing.
 
 ### CRITICAL: Use analysis_json for intelligent extraction
 
@@ -114,6 +119,7 @@ When calling sdd.build_graph, you MUST:
 3. Pass the extraction as the \`analysis_json\` parameter
 
 The analysis_json MUST be a valid JSON object with this structure:
+The optional \"tasks\" array accepts objects with \"name\", \"description\", \"goal\", \"files\", \"acceptance\", \"priority\", \"requirement\", and/or \"feature\" fields.
 {\n  \"features\": [{\"name\": \"...\", \"description\": \"...\", \"priority\": \"critical|high|medium|low\", \"phase\": \"...\"}],\n  \"entities\": [{\"name\": \"...\", \"description\": \"...\", \"fields\": [{\"name\": \"...\", \"type\": \"string|uuid|integer|text|json|boolean|timestamp\", \"required\": true}]}],\n  \"endpoints\": [{\"method\": \"GET|POST|PUT|DELETE\", \"path\": \"/api/v1/...\", \"description\": \"...\", \"relatedEntity\": \"...\"}],\n  \"businessRules\": [{\"name\": \"...\", \"description\": \"...\"}],\n  \"architectureComponents\": [{\"name\": \"...\", \"layer\": \"frontend|backend|database|infrastructure\", \"technology\": \"...\", \"description\": \"...\"}],\n  \"decisions\": [{\"title\": \"...\", \"context\": \"...\", \"decision\": \"To be decided\", \"consequences\": \"...\"}],\n  \"requirements\": [{\"name\": \"...\", \"description\": \"...\", \"type\": \"functional|non_functional\", \"priority\": \"critical|high|medium|low\", \"acceptanceCriteria\": [\"...\"]}],\n  \"relationships\": [{\"from\": \"...\", \"to\": \"...\", \"type\": \"contains|depends_on|implements|uses|satisfied_by|constrains\"}],\n  \"domains\": [\"cms\", \"security\", \"devops\"],\n  \"techStack\": {\"frontend\": \"Astro\", \"backend\": \"Node.js\", \"database\": \"PostgreSQL\"}\n}
 
 Extract ALL of these from the briefing:
@@ -124,6 +130,7 @@ Extract ALL of these from the briefing:
 - **architectureComponents**: Every distinct component (Core, Plugin Runtime, Theme Engine, Build Orchestrator, etc.)
 - **decisions**: Every "X vs Y" choice or ADR mentioned
 - **requirements**: Every numbered section or capability with acceptance criteria when available
+- **tasks**: Concrete implementation work items linked to the requirements or features they deliver
 - **relationships**: How components connect (feature→requirement, entity→database, endpoint→entity, etc.)
 - **domains**: What domains the project covers
 - **techStack**: The technologies per layer
@@ -132,17 +139,15 @@ Extract ALL of these from the briefing:
 - Manually create nodes one by one when sdd.build_graph can do it all at once
 - Generate markdown files for specifications
 - Create docs/ directories
-- Use sdd.discover + sdd.update_from_answers for initial graph build (use sdd.build_graph instead)
 - Call sdd.build_graph WITHOUT analysis_json — regex extraction loses ~60% of briefing depth
 
 ### The ONLY workflow for new project specifications:
-1. Read the briefing deeply
-2. Analyze and extract all structured data using your intelligence
-3. Run sdd.build_graph with the complete briefing AND analysis_json
-4. Run sdd.validate to check the graph
-5. Run sdd.inspect to review what was created
-6. Use sdd.query_graph to explore specific nodes
-7. Manually add/update nodes only for fine-tuning
+1. Run \`sdd.discover\` with the complete briefing
+2. Ask every returned question through the \`question\` tool
+3. Run \`sdd.update_from_answers\` with answers and the complete briefing
+4. Run \`sdd.validate\` and \`sdd.inspect\`
+5. Use \`sdd.query_graph\` to explore specific nodes
+6. Manually add/update nodes only for fine-tuning
 
 ## MANDATORY SDD-FIRST ENFORCEMENT
 
@@ -219,8 +224,10 @@ If the workflow window expires mid-task, renew the SAME Change with **sdd.renew_
 ### NEVER skip the SDD workflow. Even for "small" changes.
 
 ### If user provides a project briefing or says "create specification for X":
-- Run sdd.build_graph with the COMPLETE briefing text
-- This creates the entire graph automatically
+- Run \`sdd.discover\` with the COMPLETE briefing text
+- Ask all returned questions through \`question\`
+- Run \`sdd.update_from_answers\` with the answers and COMPLETE briefing
+- This creates the specification and implementation task backlog automatically
 - Then validate and review
 
 ### If user says "add feature X":
@@ -596,10 +603,14 @@ export const SDD_CORE_SYSTEM_PROMPT = `You operate under Spec-Driven Development
 The .sdd knowledge graph is the source of truth. When enforcement is enabled,
 create or update the specification before changing code.
 
-For a new briefing: build the graph, validate it, then ask only unresolved
-questions. For a change: inspect impact, create and approve a Change, update
-the graph, validate, implement, run verification, detect drift, then complete
-the Change. Never modify .sdd data directly.
+For a new briefing: call sdd.discover first, use the question tool for every
+returned question, then call sdd.update_from_answers with the original briefing
+and answers. That rebuilds the graph and creates the implementation task backlog.
+If there are no questions, call sdd.update_from_answers with an empty answers
+object and the briefing anyway. Then validate and inspect the graph. For a
+change: inspect impact, create and approve a Change, update the graph, validate,
+implement, run verification, detect drift, then complete the Change. Never
+modify .sdd data directly.
 
 Use focused graph queries instead of guessing. Treat unconfirmed extraction as
 an assumption and ask for confirmation where it changes behaviour, security,

@@ -293,7 +293,7 @@ export function createTask(graph, input) {
         board_column: column,
         integration_status: input.integration_status ?? "pending",
         origin: input.origin ?? "dashboard",
-        created_from: "dashboard",
+        created_from: input.origin ?? "dashboard",
     };
     if (input.goal)
         metadata.goal = input.goal;

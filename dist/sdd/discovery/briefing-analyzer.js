@@ -525,6 +525,46 @@ function extractRequirements(text) {
     }
     return requirements.slice(0, 50);
 }
+/**
+ * Derive an initial implementation backlog from the extracted specification.
+ * Explicit LLM tasks can replace this list through analysis_json, while the
+ * regex path still produces useful, deterministic tasks for every briefing.
+ */
+function extractTasks(requirements, features) {
+    const tasks = [];
+    const seen = new Set();
+    const addTask = (task) => {
+        const key = task.name.trim().toLowerCase();
+        if (!key || seen.has(key))
+            return;
+        seen.add(key);
+        tasks.push(task);
+    };
+    for (const requirement of requirements) {
+        addTask({
+            name: `Implement ${requirement.name}`,
+            description: `Implement the behaviour specified by ${requirement.name}.`,
+            goal: requirement.description,
+            acceptance: requirement.acceptanceCriteria,
+            priority: requirement.priority,
+            requirement: requirement.name,
+        });
+    }
+    // Briefings without numbered requirements still need an actionable backlog.
+    // Avoid duplicating a feature that is already represented by a requirement.
+    if (tasks.length === 0) {
+        for (const feature of features) {
+            addTask({
+                name: `Implement ${feature.name}`,
+                description: `Implement the ${feature.name} capability.`,
+                goal: feature.description,
+                priority: feature.priority,
+                feature: feature.name,
+            });
+        }
+    }
+    return tasks.slice(0, 100);
+}
 // ─── Main Analysis ─────────────────────────────────────────────────
 export function analyzeBriefingDeep(text) {
     const features = extractFeatures(text);
@@ -534,6 +574,7 @@ export function analyzeBriefingDeep(text) {
     const architectureComponents = extractArchitectureComponents(text);
     const decisions = extractDecisions(text);
     const requirements = extractRequirements(text);
+    const tasks = extractTasks(requirements, features);
     // Build relationships between extracted elements
     const relationships = [];
     // Connect entities to architecture components
@@ -614,6 +655,7 @@ export function analyzeBriefingDeep(text) {
         architectureComponents,
         decisions,
         requirements,
+        tasks,
         relationships,
         domains,
         techStack,
@@ -631,6 +673,7 @@ export function formatDeepAnalysis(analysis) {
         `**Architecture Components:** ${analysis.architectureComponents.length}`,
         `**Decisions:** ${analysis.decisions.length}`,
         `**Requirements:** ${analysis.requirements.length}`,
+        `**Tasks:** ${analysis.tasks.length}`,
         `**Relationships:** ${analysis.relationships.length}`,
         "",
     ];

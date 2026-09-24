@@ -48,6 +48,24 @@ export interface ExtractedRequirement {
   acceptanceCriteria: string[]
 }
 
+/**
+ * Work item derived from a requirement/feature during graph bootstrap.
+ * Tasks are deliberately separate from requirements: a requirement describes
+ * the desired behaviour, while a task describes the implementation work that
+ * will later be integrated into an SDD Change.
+ */
+export interface ExtractedTask {
+  name: string
+  description: string
+  goal?: string
+  files?: string[]
+  acceptance?: string[]
+  priority?: "critical" | "high" | "medium" | "low"
+  requirement?: string
+  feature?: string
+  endpoint?: string
+}
+
 export interface ExtractedRelationship {
   from: string
   to: string
@@ -62,6 +80,7 @@ export interface BriefingDeepAnalysis {
   architectureComponents: ExtractedArchitectureComponent[]
   decisions: ExtractedDecision[]
   requirements: ExtractedRequirement[]
+  tasks: ExtractedTask[]
   relationships: ExtractedRelationship[]
   domains: string[]
   techStack: Record<string, string>
@@ -640,6 +659,53 @@ function extractRequirements(text: string): ExtractedRequirement[] {
   return requirements.slice(0, 50)
 }
 
+/**
+ * Derive an initial implementation backlog from the extracted specification.
+ * Explicit LLM tasks can replace this list through analysis_json, while the
+ * regex path still produces useful, deterministic tasks for every briefing.
+ */
+function extractTasks(
+  requirements: ExtractedRequirement[],
+  features: ExtractedFeature[],
+): ExtractedTask[] {
+  const tasks: ExtractedTask[] = []
+  const seen = new Set<string>()
+
+  const addTask = (task: ExtractedTask): void => {
+    const key = task.name.trim().toLowerCase()
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    tasks.push(task)
+  }
+
+  for (const requirement of requirements) {
+    addTask({
+      name: `Implement ${requirement.name}`,
+      description: `Implement the behaviour specified by ${requirement.name}.`,
+      goal: requirement.description,
+      acceptance: requirement.acceptanceCriteria,
+      priority: requirement.priority,
+      requirement: requirement.name,
+    })
+  }
+
+  // Briefings without numbered requirements still need an actionable backlog.
+  // Avoid duplicating a feature that is already represented by a requirement.
+  if (tasks.length === 0) {
+    for (const feature of features) {
+      addTask({
+        name: `Implement ${feature.name}`,
+        description: `Implement the ${feature.name} capability.`,
+        goal: feature.description,
+        priority: feature.priority,
+        feature: feature.name,
+      })
+    }
+  }
+
+  return tasks.slice(0, 100)
+}
+
 // ─── Main Analysis ─────────────────────────────────────────────────
 
 export function analyzeBriefingDeep(text: string): BriefingDeepAnalysis {
@@ -650,6 +716,7 @@ export function analyzeBriefingDeep(text: string): BriefingDeepAnalysis {
   const architectureComponents = extractArchitectureComponents(text)
   const decisions = extractDecisions(text)
   const requirements = extractRequirements(text)
+  const tasks = extractTasks(requirements, features)
 
   // Build relationships between extracted elements
   const relationships: ExtractedRelationship[] = []
@@ -734,6 +801,7 @@ export function analyzeBriefingDeep(text: string): BriefingDeepAnalysis {
     architectureComponents,
     decisions,
     requirements,
+    tasks,
     relationships,
     domains,
     techStack,
@@ -753,6 +821,7 @@ export function formatDeepAnalysis(analysis: BriefingDeepAnalysis): string {
     `**Architecture Components:** ${analysis.architectureComponents.length}`,
     `**Decisions:** ${analysis.decisions.length}`,
     `**Requirements:** ${analysis.requirements.length}`,
+    `**Tasks:** ${analysis.tasks.length}`,
     `**Relationships:** ${analysis.relationships.length}`,
     "",
   ]

@@ -165,6 +165,7 @@ describe("GraphBuilder", () => {
     expect(result.byType.architecture_component).toBeGreaterThan(0)
     expect(result.byType.decision).toBeGreaterThan(0)
     expect(result.byType.requirement).toBeGreaterThan(0)
+    expect(result.byType.task).toBeGreaterThan(0)
   })
 
   test("nodes have correct types and metadata", () => {

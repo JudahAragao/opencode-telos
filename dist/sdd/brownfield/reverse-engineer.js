@@ -510,6 +510,7 @@ function buildAnalysis(entities, endpoints, rules, architecture, brownfield, pur
         })),
         decisions: [], // Decisions are inferred by the LLM, not from code
         requirements: [], // Requirements are inferred by the LLM
+        tasks: [], // Tasks are generated after requirements are confirmed
         relationships: [], // Relationships are built by the graph builder
         domains: inferDomains(entities, endpoints),
         // For reverse engineering: clear tech stack (will be chosen by user)

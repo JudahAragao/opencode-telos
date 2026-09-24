@@ -2,6 +2,7 @@ import { addNode, addRelationship, getNode } from "../graph/engine.js";
 import { ensureGraphIntegrity } from "../graph/integrity.js";
 import { runRelationshipInference } from "./relationship-inferencer.js";
 import { isRelationshipAllowed, normalizeRelationshipType } from "../graph/schema.js";
+import { createTask, isTaskPriority } from "../tasks/board.js";
 import { progressEmitter } from "../../server/events.js";
 function safeId(projectId, type, name) {
     const clean = name
@@ -195,6 +196,71 @@ function buildRequirementNodes(graph, requirements) {
         catch { /* skip */ }
     }
     return count;
+}
+function buildTaskNodes(graph, tasks) {
+    let nodesCreated = 0;
+    let relationshipsCreated = 0;
+    for (const taskInput of tasks) {
+        const name = taskInput.name.trim();
+        if (!name)
+            continue;
+        // Tasks are user-visible Kanban work items. Re-running a briefing must not
+        // create a second card for the same work item.
+        const existing = graph.nodes.find((node) => node.type === "task" && node.name.toLowerCase() === name.toLowerCase());
+        if (existing)
+            continue;
+        const targets = [taskInput.requirement, taskInput.feature]
+            .map((reference) => reference ? resolveRelationshipEndpoint(graph, reference) : undefined)
+            .filter((node) => Boolean(node))
+            .filter((node, index, all) => all.findIndex((candidate) => candidate.id === node.id) === index);
+        let task;
+        try {
+            task = createTask(graph, {
+                name,
+                description: taskInput.description,
+                goal: taskInput.goal,
+                files: taskInput.files,
+                acceptance: taskInput.acceptance,
+                priority: isTaskPriority(taskInput.priority) ? taskInput.priority : undefined,
+                link_to: targets[0]?.id,
+                link_type: targets[0] ? "implements" : undefined,
+                origin: "briefing",
+                integration_status: "pending",
+            });
+        }
+        catch {
+            // A manually created task may already have the same name. Treat that as
+            // an idempotent bootstrap result rather than aborting the whole graph.
+            continue;
+        }
+        nodesCreated++;
+        if (targets.length > 0)
+            relationshipsCreated++;
+        const metadata = task.metadata;
+        if (targets.some((target) => target.type === "requirement")) {
+            metadata.requirement_id = targets.find((target) => target.type === "requirement")?.id;
+        }
+        if (targets.some((target) => target.type === "feature")) {
+            metadata.feature_id = targets.find((target) => target.type === "feature")?.id;
+        }
+        if (taskInput.endpoint)
+            metadata.endpoint_id = taskInput.endpoint;
+        // A task can implement both a requirement and its feature. The first target
+        // is linked by createTask; add the remaining semantic links here.
+        for (const target of targets.slice(1)) {
+            try {
+                addRelationship(graph, task.id, target.id, "implements", {
+                    method: "briefing-task-link",
+                    created_by: "graph-builder",
+                });
+                relationshipsCreated++;
+            }
+            catch {
+                // Invalid/duplicate links must not prevent the rest of the backlog.
+            }
+        }
+    }
+    return { nodesCreated, relationshipsCreated };
 }
 // ─── Declared relationships (from the LLM analysis) ────────────────
 /**
@@ -502,6 +568,7 @@ export function buildGraphFromAnalysis(graph, analysis) {
         "architecture",
         "decisions",
         "requirements",
+        "tasks",
         "relationships",
         "connectivity",
     ];
@@ -529,6 +596,28 @@ export function buildGraphFromAnalysis(graph, analysis) {
     progressEmitter.nextStep("requirements", `Building requirement nodes (${analysis.requirements.length} found)...`);
     byType.requirement = buildRequirementNodes(graph, analysis.requirements);
     progressEmitter.stepProgress("requirements", `Created ${byType.requirement} requirement nodes`);
+    const taskInputs = analysis.tasks?.length
+        ? analysis.tasks
+        : analysis.requirements.length > 0
+            ? analysis.requirements.map((requirement) => ({
+                name: `Implement ${requirement.name}`,
+                description: `Implement the behaviour specified by ${requirement.name}.`,
+                goal: requirement.description,
+                acceptance: requirement.acceptanceCriteria,
+                priority: requirement.priority,
+                requirement: requirement.name,
+            }))
+            : analysis.features.map((feature) => ({
+                name: `Implement ${feature.name}`,
+                description: `Implement the ${feature.name} capability.`,
+                goal: feature.description,
+                priority: feature.priority,
+                feature: feature.name,
+            }));
+    progressEmitter.nextStep("tasks", `Building implementation tasks (${taskInputs.length} found)...`);
+    const taskBuild = buildTaskNodes(graph, taskInputs);
+    byType.task = taskBuild.nodesCreated;
+    progressEmitter.stepProgress("tasks", `Created ${byType.task} implementation tasks`);
     // Build relationships (includes orphan fallback)
     progressEmitter.nextStep("relationships", "Building relationships between nodes...");
     const relationshipsCreated = buildRelationships(graph, analysis);
@@ -548,7 +637,7 @@ export function buildGraphFromAnalysis(graph, analysis) {
         `${integrityReport.summary.orphans_found} orphans, ` +
         `${integrityReport.summary.disconnected_groups_found} disconnected groups`);
     const nodesCreated = Object.values(byType).reduce((a, b) => a + b, 0);
-    const totalRelationships = relationshipsCreated + declaredRelationships + inference.applied;
+    const totalRelationships = relationshipsCreated + taskBuild.relationshipsCreated + declaredRelationships + inference.applied;
     const totalFixes = integrityReport.summary.fixes_applied;
     // Complete build
     progressEmitter.complete(`Graph built: ${nodesCreated} nodes, ${totalRelationships} relationships, ${totalFixes} integrity fixes`, { nodesCreated, relationshipsCreated: totalRelationships, integrityReport, byType });

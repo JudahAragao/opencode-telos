@@ -95,6 +95,10 @@ const validationIndex = new ValidationIndex()
 // migration tool runs; at that point invalidateCachedRepo() is called so the
 // next getRepo() re-evaluates with the updated sentinel.
 const repoCache = new Map<string, GraphRepository>()
+// Keeps the briefing available between sdd.discover and sdd.update_from_answers
+// in the same OpenCode process. The update tool also accepts briefing
+// explicitly, so the workflow remains correct across process/session restarts.
+const discoveryBriefings = new Map<string, string>()
 
 function getRepo(directory: string): GraphRepository {
   const cached = repoCache.get(directory)
@@ -535,12 +539,21 @@ function createAllTools(): Record<string, ToolDefinition> {
         briefing: tool.schema.string().describe("User briefing or feature description to analyze"),
       },
       async execute(args, _ctx) {
+        const repo = getRepo(_ctx.directory)
+        if (!repo.isInitialized()) {
+          // Discovery must be usable as the first tool in a brand-new project.
+          // The graph is initialized before answers are collected so the next
+          // step can persist them instead of losing them to an uninitialized
+          // repository.
+          repo.createProject("project", "Project", args.briefing, "greenfield")
+        }
+        discoveryBriefings.set(_ctx.directory, args.briefing)
+
         const analysis = analyzeBriefing(args.briefing)
         let questions = generateDiscoveryQuestions(analysis)
 
         // Adaptive discovery: filter out questions already answered by graph
         try {
-          const repo = getRepo(_ctx.directory)
           if (repo.isInitialized()) {
             const graph = repo.loadGraph()
             const { filterAlreadyAnswered, generateGapQuestions } = await import("../sdd/discovery/adaptive.js")
@@ -609,7 +622,8 @@ function createAllTools(): Record<string, ToolDefinition> {
 
         lines.push("")
         lines.push("### Após coletar as respostas")
-        lines.push("Chame `sdd.update_from_answers` com um JSON mapeando cada pergunta para a resposta do usuário.")
+        lines.push("Chame `sdd.update_from_answers` com o JSON de respostas e o briefing completo para reconstruir a especificação e gerar as tasks.")
+        lines.push("Inclua também `briefing` com o texto original desta chamada.")
         lines.push(`\n\`\`\`json\n${JSON.stringify(Object.fromEntries(questions.map(q => [q.question, ""])), null, 2)}\n\`\`\``)
 
         return lines.join("\n")
@@ -624,10 +638,17 @@ function createAllTools(): Record<string, ToolDefinition> {
         answers_json: tool.schema
           .string()
           .describe('JSON object mapping questions to answers, e.g. {"How will users login?": "Google OAuth"}'),
+        briefing: tool.schema
+          .string()
+          .optional()
+          .describe("Briefing original usado no sdd.discover; necessário para reconstruir o grafo e gerar tasks"),
       },
       async execute(args, ctx) {
         const repo = getRepo(ctx.directory)
-        if (!repo.isInitialized()) return "SDD not initialized."
+        if (!repo.isInitialized()) {
+          if (!args.briefing) return "SDD not initialized. Provide briefing or run sdd.initialize first."
+          repo.createProject("project", "Project", args.briefing, "greenfield")
+        }
         const graph = repo.loadGraph()
 
         let answers: Record<string, string>
@@ -638,10 +659,29 @@ function createAllTools(): Record<string, ToolDefinition> {
         }
 
         updateGraphFromAnswers(graph, answers)
-        repo.saveGraph(graph)
-        invalidateCacheForMutation(ctx.directory, ["feature", "requirement", "entity", "endpoint", "business_rule"], ["satisfies", "depends_on", "implements"])
 
-        return `Graph updated with ${Object.keys(answers).length} answers. Use sdd.query_graph to inspect changes.`
+        const briefing = args.briefing?.trim() || discoveryBriefings.get(ctx.directory)
+        let buildSummary = ""
+        if (briefing) {
+          const confirmedAnswers = Object.entries(answers)
+            .map(([question, answer]) => `- ${question}: ${answer}`)
+            .join("\n")
+          const enrichedBriefing = [
+            briefing,
+            confirmedAnswers ? "\n## Confirmed discovery decisions\n" + confirmedAnswers : "",
+          ].join("\n")
+          const { analyzeBriefingDeep, formatDeepAnalysis } = await import("../sdd/discovery/briefing-analyzer.js")
+          const { buildGraphFromAnalysis } = await import("../sdd/discovery/graph-builder.js")
+          const enrichedAnalysis = analyzeBriefingDeep(enrichedBriefing)
+          const buildResult = buildGraphFromAnalysis(graph, enrichedAnalysis)
+          buildSummary = `\n${buildResult.summary}\n\n${formatDeepAnalysis(enrichedAnalysis)}`
+          discoveryBriefings.delete(ctx.directory)
+        }
+
+        repo.saveGraph(graph)
+        invalidateCacheForMutation(ctx.directory, [...new Set(graph.nodes.map((node) => node.type))], [...new Set(graph.relationships.map((relationship) => relationship.type))])
+
+        return `Graph updated with ${Object.keys(answers).length} answers.${buildSummary}\n\nUse sdd.inspect and sdd.query_graph to inspect the generated specification and tasks.`
       },
     }),
 
@@ -2436,8 +2476,8 @@ function createAllTools(): Record<string, ToolDefinition> {
         "Build a complete SDD Knowledge Graph from a project briefing. " +
         "Analyzes the briefing text and automatically creates ALL necessary nodes: " +
         "features, entities, endpoints, business rules, architecture components, " +
-        "decisions, and requirements. Then connects them with relationships. " +
-        "This is the PRIMARY tool for bootstrapping a project specification. " +
+        "decisions, requirements, and implementation tasks. Then connects them with relationships. " +
+        "This is the direct/fallback tool for bootstrapping a project specification when discovery is not needed. " +
         "Use this INSTEAD of generating markdown documentation files. " +
         "PROVIDE analysis_json WHEN POSSIBLE: The agent should analyze the briefing using its own intelligence "
         + "and pass a structured JSON with features, entities, endpoints, businessRules, architectureComponents, "
@@ -2453,6 +2493,7 @@ function createAllTools(): Record<string, ToolDefinition> {
           'architectureComponents: [{name, layer, technology, description}], ' +
           'decisions: [{title, context, decision, consequences}], ' +
           'requirements: [{name, description, type, priority, acceptanceCriteria: [string]}], ' +
+          'tasks: [{name, description, goal?, files?, acceptance?, priority?, requirement?, feature?}], ' +
           'relationships: [{from, to, type}], domains: [string], techStack: {layer: technology} }. '
           + 'The agent MUST analyze the briefing deeply and provide this for maximum graph quality.'
         ),
@@ -2473,7 +2514,8 @@ function createAllTools(): Record<string, ToolDefinition> {
           const indices = repo.getIndices()
           const hasFeatures = indices.byType.has("feature")
           const hasEntities = indices.byType.has("entity")
-          if (hasFeatures && hasEntities) {
+          const hasTasks = indices.byType.has("task")
+          if (hasFeatures && hasEntities && hasTasks) {
             return [
               "## Graph Already Populated",
               `Graph has ${graph.nodes.length} nodes with features and entities.`,
@@ -2503,6 +2545,7 @@ function createAllTools(): Record<string, ToolDefinition> {
             if (!analysis.decisions || !Array.isArray(analysis.decisions)) throw new Error("Missing or invalid 'decisions' array")
             if (!analysis.requirements || !Array.isArray(analysis.requirements)) throw new Error("Missing or invalid 'requirements' array")
             // Ensure optional fields have defaults
+            if (!analysis.tasks) analysis.tasks = []
             if (!analysis.relationships) analysis.relationships = []
             if (!analysis.domains) analysis.domains = []
             if (!analysis.techStack) analysis.techStack = {}
