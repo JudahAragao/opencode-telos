@@ -9,15 +9,22 @@
  */
 import type { WorkflowChain } from "./chains.js";
 import type { ExecutorConfig } from "./types.js";
+import type { ExecutionContext, ToolExecutionResult } from "../../sdd/execution/types.js";
 export interface StepResult {
     stepIndex: number;
+    stepId: string;
+    runId: string;
     tool: string;
     description: string;
     success: boolean;
     result: string;
+    status: ToolExecutionResult["status"];
+    data?: Record<string, unknown>;
+    error?: string;
     timestamp: string;
 }
 export interface ChainExecutionResult {
+    runId: string;
     chainName: string;
     success: boolean;
     steps: StepResult[];
@@ -30,7 +37,7 @@ export interface ChainExecutionResult {
  * Tipo da função que executa uma tool SDD.
  * Recebe (toolName, args) e retorna a string de resultado.
  */
-export type ToolExecutor = (toolName: string, args: Record<string, unknown>) => Promise<string>;
+export type ToolExecutor = (toolName: string, args: Record<string, unknown>, context?: Pick<ExecutionContext, "runId" | "stepId" | "signal" | "chainName" | "projectDir" | "sessionId" | "messageId" | "parentRunId">) => Promise<string | ToolExecutionResult>;
 export interface WorkflowExecutorHooks {
     beforeStep?: (stepIndex: number, step: WorkflowChain["steps"][number]) => Promise<unknown> | unknown;
     rollback?: (snapshots: unknown[], failedStepIndex: number) => Promise<void> | void;
@@ -43,7 +50,7 @@ export interface WorkflowExecutorHooks {
  * @param executeTool - Função que executa uma tool SDD
  * @returns Resultado da execução
  */
-export declare function executeChain(chain: WorkflowChain, initialParams: Record<string, unknown>, executeTool: ToolExecutor, config?: ExecutorConfig, hooks?: WorkflowExecutorHooks): Promise<ChainExecutionResult>;
+export declare function executeChain(chain: WorkflowChain, initialParams: Record<string, unknown>, executeTool: ToolExecutor, config?: ExecutorConfig, hooks?: WorkflowExecutorHooks, executionOptions?: Partial<ExecutionContext>): Promise<ChainExecutionResult>;
 /**
  * Formata o resultado de uma execução de chain para exibição.
  */

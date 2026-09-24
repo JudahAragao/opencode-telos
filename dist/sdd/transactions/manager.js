@@ -6,9 +6,9 @@ export class TransactionManager {
         this.transactionsDir = join(projectDir, ".sdd", "transactions");
         ensureDir(this.transactionsDir);
     }
-    createTransaction(changeId) {
+    createTransaction(changeId, transactionId) {
         const tx = {
-            id: `TX-${Date.now()}`,
+            id: transactionId || `TX-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             change_id: changeId,
             status: "PLANNED",
             specification_changes: [],
@@ -76,4 +76,38 @@ export class TransactionManager {
             .map((f) => readYaml(f))
             .filter((tx) => tx.change_id === changeId);
     }
+}
+/**
+ * Reconcile legacy graphs where Change.metadata.transaction_id was generated
+ * independently from the transaction file (or where the file was never
+ * created). The operation is idempotent and preserves existing transaction
+ * history.
+ */
+export function reconcileChangeTransactions(projectDir, graph) {
+    const manager = new TransactionManager(projectDir);
+    let changed = false;
+    for (const node of graph.nodes.filter((candidate) => candidate.type === "change")) {
+        const metadata = node.metadata;
+        const linked = typeof metadata.transaction_id === "string"
+            ? manager.getTransaction(metadata.transaction_id)
+            : null;
+        const byChange = manager.getTransactionsForChange(node.id);
+        if (linked && linked.change_id === node.id)
+            continue;
+        if (byChange[0]) {
+            metadata.transaction_id = byChange[0].id;
+            changed = true;
+            continue;
+        }
+        const transactionId = typeof metadata.transaction_id === "string" ? metadata.transaction_id : undefined;
+        const transaction = manager.createTransaction(node.id, transactionId);
+        metadata.transaction_id = transaction.id;
+        changed = true;
+    }
+    if (changed) {
+        graph.metadata.updated_at = new Date().toISOString();
+        const meta = graph.metadata;
+        meta.state_reconciled_at = graph.metadata.updated_at;
+    }
+    return changed;
 }

@@ -12,12 +12,14 @@ export type ChainStatus = "pending" | "running" | "completed" | "failed" | "roll
 /** Registro de uma execução de chain (para auditoria) */
 export interface ChainExecutionLog {
   id: string
+  runId?: string
   chainName: string
   status: ChainStatus
   startedAt: string
   completedAt?: string
   result?: ChainExecutionResult
   params: Record<string, unknown>
+  error?: string
 }
 
 /** Configuração do executor */

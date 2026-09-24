@@ -20,6 +20,9 @@ export interface WorkflowStep {
 export interface WorkflowStepResult {
     tool: string;
     result: string;
+    stepId?: string;
+    status?: string;
+    data?: Record<string, unknown>;
 }
 export interface WorkflowChain {
     /** Nome da chain (usado como tool name) */

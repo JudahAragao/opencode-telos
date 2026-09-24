@@ -1,6 +1,17 @@
+import { createHash } from "crypto";
 import { getNodesByType } from "../graph/engine.js";
 import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion.js";
 import { classifyPromiseVerifiability } from "./classifier.js";
+import { fileContentFingerprint } from "../cache/fingerprint.js";
+import { join } from "path";
+/** Stable identity: reordering acceptance criteria must not change the promise. */
+export function stablePromiseId(sourceNodeId, description, kind = "criterion") {
+    const digest = createHash("sha256")
+        .update(`${sourceNodeId}\n${kind}\n${description.trim().replace(/\s+/g, " ")}`)
+        .digest("hex")
+        .slice(0, 12);
+    return `PRM-${sourceNodeId}-${digest}`;
+}
 export function extractPromises(graph, options) {
     const promises = [];
     const { removed, deprecated } = getExclusionSets(graph);
@@ -16,8 +27,8 @@ export function extractPromises(graph, options) {
             const criterion = criteria[i];
             if (typeof criterion !== "string")
                 continue;
-            const promiseId = `PRM-${req.id}-${String(i + 1).padStart(3, "0")}`;
-            const persisted = persistedStates.get(promiseId);
+            const promiseId = stablePromiseId(req.id, criterion);
+            const persisted = persistedStates.get(promiseId) || persistedStates.get(`PRM-${req.id}-${String(i + 1).padStart(3, "0")}`);
             let status = persisted?.status || "pending";
             // Auto-classify unverifiable if infrastructure is missing
             if (autoClassify && status === "pending") {
@@ -32,12 +43,15 @@ export function extractPromises(graph, options) {
                 source_node_id: req.id,
                 status,
                 evidence: persisted?.evidence,
+                evidence_refs: persisted?.evidence_refs,
+                violation_reason: persisted?.violation_reason,
+                verified_by_execution_id: persisted?.verified_by_execution_id,
                 verified_at: persisted?.verified_at,
             });
         }
         if (criteria.length === 0 && req.description) {
-            const promiseId = `PRM-${req.id}-DESC`;
-            const persisted = persistedStates.get(promiseId);
+            const promiseId = stablePromiseId(req.id, req.description, "description");
+            const persisted = persistedStates.get(promiseId) || persistedStates.get(`PRM-${req.id}-DESC`);
             let status = persisted?.status || "pending";
             if (autoClassify && status === "pending") {
                 const classification = classifyPromiseVerifiability(req.description, graph, customRules);
@@ -51,6 +65,9 @@ export function extractPromises(graph, options) {
                 source_node_id: req.id,
                 status,
                 evidence: persisted?.evidence,
+                evidence_refs: persisted?.evidence_refs,
+                violation_reason: persisted?.violation_reason,
+                verified_by_execution_id: persisted?.verified_by_execution_id,
                 verified_at: persisted?.verified_at,
             });
         }
@@ -59,8 +76,8 @@ export function extractPromises(graph, options) {
         .filter((r) => !isNodeExcludedOrDeprecated(r.id, r.status, removed, deprecated));
     for (const rule of rules) {
         if (rule.metadata.rule_text) {
-            const promiseId = `PRM-${rule.id}`;
-            const persisted = persistedStates.get(promiseId);
+            const promiseId = stablePromiseId(rule.id, rule.metadata.rule_text, "business_rule");
+            const persisted = persistedStates.get(promiseId) || persistedStates.get(`PRM-${rule.id}`);
             let status = persisted?.status || "pending";
             if (autoClassify && status === "pending") {
                 const classification = classifyPromiseVerifiability(rule.metadata.rule_text, graph, customRules);
@@ -74,6 +91,9 @@ export function extractPromises(graph, options) {
                 source_node_id: rule.id,
                 status,
                 evidence: persisted?.evidence,
+                evidence_refs: persisted?.evidence_refs,
+                violation_reason: persisted?.violation_reason,
+                verified_by_execution_id: persisted?.verified_by_execution_id,
                 verified_at: persisted?.verified_at,
             });
         }
@@ -110,32 +130,61 @@ function buildPersistedPromiseStates(graph) {
     }
     return states;
 }
-export function verifyPromise(graph, promiseId, evidence) {
+export function verifyPromise(graph, promiseId, input) {
+    const verification = typeof input === "string" ? { evidence: input } : input;
+    if (!verification.evidence.trim())
+        return null;
+    if (!verification.evidence_refs || verification.evidence_refs.length === 0)
+        return null;
     const allPromises = extractPromises(graph);
     const promise = allPromises.find((p) => p.id === promiseId);
     if (!promise)
         return null;
+    for (const ref of verification.evidence_refs) {
+        if (!ref.id || (ref.type === "file" && !ref.fingerprint))
+            return null;
+        if (ref.type === "execution")
+            continue;
+        const node = graph.nodes.find((candidate) => candidate.id === ref.id);
+        if (!node || (ref.type === "test" && node.type !== "test") || (ref.type === "file" && node.type !== "file") || (ref.type === "change" && node.type !== "change"))
+            return null;
+        if (ref.type === "test" && !graph.relationships.some((relationship) => relationship.from === promise.source_node_id && relationship.to === ref.id && relationship.type === "tested_by"))
+            return null;
+        if (ref.type === "file" && ref.fingerprint) {
+            const path = typeof node.metadata.path === "string"
+                ? String(node.metadata.path)
+                : ref.path;
+            if (path && verification.project_dir && ref.fingerprint !== fileContentFingerprint(join(verification.project_dir, path)))
+                return null;
+        }
+    }
     promise.status = "fulfilled";
-    promise.evidence = evidence;
+    promise.evidence = verification.evidence;
+    promise.evidence_refs = verification.evidence_refs;
+    promise.verified_by_execution_id = verification.execution_id;
     promise.verified_at = new Date().toISOString();
     // Persist the state in the source node's metadata
     persistPromiseState(graph, promise.source_node_id, promiseId, {
         status: "fulfilled",
-        evidence,
+        evidence: verification.evidence,
+        evidence_refs: verification.evidence_refs,
+        verified_by_execution_id: verification.execution_id,
         verified_at: promise.verified_at,
     });
     return promise;
 }
-export function markPromiseViolated(graph, promiseId) {
+export function markPromiseViolated(graph, promiseId, reason = "Violation reported without a detailed reason.") {
     const allPromises = extractPromises(graph);
     const promise = allPromises.find((p) => p.id === promiseId);
     if (!promise)
         return null;
     promise.status = "violated";
+    promise.violation_reason = reason;
     promise.verified_at = new Date().toISOString();
     // Persist the state in the source node's metadata
     persistPromiseState(graph, promise.source_node_id, promiseId, {
         status: "violated",
+        violation_reason: reason,
         verified_at: promise.verified_at,
     });
     return promise;

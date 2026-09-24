@@ -1,4 +1,5 @@
-import { addNode, getNode, updateNode } from "../graph/engine.js";
+import { createHash } from "crypto";
+import { addNode, addRelationship, getNode, updateNode } from "../graph/engine.js";
 export function analyzeBriefing(briefing, options) {
     // Check cache first
     if (options?.analysisCache && options.briefingHash) {
@@ -456,8 +457,12 @@ export function generateDiscoveryQuestions(analysis, options) {
     }
     return questions;
 }
-export function updateGraphFromAnswers(graph, answers) {
+export function updateGraphFromAnswers(graph, answers, provenance = {}) {
     const now = new Date().toISOString();
+    const answerMetadata = graph.metadata;
+    const existingAnswers = Array.isArray(answerMetadata.discovery_answers)
+        ? answerMetadata.discovery_answers
+        : [];
     const upsertAnswerNode = (node) => {
         const existing = getNode(graph, node.id);
         if (existing) {
@@ -472,6 +477,32 @@ export function updateGraphFromAnswers(graph, answers) {
     };
     for (const [question, answer] of Object.entries(answers)) {
         const lowerQ = question.toLowerCase();
+        const digest = createHash("sha256").update(`${question}\n${answer}`).digest("hex").slice(0, 12);
+        const decisionId = `DEC-${graph.project_id}-DISCOVERY-${digest}`;
+        const decision = {
+            id: decisionId,
+            type: "decision",
+            name: `Discovery decision ${digest}`,
+            description: `Answer recorded during discovery: ${question}`,
+            status: "APPROVED",
+            version: 1,
+            metadata: {
+                title: question,
+                context: "Initial briefing discovery",
+                decision: answer,
+                source: provenance.source || "discovery",
+                execution_id: provenance.executionId,
+                session_id: provenance.sessionId,
+            },
+            created_at: now,
+            updated_at: now,
+        };
+        upsertAnswerNode(decision);
+        try {
+            addRelationship(graph, graph.project_id, decisionId, "contains", { source: "discovery", execution_id: provenance.executionId });
+        }
+        catch { }
+        existingAnswers.push({ question, answer, decision_id: decisionId, recorded_at: now, ...provenance });
         // Brownfield purpose is a project-level decision and must survive the
         // discovery round instead of being silently ignored.
         if (lowerQ.includes("objetivo do sdd")) {
@@ -591,6 +622,9 @@ export function updateGraphFromAnswers(graph, answers) {
             });
         }
     }
+    answerMetadata.discovery_answers = existingAnswers;
+    answerMetadata.discovery_last_execution_id = provenance.executionId;
+    graph.metadata.updated_at = now;
 }
 export function isBriefingSufficient(analysis) {
     const criticalMissing = analysis.missing_information.filter((m) => m.classification === "CRITICAL" && !m.already_answered);

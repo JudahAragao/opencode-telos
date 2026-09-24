@@ -22,9 +22,16 @@ export interface WorkflowStep {
 export interface WorkflowStepResult {
   tool: string
   result: string
+  stepId?: string
+  status?: string
+  data?: Record<string, unknown>
 }
 
 function changeIdFrom(steps: WorkflowStepResult[], previous: string): string {
+  for (const step of [...steps].reverse()) {
+    const structured = step.data?.changeId
+    if (typeof structured === "string" && structured.length > 0) return structured
+  }
   const text = [...steps.map((step) => step.result), previous].join("\n")
   return text.match(/\b(?:CHG|CHANGE)-[A-Za-z0-9_-]+\b/i)?.[0] || ""
 }

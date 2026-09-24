@@ -8,6 +8,11 @@
  * Dependências: nenhuma (módulo puro de definições)
  */
 function changeIdFrom(steps, previous) {
+    for (const step of [...steps].reverse()) {
+        const structured = step.data?.changeId;
+        if (typeof structured === "string" && structured.length > 0)
+            return structured;
+    }
     const text = [...steps.map((step) => step.result), previous].join("\n");
     return text.match(/\b(?:CHG|CHANGE)-[A-Za-z0-9_-]+\b/i)?.[0] || "";
 }

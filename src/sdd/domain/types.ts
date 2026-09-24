@@ -574,7 +574,18 @@ export interface SpecPromise {
   source_node_id: string
   status: "pending" | "fulfilled" | "violated" | "unverifiable"
   evidence?: string
+  evidence_refs?: PromiseEvidenceRef[]
+  violation_reason?: string
+  verified_by_execution_id?: string
   verified_at?: string
+}
+
+export interface PromiseEvidenceRef {
+  type: "test" | "file" | "change" | "execution" | "manual"
+  id: string
+  path?: string
+  fingerprint?: string
+  summary?: string
 }
 
 export type AnyNode =

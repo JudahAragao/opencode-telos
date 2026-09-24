@@ -575,27 +575,27 @@ export function buildGraphFromAnalysis(graph, analysis) {
     // Start build tracking
     progressEmitter.startBuild(buildId, steps);
     // Build all node types
-    progressEmitter.nextStep("features", `Building feature nodes (${analysis.features.length} found)...`);
+    progressEmitter.nextStep("features", `Building feature nodes (${analysis.features.length} found)...`, buildId);
     byType.feature = buildFeatureNodes(graph, analysis.features);
-    progressEmitter.stepProgress("features", `Created ${byType.feature} feature nodes`);
-    progressEmitter.nextStep("entities", `Building entity nodes (${analysis.entities.length} found)...`);
+    progressEmitter.stepProgress("features", `Created ${byType.feature} feature nodes`, undefined, buildId);
+    progressEmitter.nextStep("entities", `Building entity nodes (${analysis.entities.length} found)...`, buildId);
     byType.entity = buildEntityNodes(graph, analysis.entities);
-    progressEmitter.stepProgress("entities", `Created ${byType.entity} entity nodes`);
-    progressEmitter.nextStep("endpoints", `Building endpoint nodes (${analysis.endpoints.length} found)...`);
+    progressEmitter.stepProgress("entities", `Created ${byType.entity} entity nodes`, undefined, buildId);
+    progressEmitter.nextStep("endpoints", `Building endpoint nodes (${analysis.endpoints.length} found)...`, buildId);
     byType.endpoint = buildEndpointNodes(graph, analysis.endpoints);
-    progressEmitter.stepProgress("endpoints", `Created ${byType.endpoint} endpoint nodes`);
-    progressEmitter.nextStep("business_rules", `Building business rule nodes (${analysis.businessRules.length} found)...`);
+    progressEmitter.stepProgress("endpoints", `Created ${byType.endpoint} endpoint nodes`, undefined, buildId);
+    progressEmitter.nextStep("business_rules", `Building business rule nodes (${analysis.businessRules.length} found)...`, buildId);
     byType.business_rule = buildBusinessRuleNodes(graph, analysis.businessRules);
-    progressEmitter.stepProgress("business_rules", `Created ${byType.business_rule} business rule nodes`);
-    progressEmitter.nextStep("architecture", `Building architecture component nodes (${analysis.architectureComponents.length} found)...`);
+    progressEmitter.stepProgress("business_rules", `Created ${byType.business_rule} business rule nodes`, undefined, buildId);
+    progressEmitter.nextStep("architecture", `Building architecture component nodes (${analysis.architectureComponents.length} found)...`, buildId);
     byType.architecture_component = buildArchitectureNodes(graph, analysis.architectureComponents);
-    progressEmitter.stepProgress("architecture", `Created ${byType.architecture_component} architecture component nodes`);
-    progressEmitter.nextStep("decisions", `Building decision nodes (${analysis.decisions.length} found)...`);
+    progressEmitter.stepProgress("architecture", `Created ${byType.architecture_component} architecture component nodes`, undefined, buildId);
+    progressEmitter.nextStep("decisions", `Building decision nodes (${analysis.decisions.length} found)...`, buildId);
     byType.decision = buildDecisionNodes(graph, analysis.decisions);
-    progressEmitter.stepProgress("decisions", `Created ${byType.decision} decision nodes`);
-    progressEmitter.nextStep("requirements", `Building requirement nodes (${analysis.requirements.length} found)...`);
+    progressEmitter.stepProgress("decisions", `Created ${byType.decision} decision nodes`, undefined, buildId);
+    progressEmitter.nextStep("requirements", `Building requirement nodes (${analysis.requirements.length} found)...`, buildId);
     byType.requirement = buildRequirementNodes(graph, analysis.requirements);
-    progressEmitter.stepProgress("requirements", `Created ${byType.requirement} requirement nodes`);
+    progressEmitter.stepProgress("requirements", `Created ${byType.requirement} requirement nodes`, undefined, buildId);
     const taskInputs = analysis.tasks?.length
         ? analysis.tasks
         : analysis.requirements.length > 0
@@ -614,33 +614,33 @@ export function buildGraphFromAnalysis(graph, analysis) {
                 priority: feature.priority,
                 feature: feature.name,
             }));
-    progressEmitter.nextStep("tasks", `Building implementation tasks (${taskInputs.length} found)...`);
+    progressEmitter.nextStep("tasks", `Building implementation tasks (${taskInputs.length} found)...`, buildId);
     const taskBuild = buildTaskNodes(graph, taskInputs);
     byType.task = taskBuild.nodesCreated;
-    progressEmitter.stepProgress("tasks", `Created ${byType.task} implementation tasks`);
+    progressEmitter.stepProgress("tasks", `Created ${byType.task} implementation tasks`, undefined, buildId);
     // Build relationships (includes orphan fallback)
-    progressEmitter.nextStep("relationships", "Building relationships between nodes...");
+    progressEmitter.nextStep("relationships", "Building relationships between nodes...", buildId);
     const relationshipsCreated = buildRelationships(graph, analysis);
-    progressEmitter.stepProgress("relationships", `Created ${relationshipsCreated} relationships`);
+    progressEmitter.stepProgress("relationships", `Created ${relationshipsCreated} relationships`, undefined, buildId);
     // Relacionamentos declarados pela análise do briefing (validados/normalizados)
     const declaredRelationships = applyAnalysisRelationships(graph, analysis);
     // Inferência de rastreabilidade: cobre os vínculos que a heurística por
     // keyword não alcança (endpoint/file --implements--> feature,
     // endpoint --operates_on--> entity, requirement --specifies--> feature).
-    progressEmitter.nextStep("relationships", "Inferindo relacionamentos de rastreabilidade...");
+    progressEmitter.nextStep("relationships", "Inferindo relacionamentos de rastreabilidade...", buildId);
     const inference = runRelationshipInference(graph);
-    progressEmitter.stepProgress("relationships", `Inference: ${inference.applied} edges applied, ${inference.normalized} normalized, ${inference.milestones_created} milestones`);
+    progressEmitter.stepProgress("relationships", `Inference: ${inference.applied} edges applied, ${inference.normalized} normalized, ${inference.milestones_created} milestones`, undefined, buildId);
     // Ensure full graph integrity: connect orphans, merge disconnected groups, clean redundancies
-    progressEmitter.nextStep("connectivity", "Ensuring graph integrity...");
+    progressEmitter.nextStep("connectivity", "Ensuring graph integrity...", buildId);
     const integrityReport = ensureGraphIntegrity(graph, { auto_fix: true });
     progressEmitter.stepProgress("connectivity", `Integrity: ${integrityReport.summary.fixes_applied} fixes applied, ` +
         `${integrityReport.summary.orphans_found} orphans, ` +
-        `${integrityReport.summary.disconnected_groups_found} disconnected groups`);
+        `${integrityReport.summary.disconnected_groups_found} disconnected groups`, undefined, buildId);
     const nodesCreated = Object.values(byType).reduce((a, b) => a + b, 0);
     const totalRelationships = relationshipsCreated + taskBuild.relationshipsCreated + declaredRelationships + inference.applied;
     const totalFixes = integrityReport.summary.fixes_applied;
     // Complete build
-    progressEmitter.complete(`Graph built: ${nodesCreated} nodes, ${totalRelationships} relationships, ${totalFixes} integrity fixes`, { nodesCreated, relationshipsCreated: totalRelationships, integrityReport, byType });
+    progressEmitter.complete(`Graph built: ${nodesCreated} nodes, ${totalRelationships} relationships, ${totalFixes} integrity fixes`, { nodesCreated, relationshipsCreated: totalRelationships, integrityReport, byType }, buildId);
     // Build summary
     const lines = [
         "## Graph Build Complete",

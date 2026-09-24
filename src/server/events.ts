@@ -16,6 +16,13 @@ type EventHandler = (event: ProgressEvent) => void
 
 class ProgressEventEmitter {
   private handlers: Set<EventHandler> = new Set()
+  private builds = new Map<string, {
+    id: string
+    startTime: number
+    steps: string[]
+    currentStep: number
+  }>()
+  private activeBuildId: string | null = null
   private currentBuild: {
     id: string
     startTime: number
@@ -55,12 +62,15 @@ class ProgressEventEmitter {
    * Start tracking a new build operation
    */
   startBuild(buildId: string, steps: string[]): void {
-    this.currentBuild = {
+    const build = {
       id: buildId,
       startTime: Date.now(),
       steps,
       currentStep: 0,
     }
+    this.builds.set(buildId, build)
+    this.activeBuildId = buildId
+    this.currentBuild = build
 
     this.emit({
       type: "info",
@@ -74,23 +84,26 @@ class ProgressEventEmitter {
   /**
    * Report progress on the current build step
    */
-  stepProgress(stepName: string, message: string, progress?: number): void {
+  stepProgress(stepName: string, message: string, progress?: number, buildId?: string): void {
+    const build = buildId ? this.builds.get(buildId) : this.currentBuild
     this.emit({
       type: "progress",
       step: stepName,
       message,
       progress,
+      details: build ? { buildId: build.id } : undefined,
     })
   }
 
   /**
    * Move to the next step in the build
    */
-  nextStep(stepName: string, message: string): void {
-    if (this.currentBuild) {
-      this.currentBuild.currentStep++
+  nextStep(stepName: string, message: string, buildId?: string): void {
+    const build = buildId ? this.builds.get(buildId) : this.currentBuild
+    if (build) {
+      build.currentStep++
       const progress = Math.round(
-        (this.currentBuild.currentStep / this.currentBuild.steps.length) * 100,
+        (build.currentStep / build.steps.length) * 100,
       )
 
       this.emit({
@@ -99,9 +112,9 @@ class ProgressEventEmitter {
         message,
         progress,
         details: {
-          buildId: this.currentBuild.id,
-          stepIndex: this.currentBuild.currentStep,
-          totalSteps: this.currentBuild.steps.length,
+          buildId: build.id,
+          stepIndex: build.currentStep,
+          totalSteps: build.steps.length,
         },
       })
     } else {
@@ -116,21 +129,22 @@ class ProgressEventEmitter {
   /**
    * Report an error during build
    */
-  error(stepName: string, message: string, details?: Record<string, unknown>): void {
+  error(stepName: string, message: string, details?: Record<string, unknown>, buildId?: string): void {
     this.emit({
       type: "error",
       step: stepName,
       message,
-      details,
+      details: buildId ? { ...details, buildId } : details,
     })
   }
 
   /**
    * Complete the current build
    */
-  complete(summary: string, details?: Record<string, unknown>): void {
-    const duration = this.currentBuild
-      ? Date.now() - this.currentBuild.startTime
+  complete(summary: string, details?: Record<string, unknown>, buildId?: string): void {
+    const build = buildId ? this.builds.get(buildId) : this.currentBuild
+    const duration = build
+      ? Date.now() - build.startTime
       : 0
 
     this.emit({
@@ -141,11 +155,15 @@ class ProgressEventEmitter {
       details: {
         ...details,
         durationMs: duration,
-        buildId: this.currentBuild?.id,
+        buildId: build?.id,
       },
     })
 
-    this.currentBuild = null
+    if (build) this.builds.delete(build.id)
+    if (this.activeBuildId === build?.id) {
+      this.activeBuildId = null
+      this.currentBuild = null
+    }
   }
 
   /**
@@ -159,23 +177,24 @@ class ProgressEventEmitter {
    * Check if a build is currently in progress
    */
   isBuilding(): boolean {
-    return this.currentBuild !== null
+    return this.builds.size > 0
   }
 
   /**
    * Get current build info
    */
   getCurrentBuild(): { id: string; progress: number; currentStep: string } | null {
-    if (!this.currentBuild) return null
+    const build = this.currentBuild
+    if (!build) return null
 
     const progress = Math.round(
-      (this.currentBuild.currentStep / this.currentBuild.steps.length) * 100,
+      (build.currentStep / build.steps.length) * 100,
     )
 
     return {
-      id: this.currentBuild.id,
+      id: build.id,
       progress,
-      currentStep: this.currentBuild.steps[this.currentBuild.currentStep] || "unknown",
+      currentStep: build.steps[build.currentStep] || "unknown",
     }
   }
 }

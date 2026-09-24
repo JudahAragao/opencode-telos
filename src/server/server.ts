@@ -17,6 +17,7 @@ import {
 } from "./tasks-api.js"
 import type { SqliteGraphRepository } from "../sdd/persistence/sqlite.js"
 import type { NodeType } from "../sdd/domain/types.js"
+import { readExecutionRecords } from "../sdd/execution/ledger.js"
 
 type DashboardSqliteAdapter = Partial<Pick<SqliteGraphRepository,
   | "getGraphCounts" | "getUpdatedAt" | "getAllNodesSummary" | "getAllRelationshipsSummary"
@@ -208,6 +209,16 @@ export class SddDashboardServer {
 
       if (path === "/api/changes") {
         return this.jsonResponse(this.getChanges(), corsHeaders)
+      }
+
+      if (path === "/api/executions") {
+        const runId = url.searchParams.get("run_id") || undefined
+        const callId = url.searchParams.get("call_id") || undefined
+        const limit = Math.min(500, Math.max(1, Number.parseInt(url.searchParams.get("limit") || "100", 10) || 100))
+        const records = readExecutionRecords(this.projectDir)
+          .filter((record) => (!runId || record.runId === runId) && (!callId || record.callId === callId))
+          .slice(-limit)
+        return this.jsonResponse({ records }, corsHeaders)
       }
 
       // ── Kanban tasks ─────────────────────────────────────────────

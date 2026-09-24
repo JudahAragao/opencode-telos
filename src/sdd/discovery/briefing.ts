@@ -1,5 +1,6 @@
 import type { KnowledgeGraph, GapClassification } from "../domain/types.js"
-import { addNode, getNode, updateNode } from "../graph/engine.js"
+import { createHash } from "crypto"
+import { addNode, addRelationship, getNode, updateNode } from "../graph/engine.js"
 
 export interface BriefingAnalysis {
   known_facts: Record<string, string>
@@ -594,8 +595,14 @@ export function generateDiscoveryQuestions(
 export function updateGraphFromAnswers(
   graph: KnowledgeGraph,
   answers: Record<string, string>,
+  provenance: { executionId?: string; sessionId?: string; source?: string } = {},
 ): void {
   const now = new Date().toISOString()
+
+  const answerMetadata = (graph.metadata as unknown as Record<string, unknown>)
+  const existingAnswers = Array.isArray(answerMetadata.discovery_answers)
+    ? answerMetadata.discovery_answers as Array<Record<string, unknown>>
+    : []
 
   const upsertAnswerNode = (node: Parameters<typeof addNode>[1]): void => {
     const existing = getNode(graph, node.id)
@@ -612,6 +619,29 @@ export function updateGraphFromAnswers(
 
   for (const [question, answer] of Object.entries(answers)) {
     const lowerQ = question.toLowerCase()
+    const digest = createHash("sha256").update(`${question}\n${answer}`).digest("hex").slice(0, 12)
+    const decisionId = `DEC-${graph.project_id}-DISCOVERY-${digest}`
+    const decision = {
+      id: decisionId,
+      type: "decision" as const,
+      name: `Discovery decision ${digest}`,
+      description: `Answer recorded during discovery: ${question}`,
+      status: "APPROVED" as const,
+      version: 1,
+      metadata: {
+        title: question,
+        context: "Initial briefing discovery",
+        decision: answer,
+        source: provenance.source || "discovery",
+        execution_id: provenance.executionId,
+        session_id: provenance.sessionId,
+      },
+      created_at: now,
+      updated_at: now,
+    }
+    upsertAnswerNode(decision as any)
+    try { addRelationship(graph, graph.project_id, decisionId, "contains", { source: "discovery", execution_id: provenance.executionId }) } catch {}
+    existingAnswers.push({ question, answer, decision_id: decisionId, recorded_at: now, ...provenance })
 
     // Brownfield purpose is a project-level decision and must survive the
     // discovery round instead of being silently ignored.
@@ -738,6 +768,9 @@ export function updateGraphFromAnswers(
       })
     }
   }
+  answerMetadata.discovery_answers = existingAnswers
+  answerMetadata.discovery_last_execution_id = provenance.executionId
+  graph.metadata.updated_at = now
 }
 
 export function isBriefingSufficient(analysis: BriefingAnalysis): boolean {

@@ -43,6 +43,8 @@ export interface CompletionCheckResult {
         id: string;
         description: string;
         source_node_id: string;
+        status?: string;
+        reason?: string;
     }>;
 }
 export interface ChangePreflight {

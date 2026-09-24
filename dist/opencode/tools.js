@@ -1,6 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import { createRepository, loadSddConfig } from "../sdd/persistence/repository.js";
-import { getNeighbors } from "../sdd/graph/engine.js";
+import { addRelationship, getNeighbors } from "../sdd/graph/engine.js";
 import { createGraphMutationTool, createGraphQueryTool, createTraverseTool, createPermissionsTool, createSnapshotTool, createSyncTool, createGraphAdminTool, createCodeQualityTool, createEnterpriseTool, createDriftWhitelistTool, } from "./router/tools-composite.js";
 import { createGraph, getNode, addNode, getNodeIndexed, getOutgoingIndexed, getIncomingIndexed, searchNodesIndexed, getGraphStatsIndexed, } from "../sdd/graph/engine.js";
 import { TASK_COLUMN_LABELS, TASK_COLUMNS, buildIntegrationBrief, createTask as createBoardTask, getPendingIntegrationTasks, isTaskColumn, listTasks, markTaskIntegrated, removeTask as removeBoardTask, updateTask as updateBoardTask, } from "../sdd/tasks/board.js";
@@ -39,7 +39,7 @@ import { getTelemetrySummary, recordFeedback, recordTelemetry } from "../sdd/mon
 import { ValidationIndex } from "../sdd/validation/coverage-index.js";
 import { detectAllSignals, formatDriftSignals } from "../sdd/drift/signals.js";
 import { sddDebug } from "../sdd/log.js";
-import { TransactionManager } from "../sdd/transactions/manager.js";
+import { TransactionManager, reconcileChangeTransactions } from "../sdd/transactions/manager.js";
 import { createWorkflowTools } from "./workflows/tools-workflow.js";
 import { graphFingerprint } from "../sdd/cache/fingerprint.js";
 import { projectPath } from "../sdd/security/paths.js";
@@ -61,11 +61,107 @@ function getRepo(directory) {
         return cached;
     const repo = createRepository(directory);
     repoCache.set(directory, repo);
+    if (repo.isInitialized()) {
+        try {
+            const graph = repo.loadGraph();
+            if (reconcileChangeTransactions(directory, graph))
+                repo.saveGraph(graph);
+        }
+        catch (error) {
+            sddDebug("tools", `Legacy state reconciliation skipped: ${String(error)}`);
+        }
+    }
     return repo;
+}
+/** Persist the complete Change → file → spec/test trace for generated code. */
+function recordGeneratedArtifacts(graph, files, changeId) {
+    const change = changeId ? graph.nodes.find((node) => node.id === changeId && node.type === "change") : undefined;
+    const affectedSpecIds = new Set(change?.metadata.affected_nodes || []);
+    const now = new Date().toISOString();
+    for (const file of files) {
+        const fileId = `${graph.project_id}-FILE-${file.path.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 30)}`;
+        const existing = graph.nodes.find((node) => node.id === fileId);
+        if (!existing) {
+            addNode(graph, {
+                id: fileId,
+                type: "file",
+                name: file.path,
+                description: file.description,
+                status: "IMPLEMENTED",
+                version: 1,
+                metadata: { path: file.path, language: "typescript" },
+                created_at: now,
+                updated_at: now,
+            });
+        }
+        if (change) {
+            try {
+                addRelationship(graph, change.id, fileId, "modifies", { source: "codegen", path: file.path });
+            }
+            catch { }
+            change.metadata.affected_files = [...new Set([...(change.metadata.affected_files || []), file.path])];
+        }
+        for (const targetId of affectedSpecIds) {
+            const target = graph.nodes.find((node) => node.id === targetId);
+            if (!target || !["feature", "requirement", "use_case", "business_rule", "flow"].includes(target.type))
+                continue;
+            try {
+                addRelationship(graph, fileId, targetId, "implements", { source: "codegen", change_id: change?.id });
+            }
+            catch { }
+        }
+        if (/\btest[s]?\b|\.spec\.|\.test\./i.test(file.path)) {
+            const testId = `${graph.project_id}-TEST-${file.path.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 30)}`;
+            if (!graph.nodes.some((node) => node.id === testId)) {
+                addNode(graph, {
+                    id: testId,
+                    type: "test",
+                    name: file.path,
+                    description: file.description,
+                    status: "IMPLEMENTED",
+                    version: 1,
+                    metadata: { test_type: "integration", target: file.path, verifies: [...affectedSpecIds] },
+                    created_at: now,
+                    updated_at: now,
+                });
+            }
+            for (const targetId of affectedSpecIds) {
+                const target = graph.nodes.find((node) => node.id === targetId);
+                if (!target || !["feature", "requirement", "use_case"].includes(target.type))
+                    continue;
+                try {
+                    addRelationship(graph, targetId, testId, "tested_by", { source: "codegen", change_id: change?.id });
+                }
+                catch { }
+            }
+            if (change) {
+                try {
+                    addRelationship(graph, change.id, testId, "creates", { source: "codegen" });
+                }
+                catch { }
+            }
+        }
+    }
+    if (change)
+        change.updated_at = now;
 }
 /** Call after any operation that changes the active storage backend. */
 export function invalidateCachedRepo(directory) {
     repoCache.delete(directory);
+}
+function advanceChangeTransaction(projectDir, changeId, target) {
+    const manager = new TransactionManager(projectDir);
+    const transaction = manager.getTransactionsForChange(changeId)[0];
+    if (!transaction)
+        return;
+    const order = ["PLANNED", "SPEC_UPDATED", "IMPLEMENTING", "IMPLEMENTED", "VERIFYING", "COMPLETED"];
+    const currentIndex = order.indexOf(transaction.status);
+    const targetIndex = order.indexOf(target);
+    if (currentIndex < 0 || targetIndex <= currentIndex)
+        return;
+    for (let index = currentIndex + 1; index <= targetIndex; index++) {
+        manager.advanceStatus(transaction.id, order[index]);
+    }
 }
 function loadOrEmpty(directory) {
     const repo = getRepo(directory);
@@ -438,6 +534,9 @@ function createAllTools() {
                 // Create a transaction to track this change lifecycle
                 const txManager = new TransactionManager(ctx.directory);
                 const tx = txManager.createTransaction(change.id);
+                change.metadata.transaction_id = tx.id;
+                change.updated_at = new Date().toISOString();
+                repo.saveGraph(graph);
                 const approvalLevel = classifyApprovalLevel(proposal, graph);
                 const preflight = preflightChangeScope(graph, change.id);
                 const lines = [
@@ -590,7 +689,11 @@ function createAllTools() {
                 catch {
                     return "Invalid JSON in answers_json";
                 }
-                updateGraphFromAnswers(graph, answers);
+                updateGraphFromAnswers(graph, answers, {
+                    executionId: ctx.messageID,
+                    sessionId: ctx.sessionID,
+                    source: "sdd.update_from_answers",
+                });
                 const briefing = args.briefing?.trim() || discoveryBriefings.get(ctx.directory);
                 let buildSummary = "";
                 if (briefing) {
@@ -988,16 +1091,12 @@ function createAllTools() {
                     repo.saveGraph(graph);
                     invalidateCacheForMutation(ctx.directory, ["change"], ["approved_by"]);
                     markApproved(workflowScope(ctx.directory, ctx.sessionID));
-                    // Advance transaction to SPEC_UPDATED
+                    // Advance transaction to SPEC_UPDATED.
                     try {
-                        const txManager = new TransactionManager(ctx.directory);
-                        const txs = txManager.getTransactionsForChange(args.change_id);
-                        if (txs.length > 0) {
-                            txManager.advanceStatus(txs[0].id, "SPEC_UPDATED");
-                        }
+                        advanceChangeTransaction(ctx.directory, args.change_id, "SPEC_UPDATED");
                     }
                     catch (error) {
-                        sddDebug("tools", `Failed to advance transaction for ${args.change_id}`);
+                        sddDebug("tools", `Failed to advance transaction for ${args.change_id}: ${String(error)}`);
                     }
                     return `Change ${args.change_id} approved.`;
                 }
@@ -1054,16 +1153,12 @@ function createAllTools() {
                     repo.saveGraph(graph);
                     invalidateCacheForMutation(ctx.directory, ["change"], ["completed"]);
                     markCompleted(workflowScope(ctx.directory, ctx.sessionID));
-                    // Advance transaction to COMPLETED
+                    // Advance transaction to COMPLETED through every valid lifecycle edge.
                     try {
-                        const txManager = new TransactionManager(ctx.directory);
-                        const txs = txManager.getTransactionsForChange(args.change_id);
-                        if (txs.length > 0) {
-                            txManager.advanceStatus(txs[0].id, "COMPLETED");
-                        }
+                        advanceChangeTransaction(ctx.directory, args.change_id, "COMPLETED");
                     }
                     catch (error) {
-                        sddDebug("tools", `Failed to advance transaction for ${args.change_id}`);
+                        sddDebug("tools", `Failed to advance transaction for ${args.change_id}: ${String(error)}`);
                     }
                     return `Change ${args.change_id} completed.`;
                 }
@@ -1102,10 +1197,32 @@ function createAllTools() {
                 // a conclusão possa rejeitar arquivos não verificados ou alterados.
                 result.scoped_files = computeScopedFileHashes(ctx.directory, change.metadata.affected_files || []);
                 saveExecutableValidation(ctx.directory, args.change_id, result);
+                const changeMetadata = change.metadata;
+                const verificationArtifacts = Array.isArray(changeMetadata.verification_artifacts)
+                    ? changeMetadata.verification_artifacts
+                    : [];
+                verificationArtifacts.push({
+                    execution_id: ctx.messageID,
+                    recorded_at: new Date().toISOString(),
+                    passed: result.passed,
+                    verified: result.verified,
+                    functional_verified: result.functional_verified,
+                    fingerprint: result.project_fingerprint,
+                    scoped_files: result.scoped_files,
+                });
+                changeMetadata.verification_artifacts = verificationArtifacts.slice(-10);
+                change.updated_at = new Date().toISOString();
+                repo.saveGraph(graph);
+                try {
+                    advanceChangeTransaction(ctx.directory, args.change_id, "VERIFYING");
+                }
+                catch (error) {
+                    sddDebug("tools", `Failed to advance verification transaction: ${String(error)}`);
+                }
                 recordTelemetry(ctx.directory, {
                     name: "executable_verification",
                     duration_ms: Date.now() - startedAt,
-                    metadata: { change_id: args.change_id, passed: result.passed, verified: result.verified, functional_verified: result.functional_verified, waived: result.verification_waived === true },
+                    metadata: { change_id: args.change_id, execution_id: ctx.messageID, passed: result.passed, verified: result.verified, functional_verified: result.functional_verified, waived: result.verification_waived === true },
                 });
                 const lines = [`## Executable Verification: ${result.passed && result.verified && result.functional_verified ? "PASSED" : "BLOCKED"}`];
                 for (const check of result.checks)
@@ -1357,29 +1474,17 @@ function createAllTools() {
                         lines.push(`  - ${err}`);
                     }
                 }
-                // Update graph with file nodes
-                const now = new Date().toISOString();
-                for (const file of plan.files) {
-                    const fileId = `${graph.project_id}-FILE-${file.path.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 30)}`;
-                    try {
-                        addNode(graph, {
-                            id: fileId,
-                            type: "file",
-                            name: file.path,
-                            description: file.description,
-                            status: "IMPLEMENTED",
-                            version: 1,
-                            metadata: { path: file.path, language: "typescript" },
-                            created_at: now,
-                            updated_at: now,
-                        });
-                    }
-                    catch {
-                        // Node might already exist
-                    }
-                }
+                // Update graph with the complete implementation trace.
+                const generatedFiles = plan.files.filter((file) => !result.conflicts.includes(file.path) && !result.errors.some((error) => error.includes(file.path)));
+                recordGeneratedArtifacts(graph, generatedFiles, wfState.changeId || approvedChanges[0]?.id);
                 repo.saveGraph(graph);
-                invalidateCacheForMutation(ctx.directory, ["file"], ["implements"]);
+                try {
+                    advanceChangeTransaction(ctx.directory, wfState.changeId || approvedChanges[0]?.id || "", "IMPLEMENTED");
+                }
+                catch (error) {
+                    sddDebug("tools", `Failed to advance implementation transaction: ${String(error)}`);
+                }
+                invalidateCacheForMutation(ctx.directory, ["file", "test"], ["modifies", "implements", "tested_by", "creates"]);
                 return lines.join("\n");
             },
         }),
@@ -1415,6 +1520,24 @@ function createAllTools() {
                 // Smart batch: for AUTO-level changes, execute full cycle in one call
                 const { enforceSmartBatch } = await import("../sdd/enforcement/interceptor.js");
                 const result = enforceSmartBatch(graph, request, affectedEntities, affectedFiles);
+                if (result.change_id) {
+                    const change = graph.nodes.find((node) => node.id === result.change_id && node.type === "change");
+                    if (change) {
+                        const txManager = new TransactionManager(ctx.directory);
+                        const linkedTransaction = change.metadata.transaction_id ? txManager.getTransaction(change.metadata.transaction_id) : null;
+                        if (linkedTransaction?.change_id === change.id) {
+                            // Existing transaction is already authoritative.
+                        }
+                        else {
+                            const requestedId = change.metadata.transaction_id && !txManager.getTransaction(change.metadata.transaction_id)
+                                ? change.metadata.transaction_id
+                                : undefined;
+                            const tx = txManager.createTransaction(change.id, requestedId);
+                            change.metadata.transaction_id = tx.id;
+                            change.updated_at = new Date().toISOString();
+                        }
+                    }
+                }
                 repo.saveGraph(graph);
                 invalidateCacheForMutation(ctx.directory, ["change"], ["created_by"]);
                 if (result.auto_completed) {
@@ -1568,6 +1691,8 @@ function createAllTools() {
                 // Step 5: Write code
                 lines.push("\n### Step 5: Implementation");
                 const writeResult = writeGeneratedFiles(ctx.directory, plan);
+                const generatedFiles = plan.files.filter((file) => !writeResult.conflicts.includes(file.path) && !writeResult.errors.some((error) => error.includes(file.path)));
+                recordGeneratedArtifacts(graph, generatedFiles, enforcement.change_id);
                 lines.push(`Files written: ${writeResult.written}`);
                 if (writeResult.conflicts.length > 0) {
                     lines.push(`❌ Implementation blocked: ${writeResult.conflicts.length} existing file conflict(s)`);
@@ -1648,6 +1773,13 @@ function createAllTools() {
                     }
                 }
                 repo.saveGraph(graph);
+                try {
+                    if (enforcement.change_id)
+                        advanceChangeTransaction(ctx.directory, enforcement.change_id, "IMPLEMENTED");
+                }
+                catch (error) {
+                    sddDebug("tools", `Failed to advance implementation transaction: ${String(error)}`);
+                }
                 invalidateCacheForMutation(ctx.directory, ["change"], []);
                 lines.push("\n### Summary");
                 lines.push(`- Change: ${enforcement.change_id}`);
@@ -1781,6 +1913,8 @@ function createAllTools() {
                 action: tool.schema.string().describe("Action: 'report', 'list', 'verify', 'violate', 'unverifiable'"),
                 promise_id: tool.schema.string().optional().describe("Promise ID (for verify/violate)"),
                 evidence: tool.schema.string().optional().describe("Evidence of fulfillment (for verify)"),
+                evidence_refs_json: tool.schema.string().optional().describe("JSON array of structured evidence refs: [{type:'test'|'file'|'change'|'execution',id,path?,fingerprint?,summary?}]"),
+                violation_reason: tool.schema.string().optional().describe("Required explanation for a violated promise"),
             },
             async execute(args, ctx) {
                 const repo = getRepo(ctx.directory);
@@ -1807,7 +1941,25 @@ function createAllTools() {
                         return "Error: 'promise_id' is required for verify.";
                     if (!args.evidence)
                         return "Error: 'evidence' is required for verify.";
-                    const result = verifyPromise(graph, args.promise_id, args.evidence);
+                    if (!args.evidence_refs_json)
+                        return "Error: 'evidence_refs_json' is required for verify. Link the result to a test, file, change, or execution.";
+                    let evidenceRefs;
+                    try {
+                        const parsed = JSON.parse(args.evidence_refs_json);
+                        if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((ref) => !ref || typeof ref.id !== "string" || !["test", "file", "change", "execution"].includes(ref.type))) {
+                            return "Error: evidence_refs_json must be a non-empty array with typed refs and ids.";
+                        }
+                        evidenceRefs = parsed;
+                    }
+                    catch {
+                        return "Error: invalid JSON in evidence_refs_json.";
+                    }
+                    const result = verifyPromise(graph, args.promise_id, {
+                        evidence: args.evidence,
+                        evidence_refs: evidenceRefs,
+                        execution_id: ctx.messageID,
+                        project_dir: ctx.directory,
+                    });
                     if (!result)
                         return `Promise ${args.promise_id} not found.`;
                     repo.saveGraph(graph);
@@ -1817,7 +1969,9 @@ function createAllTools() {
                 if (args.action === "violate") {
                     if (!args.promise_id)
                         return "Error: 'promise_id' is required for violate.";
-                    const result = markPromiseViolated(graph, args.promise_id);
+                    if (!args.violation_reason)
+                        return "Error: 'violation_reason' is required for violate.";
+                    const result = markPromiseViolated(graph, args.promise_id, args.violation_reason);
                     if (!result)
                         return `Promise ${args.promise_id} not found.`;
                     repo.saveGraph(graph);
@@ -2319,7 +2473,8 @@ function createAllTools() {
                     }
                     catch (e) {
                         const errMsg = e instanceof Error ? e.message : String(e);
-                        return "Error parsing analysis_json: " + errMsg + "\n\nFalling back to regex-based analysis.";
+                        analysis = analyzeBriefingDeep(args.briefing);
+                        analysisSource = `regex fallback after invalid analysis_json (${errMsg})`;
                     }
                 }
                 if (!analysis) {

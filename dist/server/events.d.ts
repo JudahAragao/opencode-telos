@@ -13,6 +13,8 @@ export interface ProgressEvent {
 type EventHandler = (event: ProgressEvent) => void;
 declare class ProgressEventEmitter {
     private handlers;
+    private builds;
+    private activeBuildId;
     private currentBuild;
     /**
      * Subscribe to progress events
@@ -29,19 +31,19 @@ declare class ProgressEventEmitter {
     /**
      * Report progress on the current build step
      */
-    stepProgress(stepName: string, message: string, progress?: number): void;
+    stepProgress(stepName: string, message: string, progress?: number, buildId?: string): void;
     /**
      * Move to the next step in the build
      */
-    nextStep(stepName: string, message: string): void;
+    nextStep(stepName: string, message: string, buildId?: string): void;
     /**
      * Report an error during build
      */
-    error(stepName: string, message: string, details?: Record<string, unknown>): void;
+    error(stepName: string, message: string, details?: Record<string, unknown>, buildId?: string): void;
     /**
      * Complete the current build
      */
-    complete(summary: string, details?: Record<string, unknown>): void;
+    complete(summary: string, details?: Record<string, unknown>, buildId?: string): void;
     /**
      * Get the number of active subscribers
      */

@@ -7,6 +7,7 @@ import { getPendingChanges } from "../sdd/changes/manager.js";
 import { progressEmitter } from "./events.js";
 import { KANBAN_MODAL_HTML, KANBAN_SCRIPT, KANBAN_STYLE } from "./ui/kanban-view.js";
 import { handleCreateTask, handleDeleteTask, handleIntegrateTask, handleListTasks, handleMarkIntegrated, handleOpenChange, handleUpdateTask, } from "./tasks-api.js";
+import { readExecutionRecords } from "../sdd/execution/ledger.js";
 /** Porta preferida do dashboard (estável entre sessões). Override via SDD_DASHBOARD_PORT. */
 export const DEFAULT_DASHBOARD_PORT = 7331;
 /** Porta configurada pelo usuário, se houver. */
@@ -158,6 +159,15 @@ export class SddDashboardServer {
             }
             if (path === "/api/changes") {
                 return this.jsonResponse(this.getChanges(), corsHeaders);
+            }
+            if (path === "/api/executions") {
+                const runId = url.searchParams.get("run_id") || undefined;
+                const callId = url.searchParams.get("call_id") || undefined;
+                const limit = Math.min(500, Math.max(1, Number.parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+                const records = readExecutionRecords(this.projectDir)
+                    .filter((record) => (!runId || record.runId === runId) && (!callId || record.callId === callId))
+                    .slice(-limit);
+                return this.jsonResponse({ records }, corsHeaders);
             }
             // ── Kanban tasks ─────────────────────────────────────────────
             if (path === "/api/tasks") {

@@ -354,6 +354,43 @@ function validateTraceability(graph, warnings) {
             });
         }
     }
+    // Every implementation task must also point to the specification it serves.
+    for (const task of graph.nodes.filter((n) => n.type === "task")) {
+        const linkedSpec = graph.relationships.some((r) => r.from === task.id && ["implements", "depends_on", "requires", "traces_to"].includes(r.type) &&
+            ["feature", "requirement", "use_case", "business_rule"].includes(typeById.get(r.to) || ""));
+        if (!linkedSpec) {
+            warnings.push({
+                code: "TASK_NO_SPEC",
+                message: `Task "${task.name}" has no semantic link to a feature, requirement, use case, or business rule`,
+                node_id: task.id,
+            });
+        }
+    }
+    // A declared Change scope must have corresponding modification edges.
+    for (const change of graph.nodes.filter((n) => n.type === "change")) {
+        const metadata = change.metadata;
+        const files = Array.isArray(metadata.affected_files) ? metadata.affected_files : [];
+        for (const path of files) {
+            const fileId = graph.nodes.find((node) => node.type === "file" && (node.metadata.path === path || node.name === path))?.id;
+            if (fileId && !graph.relationships.some((r) => r.from === change.id && r.to === fileId && r.type === "modifies")) {
+                warnings.push({ code: "CHANGE_FILE_UNLINKED", message: `Change "${change.name}" declares "${path}" but has no modifies edge`, node_id: change.id });
+            }
+        }
+        const verification = Array.isArray(metadata.verification_artifacts) ? metadata.verification_artifacts : [];
+        if (change.status === "COMPLETED" && verification.length === 0) {
+            warnings.push({ code: "CHANGE_NO_VERIFICATION", message: `Completed Change "${change.name}" has no persisted verification artifact`, node_id: change.id });
+        }
+    }
+    for (const requirement of graph.nodes.filter((n) => n.type === "requirement")) {
+        const promises = requirement.metadata.promise_states;
+        if (!promises)
+            continue;
+        for (const [promiseId, state] of Object.entries(promises)) {
+            if (state.status === "fulfilled" && (!Array.isArray(state.evidence_refs) || state.evidence_refs.length === 0)) {
+                warnings.push({ code: "PROMISE_NO_EVIDENCE_LINK", message: `Fulfilled promise "${promiseId}" has no structured evidence reference`, node_id: requirement.id });
+            }
+        }
+    }
 }
 /**
  * Detect architecture violations: frontend files importing from backend packages,

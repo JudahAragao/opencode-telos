@@ -36,6 +36,9 @@ export interface AuditEntry {
   target: string
   result: "allowed" | "denied"
   details?: string
+  execution_id?: string
+  session_id?: string
+  call_id?: string
 }
 
 export interface PermissionConfig {
@@ -182,6 +185,7 @@ export function addAuditEntry(
   target: string,
   result: "allowed" | "denied",
   details?: string,
+  correlation?: Pick<AuditEntry, "execution_id" | "session_id" | "call_id">,
 ): void {
   const auditPath = join(projectDir, AUDIT_LOG_FILE)
   const dir = dirname(auditPath)
@@ -204,6 +208,7 @@ export function addAuditEntry(
     target,
     result,
     details,
+    ...correlation,
   })
 
   if (entries.length > 1000) {

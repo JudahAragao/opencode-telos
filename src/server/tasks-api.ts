@@ -158,7 +158,7 @@ export function handleCreateTask(projectDir: string, raw: unknown): TasksApiResu
 
     repo.saveGraph(graph)
 
-    const integration = taskIntegrationTrigger(task.id, task.name)
+    const integration = taskIntegrationTrigger(task.id, task.name, projectDir)
     return {
       status: 201,
       body: { task: { id: task.id, name: task.name, status: task.status }, integration },
@@ -212,7 +212,7 @@ export function handleUpdateTask(projectDir: string, id: string, raw: unknown): 
     repo.saveGraph(graph)
 
     const integration = contentChanged
-      ? taskIntegrationTrigger(task.id, task.name)
+      ? taskIntegrationTrigger(task.id, task.name, projectDir)
       : { queued: false, reason: "Board move only — integration not requested." }
 
     return {
@@ -251,7 +251,7 @@ export function handleIntegrateTask(projectDir: string, id: string): TasksApiRes
     const updated = updateTask(graph, id, { markPending: true })
     repo.saveGraph(graph)
 
-    const integration = taskIntegrationTrigger(updated.id, updated.name)
+    const integration = taskIntegrationTrigger(updated.id, updated.name, projectDir)
     return { status: 200, body: { task: { id: updated.id, name: updated.name }, integration } }
   } catch (error) {
     sddDebug("tasks-api", `integrate failed: ${String(error)}`)
@@ -293,6 +293,7 @@ export function handleOpenChange(projectDir: string, id: string, raw: unknown): 
       ? requestAgentTurn(
           buildChangeImplementationPrompt(result.change, task),
           "change implementation",
+          { projectDir, dedupeKey: `${projectDir}:change:${result.change.id}` },
         )
       : {
           queued: false,
@@ -341,9 +342,10 @@ export function handleMarkIntegrated(projectDir: string, id: string): TasksApiRe
 function taskIntegrationTrigger(
   taskId: string,
   name: string,
+  projectDir?: string,
 ): { queued: boolean; reason: string } {
   try {
-    return requestTaskIntegration(taskId, name)
+    return requestTaskIntegration(taskId, name, projectDir)
   } catch (error) {
     return { queued: false, reason: error instanceof Error ? error.message : String(error) }
   }

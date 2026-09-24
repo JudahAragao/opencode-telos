@@ -14,6 +14,7 @@ import { DEFAULT_EXECUTOR_CONFIG } from "./types.js";
 import { createRepository } from "../../sdd/persistence/repository.js";
 import { createSnapshot, executeRollback } from "../../sdd/rollback/manager.js";
 import { getWorkflowState, workflowScope } from "../../sdd/enforcement/workflow-tracker.js";
+import { executeSddTool } from "../runtime/dispatcher.js";
 /**
  * Cria uma tool definition para uma workflow chain.
  */
@@ -43,24 +44,7 @@ function createChainTool(chain) {
                 }
             }
             // Tool executor: chama as tools SDD diretamente
-            const executeTool = async (toolName, toolArgs) => {
-                // Import dinâmico para evitar circular dependencies.
-                // Usa o mapa COMPLETO: as chains são código nosso e podem orquestrar
-                // handlers internos que já não são anunciados (find_dead_code etc.).
-                const { createSddTools } = await import("../tools.js");
-                const tools = createSddTools();
-                const sddTool = tools[toolName];
-                if (!sddTool) {
-                    return `Error: Tool ${toolName} not found`;
-                }
-                const result = await sddTool.execute(toolArgs, ctx);
-                // ToolResult pode ser string ou objeto com output
-                if (typeof result === "string")
-                    return result;
-                if (result && typeof result === "object" && "output" in result)
-                    return result.output;
-                return JSON.stringify(result);
-            };
+            const executeTool = (toolName, toolArgs, executionContext) => executeSddTool(toolName, toolArgs, ctx, executionContext);
             const executorHooks = {
                 beforeStep: (_stepIndex) => {
                     const workflow = getWorkflowState(workflowScope(ctx.directory, ctx.sessionID));
@@ -73,19 +57,24 @@ function createChainTool(chain) {
                     return { changeId: workflow.changeId, snapshotId: snapshot.id };
                 },
                 rollback: (snapshots) => {
-                    const last = [...snapshots].reverse().find((item) => Boolean(item && typeof item === "object" && "changeId" in item && typeof item.changeId === "string"));
-                    if (!last)
+                    const first = snapshots.find((item) => Boolean(item && typeof item === "object" && "changeId" in item && typeof item.changeId === "string"));
+                    if (!first)
                         return;
                     const repo = createRepository(ctx.directory);
                     if (!repo.isInitialized())
                         return;
                     const graph = repo.loadGraph();
-                    executeRollback(graph, last.changeId, ctx.directory);
+                    executeRollback(graph, first.changeId, ctx.directory);
                     repo.saveGraph(graph);
                 },
             };
             // Executar chain
-            const result = await executeChain(chain, params, executeTool, DEFAULT_EXECUTOR_CONFIG, executorHooks);
+            const result = await executeChain(chain, params, executeTool, DEFAULT_EXECUTOR_CONFIG, executorHooks, {
+                runId: `RUN-${ctx.sessionID}-${ctx.messageID}-${chain.name}`.replace(/[^a-zA-Z0-9_-]/g, "_"),
+                projectDir: ctx.directory,
+                sessionId: ctx.sessionID,
+                messageId: ctx.messageID,
+            });
             return formatChainResult(result);
         },
     });

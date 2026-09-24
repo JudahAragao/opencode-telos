@@ -1,4 +1,4 @@
-import { getNode, addNode, updateNode } from "../graph/engine.js";
+import { getNode, addNode, addRelationship, updateNode } from "../graph/engine.js";
 import { computeImpact } from "../graph/traverse.js";
 import { extractPromises } from "../promises/tracker.js";
 let changeCounter = 0;
@@ -84,6 +84,30 @@ export function createChange(graph, proposal, options) {
         change_id: id,
     };
     addNode(graph, changeNode);
+    // Materialize the Change scope as edges immediately, so every execution
+    // path (agent tool, dashboard, workflow chain, or smart enforcement) starts
+    // with the same traceability contract.
+    for (const affectedId of allAffected) {
+        const target = getNode(graph, affectedId);
+        if (!target)
+            continue;
+        try {
+            addRelationship(graph, id, affectedId, target.type === "task" ? "affects" : "affects", { source: "change_manager" });
+        }
+        catch {
+            // A legacy graph may contain a pair rejected by the canonical schema;
+            // the metadata scope remains authoritative for reconciliation.
+        }
+    }
+    for (const filePath of proposal.affected_files) {
+        const file = graph.nodes.find((node) => node.type === "file" && (node.metadata.path === filePath || node.name === filePath));
+        if (file) {
+            try {
+                addRelationship(graph, id, file.id, "modifies", { source: "change_manager", path: filePath });
+            }
+            catch { }
+        }
+    }
     for (const nodeUpdate of proposal.modified_nodes) {
         try {
             updateNode(graph, nodeUpdate.id, {
@@ -174,7 +198,7 @@ export function checkChangeCompletion(graph, changeId, options) {
         ? allAffectedIds.filter((id) => options.focusAffectedNodes.includes(id))
         : allAffectedIds);
     // Find all promises whose source nodes are affected by this change
-    const cacheKey = `promises_${graph.nodes.length}_${graph.relationships.length}`;
+    const cacheKey = `promises_${graph.nodes.length}_${graph.relationships.length}_${graph.metadata.updated_at}`;
     let allPromises;
     if (options?.promiseCache?.has(cacheKey)) {
         allPromises = options.promiseCache.get(cacheKey);
@@ -183,17 +207,19 @@ export function checkChangeCompletion(graph, changeId, options) {
         allPromises = extractPromises(graph);
         options?.promiseCache?.set(cacheKey, allPromises);
     }
-    const pendingOnAffected = allPromises.filter((p) => p.status === "pending" && affectedIds.has(p.source_node_id));
-    if (pendingOnAffected.length === 0) {
+    const blockingOnAffected = allPromises.filter((p) => p.status !== "fulfilled" && affectedIds.has(p.source_node_id));
+    if (blockingOnAffected.length === 0) {
         return { allowed: true, reason: "", pending_promises: [] };
     }
     return {
         allowed: false,
-        reason: `${pendingOnAffected.length} pending promise(s) on affected nodes must be verified before completing this change.`,
-        pending_promises: pendingOnAffected.map((p) => ({
+        reason: `${blockingOnAffected.length} unresolved promise(s) on affected nodes must be fulfilled before completing this change.`,
+        pending_promises: blockingOnAffected.map((p) => ({
             id: p.id,
             description: p.description,
             source_node_id: p.source_node_id,
+            status: p.status,
+            reason: p.violation_reason || (p.status === "unverifiable" ? "No executable verification path exists." : undefined),
         })),
     };
 }

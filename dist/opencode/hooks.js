@@ -17,6 +17,8 @@ import { extractSddCommandText, renderSddCommandMessage } from "./command.js";
 import { getPendingIntegrationTasks } from "../sdd/tasks/board.js";
 import { getTasksAwaitingChangeApproval } from "../sdd/tasks/change-bridge.js";
 import { setDashboardSessionID } from "../server/dashboard-context.js";
+import { finishExecution, findLatestExecutionByCall, startExecution } from "../sdd/execution/ledger.js";
+import { recordTelemetry } from "../sdd/monitoring/telemetry.js";
 const SDD_FILE_PATTERNS = [
     /\.ts$/,
     /\.tsx$/,
@@ -168,11 +170,12 @@ export function createSddHooks(projectDir) {
     let systemInjected = false;
     let injectedGraphFingerprint = "";
     let injectedSourceSignature = "";
+    const activeExecutions = new Map();
     return {
         "experimental.chat.system.transform": async (_input, output) => {
             // Track the session driving the current turn so the dashboard can wake the
             // agent for task integration (see src/server/dashboard-context.ts).
-            setDashboardSessionID(_input.sessionID);
+            setDashboardSessionID(_input.sessionID, projectDir);
             if (systemInjected) {
                 try {
                     const currentRepo = createRepository(projectDir);
@@ -316,6 +319,19 @@ export function createSddHooks(projectDir) {
             // Skip enforcement if SDD is disabled
             if (!isSddEnabled(projectDir))
                 return;
+            const repository = createRepository(projectDir);
+            const execution = startExecution({
+                runId: `OC-${input.sessionID}-${input.callID}`,
+                projectDir,
+                sessionId: input.sessionID,
+                callId: input.callID,
+                toolName: input.tool,
+            }, {
+                id: `CALL-${input.callID}`,
+                args: (output.args || {}),
+                graphFingerprintBefore: repository.isInitialized() ? graphFingerprint(repository.loadGraph()) : undefined,
+            });
+            activeExecutions.set(input.callID, execution);
             // Enforce workflow context for SDD graph mutation tools
             if (input.tool.startsWith("sdd.")) {
                 const scope = workflowScope(projectDir, input.sessionID);
@@ -550,6 +566,25 @@ export function createSddHooks(projectDir) {
             }
         },
         "tool.execute.after": async (input, output) => {
+            const execution = activeExecutions.get(input.callID) || findLatestExecutionByCall(projectDir, input.callID);
+            if (execution) {
+                const repository = createRepository(projectDir);
+                const outputText = typeof output.output === "string" ? output.output : String(output.output || "");
+                finishExecution(execution, outputText.includes("BLOCKED") || outputText.startsWith("Error:") ? "blocked" : "completed", {
+                    output: outputText,
+                    graphFingerprintAfter: repository.isInitialized() ? graphFingerprint(repository.loadGraph()) : undefined,
+                });
+                recordTelemetry(projectDir, {
+                    name: "tool_execution",
+                    duration_ms: Date.now() - Date.parse(execution.startedAt),
+                    run_id: execution.runId,
+                    step_id: execution.stepId,
+                    session_id: execution.sessionId,
+                    call_id: execution.callId,
+                    metadata: { tool: execution.toolName, status: outputText.includes("BLOCKED") || outputText.startsWith("Error:") ? "blocked" : "completed" },
+                });
+                activeExecutions.delete(input.callID);
+            }
             if (!input.tool.startsWith("sdd."))
                 return;
             const timestamp = new Date().toISOString();

@@ -98,7 +98,7 @@ export function getRequiredApprovals(changeType, projectDir) {
     const config = loadPermissions(projectDir);
     return config.approval_requirements[changeType] || 1;
 }
-export function addAuditEntry(projectDir, user, action, target, result, details) {
+export function addAuditEntry(projectDir, user, action, target, result, details, correlation) {
     const auditPath = join(projectDir, AUDIT_LOG_FILE);
     const dir = dirname(auditPath);
     if (!existsSync(dir))
@@ -120,6 +120,7 @@ export function addAuditEntry(projectDir, user, action, target, result, details)
         target,
         result,
         details,
+        ...correlation,
     });
     if (entries.length > 1000) {
         entries = entries.slice(-1000);

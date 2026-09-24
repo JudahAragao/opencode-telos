@@ -13,6 +13,9 @@ export interface AuditEntry {
     target: string;
     result: "allowed" | "denied";
     details?: string;
+    execution_id?: string;
+    session_id?: string;
+    call_id?: string;
 }
 export interface PermissionConfig {
     roles: RolePermissions[];
@@ -41,7 +44,7 @@ export declare function savePermissions(projectDir: string, config: PermissionCo
 export declare function checkPermission(userRole: Role, permission: Permission, projectDir: string): boolean;
 export declare function checkChangeApproval(changeType: string, userRole: Role, projectDir: string): boolean;
 export declare function getRequiredApprovals(changeType: string, projectDir: string): number;
-export declare function addAuditEntry(projectDir: string, user: string, action: string, target: string, result: "allowed" | "denied", details?: string): void;
+export declare function addAuditEntry(projectDir: string, user: string, action: string, target: string, result: "allowed" | "denied", details?: string, correlation?: Pick<AuditEntry, "execution_id" | "session_id" | "call_id">): void;
 export interface AuditLogFilters {
     user?: string;
     action?: string;

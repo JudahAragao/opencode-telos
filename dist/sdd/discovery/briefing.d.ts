@@ -103,7 +103,11 @@ export interface QuestionGenerationOptions {
     focusClassifications?: Array<"CRITICAL" | "IMPORTANT" | "OPTIONAL" | "UNKNOWN">;
 }
 export declare function generateDiscoveryQuestions(analysis: BriefingAnalysis, options?: QuestionGenerationOptions): QuestionForUser[];
-export declare function updateGraphFromAnswers(graph: KnowledgeGraph, answers: Record<string, string>): void;
+export declare function updateGraphFromAnswers(graph: KnowledgeGraph, answers: Record<string, string>, provenance?: {
+    executionId?: string;
+    sessionId?: string;
+    source?: string;
+}): void;
 export declare function isBriefingSufficient(analysis: BriefingAnalysis): boolean;
 export declare function formatDiscoverySummary(analysis: BriefingAnalysis): string;
 /**

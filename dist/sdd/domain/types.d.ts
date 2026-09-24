@@ -436,7 +436,17 @@ export interface SpecPromise {
     source_node_id: string;
     status: "pending" | "fulfilled" | "violated" | "unverifiable";
     evidence?: string;
+    evidence_refs?: PromiseEvidenceRef[];
+    violation_reason?: string;
+    verified_by_execution_id?: string;
     verified_at?: string;
+}
+export interface PromiseEvidenceRef {
+    type: "test" | "file" | "change" | "execution" | "manual";
+    id: string;
+    path?: string;
+    fingerprint?: string;
+    summary?: string;
 }
 export type AnyNode = ProjectNode | DomainNode | FeatureNode | RequirementNode | BusinessRuleNode | ActorNode | EntityNode | ValueObjectNode | FlowNode | UseCaseNode | ArchitectureComponentNode | ModuleNode | ApiNode | EndpointNode | DatabaseNode | TableNode | FieldNode | TaskNode | TestNode | FileNode | SymbolNode | ChangeNode | DecisionNode | ConstraintNode | AssumptionNode | ConstitutionNode | BugFixNode | HotfixNode | RefactoringNode | DeprecationNode | MigrationNode | ExperimentNode | FeatureFlagNode | TenantNode | MetricNode | AlertNode | IncidentNode | SLANode | MilestoneNode;
 export interface KnowledgeGraph {

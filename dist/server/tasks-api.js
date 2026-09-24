@@ -122,7 +122,7 @@ export function handleCreateTask(projectDir, raw) {
             origin: "dashboard",
         });
         repo.saveGraph(graph);
-        const integration = taskIntegrationTrigger(task.id, task.name);
+        const integration = taskIntegrationTrigger(task.id, task.name, projectDir);
         return {
             status: 201,
             body: { task: { id: task.id, name: task.name, status: task.status }, integration },
@@ -170,7 +170,7 @@ export function handleUpdateTask(projectDir, id, raw) {
         });
         repo.saveGraph(graph);
         const integration = contentChanged
-            ? taskIntegrationTrigger(task.id, task.name)
+            ? taskIntegrationTrigger(task.id, task.name, projectDir)
             : { queued: false, reason: "Board move only — integration not requested." };
         return {
             status: 200,
@@ -208,7 +208,7 @@ export function handleIntegrateTask(projectDir, id) {
             return { status: 404, body: { error: `Task ${id} not found` } };
         const updated = updateTask(graph, id, { markPending: true });
         repo.saveGraph(graph);
-        const integration = taskIntegrationTrigger(updated.id, updated.name);
+        const integration = taskIntegrationTrigger(updated.id, updated.name, projectDir);
         return { status: 200, body: { task: { id: updated.id, name: updated.name }, integration } };
     }
     catch (error) {
@@ -244,7 +244,7 @@ export function handleOpenChange(projectDir, id, raw) {
         repo.saveGraph(graph);
         const task = getTask(graph, id);
         const integration = result.approved && task
-            ? requestAgentTurn(buildChangeImplementationPrompt(result.change, task), "change implementation")
+            ? requestAgentTurn(buildChangeImplementationPrompt(result.change, task), "change implementation", { projectDir, dedupeKey: `${projectDir}:change:${result.change.id}` })
             : {
                 queued: false,
                 reason: result.blockers[0] ?? "Change created without approval.",
@@ -289,9 +289,9 @@ export function handleMarkIntegrated(projectDir, id) {
         return { status: classifyError(error), body: errorBody(error) };
     }
 }
-function taskIntegrationTrigger(taskId, name) {
+function taskIntegrationTrigger(taskId, name, projectDir) {
     try {
-        return requestTaskIntegration(taskId, name);
+        return requestTaskIntegration(taskId, name, projectDir);
     }
     catch (error) {
         return { queued: false, reason: error instanceof Error ? error.message : String(error) };

@@ -1,6 +1,10 @@
 export interface TelemetryEvent {
     timestamp: string;
     name: string;
+    run_id?: string;
+    step_id?: string;
+    session_id?: string;
+    call_id?: string;
     duration_ms?: number;
     tokens_estimate?: number;
     cache_hit?: boolean;
