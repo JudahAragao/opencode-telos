@@ -1071,36 +1071,17 @@ ${KANBAN_MODAL_HTML}
 
     function highlightNode(id) {
       if (!fg) return;
-      var connectedIds = new Set();
-      if (id) {
-        connectedIds.add(id);
-        allLinks.forEach(function(l) {
-          var from = l.from || l.source;
-          var to = l.to || l.target;
-          if (from === id) connectedIds.add(to);
-          if (to === id) connectedIds.add(from);
-        });
-      }
       fg.nodeColor(function(n) {
         if (!id) return getColor(n.type);
-        return connectedIds.has(n.id) ? getColor(n.type) : getColor(n.type);
+        // Keep the graph at its normal opacity. Selection is represented by a
+        // small size/color accent on the clicked node, never by fading all
+        // other nodes out of view.
+        return n.id === id ? "#ffffff" : getColor(n.type);
       });
-      fg.nodeOpacity(function(n) {
-        if (!id) return 0.9;
-        return connectedIds.has(n.id) ? 1.0 : 0.6;
-      });
-      fg.linkOpacity(function(l) {
-        var sid = linkSourceId(l);
-        var tid = linkTargetId(l);
-        if (!id) return 0.6;
-        return (sid === id || tid === id) ? 0.9 : 0.15;
-      });
-      fg.linkWidth(function(l) {
-        var sid = linkSourceId(l);
-        var tid = linkTargetId(l);
-        if (!id) return 1;
-        return (sid === id || tid === id) ? 2.5 : 0.5;
-      });
+      fg.nodeOpacity(0.9);
+      fg.nodeVal(function(n) { return n.id === id ? 8 : 6; });
+      fg.linkOpacity(0.6);
+      fg.linkWidth(1);
     }
 
     function clearHighlight() {
@@ -1108,6 +1089,7 @@ ${KANBAN_MODAL_HTML}
       if (!fg) return;
       fg.nodeColor(function(n) { return getColor(n.type); });
       fg.nodeOpacity(0.9);
+      fg.nodeVal(6);
       fg.linkOpacity(0.6);
       fg.linkWidth(1);
       fg.linkDirectionalParticles(0);
@@ -1145,7 +1127,7 @@ ${KANBAN_MODAL_HTML}
         .backgroundColor("#0d1117")
         .width(container.offsetWidth)
         .height(container.offsetHeight)
-        .nodeVal(function(n) { return selectedNodeId === n.id ? 12 : 6; })
+        .nodeVal(function(n) { return selectedNodeId === n.id ? 8 : 6; })
         .nodeColor(function(n) { return getColor(n.type); })
         .nodeOpacity(0.9)
         .nodeResolution(isLargeGraph ? 8 : 24)

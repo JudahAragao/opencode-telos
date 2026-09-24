@@ -159,7 +159,7 @@ export function getFixes(): void {}
 registerMigration({
   id: "20260924_materialize_acceptance_criteria",
   description: "Materialize legacy requirement/task acceptance criteria as graph nodes",
-  version: "2.3.0",
+  version: "2.3.1",
   up: (projectDir: string) => {
     try {
       const { createRepository } = require("../../sdd/persistence/repository.js")

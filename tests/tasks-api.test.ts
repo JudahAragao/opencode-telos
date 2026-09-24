@@ -296,6 +296,9 @@ describe("dashboard task API", () => {
     expect(html).toContain('data-view="kanban"')
     expect(html).toContain('id="task-modal"')
     expect(html).toContain("renderKanban")
+    expect(html).toContain('return n.id === id ? "#ffffff" : getColor(n.type);')
+    expect(html).toContain("fg.nodeOpacity(0.9);")
+    expect(html).not.toContain("connectedIds.has(n.id) ? 1.0 : 0.6")
 
     // The static shell (everything before the first <script>) must be balanced.
     const shell = html.split("<script")[0]
