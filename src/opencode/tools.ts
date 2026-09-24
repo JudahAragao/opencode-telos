@@ -67,7 +67,7 @@ import { detectBrownfieldFindings, findingFingerprint, formatFindingsReport, get
 import { generateCicd, writeCicdFiles, formatCicdResults } from "../sdd/cicd/generators.js"
 
 
-import { addAuditEntry, detectRemote, formatRemoteStatus } from "../sdd/permissions/access.js"
+import { addAuditEntry, checkPermission, detectRemote, formatRemoteStatus, getUserRoleWithAuth, type Permission } from "../sdd/permissions/access.js"
 
 import { createMcpServer } from "../mcp/server.js"
 import { startSharedDashboard, getSharedDashboardUrl, resolveDashboardPort } from "../server/server.js"
@@ -86,6 +86,9 @@ import { TransactionManager, reconcileChangeTransactions } from "../sdd/transact
 import { createWorkflowTools } from "./workflows/tools-workflow.js"
 import { graphFingerprint } from "../sdd/cache/fingerprint.js"
 import { projectPath } from "../sdd/security/paths.js"
+import { AcceptanceService, checkChangeAcceptance, materializeLegacyAcceptanceCriteria, updateAcceptanceCriterionText } from "../sdd/acceptance/service.js"
+import { analyzeNodeImpact, formatNodeImpact } from "../sdd/impact/service.js"
+import { analyzeGuidance, applyGuidancePatch, createGuidance, proposeGuidancePatch, rejectGuidance } from "../sdd/guidance/service.js"
 
 // ── Validation Coverage Index (singleton per session) ──────────────
 const validationIndex = new ValidationIndex()
@@ -157,7 +160,16 @@ function recordGeneratedArtifacts(graph: KnowledgeGraph, files: GeneratedFile[],
           description: file.description,
           status: "IMPLEMENTED",
           version: 1,
-          metadata: { test_type: "integration", target: file.path, verifies: [...affectedSpecIds] },
+          metadata: {
+            test_type: "integration",
+            target: file.path,
+            verifies: [
+              ...affectedSpecIds,
+              ...[...affectedSpecIds]
+                .filter((id) => graph.nodes.some((node) => node.id === id && node.type === "requirement"))
+                .flatMap((id) => new AcceptanceService(graph).list(id, false).map((criterion) => criterion.id)),
+            ],
+          },
           created_at: now,
           updated_at: now,
         } as any)
@@ -215,10 +227,6 @@ function ensureTargetRequirementForFinding(graph: KnowledgeGraph, finding: AnyNo
     status: "DRAFT",
     version: 1,
     metadata: {
-      acceptance_criteria: [
-        "O comportamento alvo não reproduz a limitação observada na origem.",
-        "A decisão possui teste ou evidência verificável.",
-      ],
       priority: meta.severity ?? "medium",
       req_type: "non_functional",
       source_finding_id: finding.id,
@@ -234,6 +242,9 @@ function ensureTargetRequirementForFinding(graph: KnowledgeGraph, finding: AnyNo
     updated_at: now,
   } as AnyNode
   addNode(graph, requirement)
+  const acceptanceService = new AcceptanceService(graph)
+  acceptanceService.create(requirement.id, "O comportamento alvo não reproduz a limitação observada na origem.", "reverse_engineering")
+  acceptanceService.create(requirement.id, "A decisão possui teste ou evidência verificável.", "reverse_engineering")
   try { addRelationship(graph, requirement.id, finding.id, "derived_from", { source: "reverse_engineering" }) } catch {}
   return requirement
 }
@@ -343,6 +354,11 @@ function completionGateFailures(projectDir: string, graph: KnowledgeGraph, chang
   failures.push(...verifyScopedFiles(projectDir, execution).gaps)
   const spec = checkSpecEvidence(graph, changeId)
   if (!spec.allowed) failures.push(spec.reason)
+  const config = loadSddConfig(projectDir)
+  if (config.acceptance.enabled && config.acceptance.require_before_change_completion) {
+    const acceptance = checkChangeAcceptance(graph, changeId, { allowWaived: config.acceptance.allow_waived, legacyFallback: config.acceptance.legacy_fallback })
+    if (!acceptance.allowed) failures.push(acceptance.reason)
+  }
   return failures
 }
 
@@ -381,6 +397,168 @@ function truncateList(items: string[], maxItems: number = 20): string[] {
  */
 function createAllTools(): Record<string, ToolDefinition> {
   const tools: Record<string, ToolDefinition> = {
+    "sdd.acceptance": tool({
+      description: "Centralized acceptance criteria service backed by the Knowledge Graph.",
+      args: {
+        action: tool.schema.enum(["list", "summary", "create", "accept", "reject", "waive", "reopen", "accept_all", "update_text", "migrate"]),
+        requirement_id: tool.schema.string().optional().describe("Requirement ID"),
+        criterion_id: tool.schema.string().optional().describe("Acceptance criterion ID"),
+        text: tool.schema.string().optional().describe("Criterion text"),
+        observation: tool.schema.string().optional().describe("Observation or reason"),
+        evidence_json: tool.schema.string().optional().describe("Evidence array as JSON"),
+        expected_version: tool.schema.number().optional().describe("Expected criterion version"),
+        expected_hash: tool.schema.string().optional().describe("Expected criterion content hash"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+        const service = new AcceptanceService(graph, loadSddConfig(ctx.directory).acceptance.legacy_fallback)
+        const actor = process.env.USER || process.env.USERNAME || "current"
+        const evidence = args.evidence_json ? (() => { try { return JSON.parse(args.evidence_json!) } catch { return undefined } })() : undefined
+        const input = { actor, observation: args.observation, evidence, expected_version: args.expected_version, expected_hash: args.expected_hash }
+        try {
+          const requiredPermission: Permission | undefined = args.action === "create" || args.action === "update_text" || args.action === "migrate"
+            ? "create_requirement"
+            : args.action === "accept" || args.action === "accept_all"
+              ? "accept_requirement"
+              : args.action === "reject"
+                ? "reject_requirement"
+                : args.action === "waive"
+                  ? "waive_requirement"
+                  : args.action === "reopen"
+                    ? "reopen_requirement"
+                    : undefined
+          if (requiredPermission && !checkPermission(getUserRoleWithAuth(ctx.directory, actor), requiredPermission, ctx.directory)) {
+            addAuditEntry(ctx.directory, actor, `acceptance.${args.action}`, args.criterion_id || args.requirement_id || "unknown", "denied", `Missing permission ${requiredPermission}`)
+            return `Permission denied: ${requiredPermission}`
+          }
+          if (args.action === "migrate") {
+            const result = materializeLegacyAcceptanceCriteria(graph)
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["acceptance_criterion", "requirement"], ["has_acceptance_criterion"])
+            return `Acceptance migration complete: ${result.created} created, ${result.linked} linked, ${result.unresolved.length} unresolved task(s).`
+          }
+          if (args.action === "list" || args.action === "summary") {
+            if (!args.requirement_id) return "requirement_id is required"
+            if (args.action === "summary") return JSON.stringify(service.summary(args.requirement_id), null, 2)
+            const criteria = service.list(args.requirement_id)
+            return criteria.length === 0 ? "No acceptance criteria found." : criteria.map((criterion) => `${criterion.id} [${criterion.status}] v${criterion.metadata.criterion_version}: ${criterion.metadata.text}`).join("\n")
+          }
+          if (args.action === "create") {
+            if (!args.requirement_id || !args.text) return "requirement_id and text are required"
+            const criterion = service.create(args.requirement_id, args.text)
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["acceptance_criterion"], ["has_acceptance_criterion"])
+            return `Acceptance criterion created: ${criterion.id}`
+          }
+          if (args.action === "update_text") {
+            if (!args.criterion_id || !args.text) return "criterion_id and text are required"
+            const criterion = updateAcceptanceCriterionText(graph, args.criterion_id, args.text, { actor, observation: args.observation })
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["acceptance_criterion"], [])
+            return `Acceptance criterion ${criterion.id} updated to version ${criterion.metadata.criterion_version} and returned to PENDING.`
+          }
+          if (args.action === "accept_all") {
+            if (!args.requirement_id) return "requirement_id is required"
+            const result = service.acceptAll(args.requirement_id, input)
+            repo.saveGraph(graph)
+            for (const event of result.audit) addAuditEntry(ctx.directory, actor, `acceptance.${event.action}`, event.criterion_id, "allowed", JSON.stringify(event))
+            invalidateCacheForMutation(ctx.directory, ["acceptance_criterion"], [])
+            return JSON.stringify(result, null, 2)
+          }
+          if (!args.criterion_id) return "criterion_id is required"
+          const result = args.action === "accept"
+            ? service.accept(args.criterion_id, input)
+            : args.action === "reject"
+              ? service.reject(args.criterion_id, input)
+              : args.action === "waive"
+                ? service.waive(args.criterion_id, input)
+                : service.reopen(args.criterion_id, input)
+          repo.saveGraph(graph)
+          addAuditEntry(ctx.directory, actor, `acceptance.${result.audit.action}`, args.criterion_id, "allowed", JSON.stringify(result.audit))
+          invalidateCacheForMutation(ctx.directory, ["acceptance_criterion"], [])
+          return `${args.criterion_id} -> ${result.criterion.status}`
+        } catch (error) {
+          return `Error: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    }),
+
+    "sdd.impact": tool({
+      description: "Analyze bidirectional and semantic impact of changing any graph node.",
+      args: {
+        node_id: tool.schema.string().describe("Source node ID"),
+        depth: tool.schema.number().optional().describe("Maximum traversal depth"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        try { return formatNodeImpact(analyzeNodeImpact(repo.loadGraph(), args.node_id, args.depth || 5)) }
+        catch (error) { return `Error: ${error instanceof Error ? error.message : String(error)}` }
+      },
+    }),
+
+    "sdd.node_guidance": tool({
+      description: "Record human guidance for any graph node, analyze impact, propose and apply validated updates.",
+      args: {
+        action: tool.schema.enum(["create", "analyze", "propose", "apply", "reject"]),
+        node_id: tool.schema.string().optional().describe("Target node ID for create"),
+        guidance_id: tool.schema.string().optional().describe("Guidance node ID"),
+        instruction: tool.schema.string().optional().describe("Human instruction"),
+        proposal_json: tool.schema.string().optional().describe("Structured proposal JSON"),
+        expected_target_version: tool.schema.number().optional().describe("Expected target version"),
+        resolution: tool.schema.string().optional().describe("Rejection resolution"),
+        depth: tool.schema.number().optional().describe("Impact depth"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+        const actor = process.env.USER || process.env.USERNAME || "current"
+        try {
+          const requiredPermission: Permission = args.action === "apply" ? "apply_node_guidance" : "guide_node"
+          if (!checkPermission(getUserRoleWithAuth(ctx.directory, actor), requiredPermission, ctx.directory)) {
+            addAuditEntry(ctx.directory, actor, `guidance.${args.action}`, args.guidance_id || args.node_id || "unknown", "denied", `Missing permission ${requiredPermission}`)
+            return `Permission denied: ${requiredPermission}`
+          }
+          if (args.action === "create") {
+            if (!args.node_id || !args.instruction) return "node_id and instruction are required"
+            const guidance = createGuidance(graph, args.node_id, { instruction: args.instruction, requested_by: actor })
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["guidance"], ["guides"])
+            return `Guidance created: ${guidance.id}`
+          }
+          if (!args.guidance_id) return "guidance_id is required"
+          if (args.action === "analyze") {
+            const result = analyzeGuidance(graph, args.guidance_id, args.depth || 5)
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, ["guidance"], [])
+            return formatNodeImpact(result.impact)
+          }
+          if (!args.proposal_json && (args.action === "propose" || args.action === "apply")) return "proposal_json is required"
+          const proposal = args.proposal_json ? JSON.parse(args.proposal_json) as Record<string, unknown> : {}
+          if (args.action === "propose") {
+            const guidance = proposeGuidancePatch(graph, args.guidance_id, proposal)
+            repo.saveGraph(graph)
+            return `Guidance ${guidance.id} now has a PROPOSED update.`
+          }
+          if (args.action === "apply") {
+            const result = applyGuidancePatch(graph, args.guidance_id, proposal, actor, args.expected_target_version)
+            repo.saveGraph(graph)
+            invalidateCacheForMutation(ctx.directory, [result.target.type, "guidance"], [])
+            addAuditEntry(ctx.directory, actor, "guidance.apply", result.target.id, "allowed", JSON.stringify(proposal))
+            return `Guidance applied to ${result.target.id}; version ${result.target.version}.`
+          }
+          const guidance = rejectGuidance(graph, args.guidance_id, actor, args.resolution || "Rejected by user")
+          repo.saveGraph(graph)
+          return `Guidance ${guidance.id} rejected.`
+        } catch (error) {
+          return `Error: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    }),
+
     "sdd.initialize": tool({
       description:
         "Initialize the SDD Knowledge Graph for a project. Detects if SDD is already initialized. " +
@@ -1235,6 +1413,20 @@ function createAllTools(): Record<string, ToolDefinition> {
             "Fix: start the Change again with `sdd.enforce` / `sdd.create_change` passing `affected_files`.",
             "Or pass `acknowledge_no_files=true` to approve anyway (audited) — Write/Edit will stay blocked for this Change.",
           ].join("\n")
+        }
+
+        const acceptanceConfig = loadSddConfig(ctx.directory).acceptance
+        if (acceptanceConfig.enabled && acceptanceConfig.require_before_change_approval) {
+          const acceptance = checkChangeAcceptance(graph, args.change_id, { allowWaived: acceptanceConfig.allow_waived, legacyFallback: acceptanceConfig.legacy_fallback })
+          if (!acceptance.allowed) {
+            return [
+              `## Approval BLOCKED: ${args.change_id} has incomplete human acceptance`,
+              "",
+              `- ${acceptance.reason}`,
+              "",
+              "Accept or waive the affected criteria before approving this Change.",
+            ].join("\n")
+          }
         }
 
         // ENFORCEMENT: prevent self-approval

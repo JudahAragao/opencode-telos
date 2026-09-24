@@ -8,7 +8,7 @@ import {
   getWorkflowState,
 } from "../sdd/enforcement/workflow-tracker.js"
 import { getCacheManager } from "../sdd/cache/manager.js"
-import { createRepository } from "../sdd/persistence/repository.js"
+import { createRepository, loadSddConfig } from "../sdd/persistence/repository.js"
 import {
   TASK_COLUMN_LABELS,
   TASK_COLUMNS,
@@ -25,6 +25,8 @@ import {
 } from "../server/server.js"
 import { join as joinPath } from "path"
 import { sddDebug } from "../sdd/log.js"
+import { AcceptanceService } from "../sdd/acceptance/service.js"
+import { addAuditEntry, checkPermission, getUserRoleWithAuth, type Permission } from "../sdd/permissions/access.js"
 
 /**
  * Command hub interativo para SDD.
@@ -138,6 +140,10 @@ export function runSddCommand(
     text = sddCacheReset(projectDir)
   } else if (sub === "tasks" || sub.startsWith("tasks ") || sub.startsWith("tasks:")) {
     text = sddTasks(projectDir, input)
+  } else if (sub === "acceptance" || sub.startsWith("acceptance ") || sub.startsWith("acceptance:")) {
+    text = sddAcceptance(projectDir, input)
+  } else if (sub === "guide" || sub.startsWith("guide ") || sub.startsWith("guide:")) {
+    text = sddGuide(projectDir, input)
   } else if (sub === "viz" || sub.startsWith("viz ") || sub.startsWith("viz:")) {
     text = sddViz(projectDir, input)
   } else {
@@ -152,7 +158,7 @@ export function runSddCommand(
  * Anchored full-text match so normal prose that merely contains "sdd" is
  * never treated as a command.
  */
-const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|renew|cache[_\s-]*reset|tasks(?:[\s:_-]+(?:list|integrate|pending|board|kanban|open))?|viz(?:[\s:_-]+(?:start|stop|status))?))?$/i
+const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|renew|cache[_\s-]*reset|tasks(?:[\s:_-]+(?:list|integrate|pending|board|kanban|open))?|acceptance(?:[\s:_-]+.*)?|guide(?:[\s:_-]+.*)?|viz(?:[\s:_-]+(?:start|stop|status))?))?$/i
 
 /**
  * Detect a user message that is (or renders) an SDD command and normalize it
@@ -331,6 +337,10 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
     "- `sdd tasks`    — List the Kanban task board.",
     "- `sdd tasks board` — Open the dashboard on the Kanban board.",
     "- `sdd tasks change <TASK-ID>` — Open the SDD Change that authorizes the code of a task.",
+    "- `sdd acceptance <REQ-ID>` — List human acceptance criteria.",
+    "- `sdd acceptance accept <AC-ID>` — Accept one criterion.",
+    "- `sdd acceptance accept-all <REQ-ID>` — Accept all pending criteria transactionally.",
+    "- `sdd guide <NODE-ID> <instruction>` — Register human guidance for any node.",
     "- `sdd viz`      — Start the Knowledge Graph dashboard (deterministic).",
     "- `sdd viz stop` — Stop the dashboard.",
     "- `sdd cache_reset` — Clear caches without killing the session.",
@@ -347,6 +357,83 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
  * Determinístico: lê o grafo e formata o board; `tasks board` sobe o dashboard
  * (mesmo caminho de `/sdd viz`) e aponta para a aba Kanban.
  */
+function sddAcceptance(projectDir: string, input: SddCommandInput): string {
+  const raw = input.arguments.replace(/^acceptance[:\s]*/i, "").trim()
+  const parts = raw.split(/\s+/).filter(Boolean)
+  const repo = createRepository(projectDir)
+  if (!repo.isInitialized()) return "## SDD Acceptance\n\nThe Knowledge Graph is not initialized. Run `sdd.initialize` first."
+  const graph = repo.loadGraph()
+  const service = new AcceptanceService(graph, loadSddConfig(projectDir).acceptance.legacy_fallback)
+  const actor = process.env.USER || process.env.USERNAME || "current"
+  const action = (parts[0] || "list").toLowerCase()
+  const target = parts[1]
+
+  const requiredPermission: Permission | undefined = action === "accept" || action === "accept-all"
+    ? "accept_requirement"
+    : action === "reject"
+      ? "reject_requirement"
+      : action === "waive"
+        ? "waive_requirement"
+        : action === "reopen"
+          ? "reopen_requirement"
+          : undefined
+  if (requiredPermission && !checkPermission(getUserRoleWithAuth(projectDir, actor), requiredPermission, projectDir)) {
+    addAuditEntry(projectDir, actor, `acceptance.${action}`, target || "unknown", "denied", `Missing permission ${requiredPermission}`)
+    return `Permission denied: ${requiredPermission}`
+  }
+
+  if (action === "list" || action === "summary") {
+    if (!target) return "Informe um Requirement ID: `/sdd acceptance REQ-001`."
+    if (action === "summary") return JSON.stringify(service.summary(target), null, 2)
+    const criteria = service.list(target)
+    if (criteria.length === 0) return `Nenhum critério encontrado para ${target}.`
+    return [`## Acceptance — ${target}`, "", ...criteria.map((criterion) => `- ${criterion.id} [${criterion.status}] v${criterion.metadata.criterion_version}: ${criterion.metadata.text}`)].join("\n")
+  }
+
+  if (["accept", "reject", "waive", "reopen"].includes(action)) {
+    if (!target) return "Informe o ID do critério."
+    const result = action === "accept"
+      ? service.accept(target, { actor })
+      : action === "reject"
+        ? service.reject(target, { actor })
+        : action === "waive"
+          ? service.waive(target, { actor, observation: parts.slice(2).join(" ") || "Waived through CLI" })
+          : service.reopen(target, { actor })
+    repo.saveGraph(graph)
+    addAuditEntry(projectDir, actor, `acceptance.${result.audit.action}`, target, "allowed", JSON.stringify(result.audit))
+    return `${target} -> ${result.criterion.status}`
+  }
+
+  if (action === "accept-all") {
+    if (!target) return "Informe o Requirement ID."
+    const result = service.acceptAll(target, { actor })
+    repo.saveGraph(graph)
+    for (const event of result.audit) addAuditEntry(projectDir, actor, "acceptance.accept", event.criterion_id, "allowed", JSON.stringify(event))
+    return JSON.stringify(result, null, 2)
+  }
+
+  return "Uso: `/sdd acceptance REQ-001`, `accept AC-001`, `reject AC-001`, `waive AC-001`, `reopen AC-001` ou `accept-all REQ-001`."
+}
+
+function sddGuide(projectDir: string, input: SddCommandInput): string {
+  const raw = input.arguments.replace(/^guide[:\s]*/i, "").trim()
+  const match = raw.match(/^(\S+)\s+(.+)$/)
+  if (!match) return "Uso: `/sdd guide NODE-001 orientação humana`."
+  const repo = createRepository(projectDir)
+  if (!repo.isInitialized()) return "The Knowledge Graph is not initialized. Run `sdd.initialize` first."
+  const { createGuidance } = require("../sdd/guidance/service.js") as typeof import("../sdd/guidance/service.js")
+  const graph = repo.loadGraph()
+  const actor = process.env.USER || process.env.USERNAME || "current"
+  if (!checkPermission(getUserRoleWithAuth(projectDir, actor), "guide_node", projectDir)) {
+    addAuditEntry(projectDir, actor, "guidance.create", match[1], "denied", "Missing permission guide_node")
+    return "Permission denied: guide_node"
+  }
+  const guidance = createGuidance(graph, match[1], { instruction: match[2], requested_by: actor })
+  repo.saveGraph(graph)
+  addAuditEntry(projectDir, actor, "guidance.create", guidance.id, "allowed", match[2])
+  return `Guidance created: ${guidance.id} for ${match[1]}`
+}
+
 function sddTasks(projectDir: string, input: SddCommandInput): string {
   const rawAction = input.arguments.replace(/^tasks[:\s]*/i, "").trim()
   const action = rawAction.toLowerCase()

@@ -1,6 +1,7 @@
 import type { KnowledgeGraph } from "../domain/types.js"
 import { getNodesByType } from "../graph/engine.js"
 import type { QuestionForUser } from "./briefing.js"
+import { getAcceptanceCriteria } from "../acceptance/service.js"
 
 /**
  * Given a list of discovery questions and the current graph state,
@@ -99,8 +100,7 @@ export function generateGapQuestions(graph: KnowledgeGraph): QuestionForUser[] {
   // Check for requirements without acceptance criteria
   const reqs = getNodesByType(graph, "requirement")
   const reqsWithoutCriteria = reqs.filter(r => {
-    const meta = r.metadata as any
-    return !meta.acceptance_criteria || meta.acceptance_criteria.length === 0
+    return getAcceptanceCriteria(graph, r.id, true).length === 0
   })
 
   if (reqsWithoutCriteria.length > 0 && reqsWithoutCriteria.length <= 5) {

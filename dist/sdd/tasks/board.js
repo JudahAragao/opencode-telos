@@ -14,6 +14,7 @@
  * the Kanban column and the AI-integration state.
  */
 import { addNode, addRelationship, getNode, removeNode, updateNode } from "../graph/engine.js";
+import { createAcceptanceCriterion, getAcceptanceCriteria } from "../acceptance/service.js";
 export const TASK_PRIORITIES = ["critical", "high", "medium", "low"];
 export const TASK_PRIORITY_LABELS = {
     critical: "Critical",
@@ -132,6 +133,19 @@ export function toTaskBoardItem(graph, task) {
         });
     }
     const metadata = { ...task.metadata };
+    const requirementIds = links
+        .filter((link) => link.node_type === "requirement")
+        .map((link) => link.node_id);
+    const criteria = requirementIds.flatMap((requirementId) => getAcceptanceCriteria(graph, requirementId, true));
+    if (criteria.length > 0) {
+        metadata.acceptance_summary = {
+            total: criteria.length,
+            pending: criteria.filter((criterion) => criterion.status === "PENDING").length,
+            accepted: criteria.filter((criterion) => criterion.status === "ACCEPTED").length,
+            rejected: criteria.filter((criterion) => criterion.status === "REJECTED").length,
+            waived: criteria.filter((criterion) => criterion.status === "WAIVED").length,
+        };
+    }
     const declaredChange = typeof metadata.change_id === "string" ? metadata.change_id : undefined;
     const change = declaredChange ? getNode(graph, declaredChange) : undefined;
     return {
@@ -300,7 +314,7 @@ export function createTask(graph, input) {
     if (input.files?.length)
         metadata.files = input.files;
     if (input.acceptance?.length)
-        metadata.acceptance = input.acceptance;
+        metadata.legacy_acceptance = input.acceptance;
     if (isTaskPriority(input.priority))
         metadata.priority = input.priority;
     const node = {
@@ -316,6 +330,21 @@ export function createTask(graph, input) {
     };
     addNode(graph, node);
     linkTask(graph, node, input.link_to, input.link_type);
+    if (input.acceptance?.length) {
+        const requirement = graph.relationships
+            .filter((rel) => rel.from === node.id && rel.type === "implements")
+            .map((rel) => getNode(graph, rel.to))
+            .find((candidate) => candidate?.type === "requirement");
+        if (requirement) {
+            for (const criterion of input.acceptance)
+                createAcceptanceCriterion(graph, requirement.id, criterion, `task:${node.id}`);
+            delete node.metadata.legacy_acceptance;
+        }
+        else {
+            ;
+            node.metadata.legacy_acceptance = input.acceptance;
+        }
+    }
     return node;
 }
 export function updateTask(graph, id, input) {
@@ -344,8 +373,22 @@ export function updateTask(graph, id, input) {
         metadata.goal = input.goal;
     if (input.files !== undefined)
         metadata.files = input.files;
-    if (input.acceptance !== undefined)
-        metadata.acceptance = input.acceptance;
+    if (input.acceptance !== undefined) {
+        const requirement = graph.relationships
+            .filter((rel) => rel.from === task.id && rel.type === "implements")
+            .map((rel) => getNode(graph, rel.to))
+            .find((candidate) => candidate?.type === "requirement");
+        if (requirement) {
+            for (const criterion of input.acceptance)
+                createAcceptanceCriterion(graph, requirement.id, criterion, `task:${task.id}`);
+            delete metadata.acceptance;
+            delete metadata.legacy_acceptance;
+        }
+        else {
+            metadata.legacy_acceptance = input.acceptance;
+            delete metadata.acceptance;
+        }
+    }
     if (input.priority !== undefined)
         metadata.priority = input.priority;
     let status = task.status;
@@ -410,8 +453,9 @@ export function buildIntegrationBrief(graph) {
         if (Array.isArray(meta.files) && meta.files.length > 0) {
             lines.push(`- Arquivos previstos: ${meta.files.join(", ")}`);
         }
-        if (Array.isArray(meta.acceptance) && meta.acceptance.length > 0) {
-            lines.push(`- Critérios de aceite: ${meta.acceptance.join("; ")}`);
+        const derived = toTaskBoardItem(graph, task).metadata.acceptance_summary;
+        if (derived) {
+            lines.push(`- Critérios de aceite derivados: ${String(derived.total)} total, ${String(derived.pending)} pendente(s), ${String(derived.accepted)} aceito(s), ${String(derived.rejected)} rejeitado(s)`);
         }
         lines.push("");
     }

@@ -4,6 +4,7 @@ import { runRelationshipInference } from "./relationship-inferencer.js";
 import { isRelationshipAllowed, normalizeRelationshipType } from "../graph/schema.js";
 import { createTask, isTaskPriority } from "../tasks/board.js";
 import { progressEmitter } from "../../server/events.js";
+import { createAcceptanceCriterion } from "../acceptance/service.js";
 function safeId(projectId, type, name) {
     const clean = name
         .toLowerCase()
@@ -184,13 +185,18 @@ function buildRequirementNodes(graph, requirements) {
                 status: "DRAFT",
                 version: 1,
                 metadata: {
-                    acceptance_criteria: r.acceptanceCriteria,
                     priority: r.priority,
                     req_type: r.type,
                 },
                 created_at: now(),
                 updated_at: now(),
             });
+            for (const criterion of r.acceptanceCriteria || []) {
+                try {
+                    createAcceptanceCriterion(graph, id, criterion, "discovery");
+                }
+                catch { /* invalid criterion is reported by validation */ }
+            }
             count++;
         }
         catch { /* skip */ }

@@ -24,6 +24,12 @@ export type NodeStatus =
   | "resolved"
   | "closed"
   | "wont_fix"
+  | "PENDING"
+  | "ACCEPTED"
+  | "REJECTED"
+  | "WAIVED"
+
+export type AcceptanceStatus = "PENDING" | "ACCEPTED" | "REJECTED" | "WAIVED"
 
 export type ChangeStatus = NodeStatus
 
@@ -76,6 +82,8 @@ export type NodeType =
   | "finding"
   | "sla"
   | "milestone"
+  | "acceptance_criterion"
+  | "guidance"
 
 export type RelationshipType =
   | "contains"
@@ -124,6 +132,8 @@ export type RelationshipType =
   | "specifies"
   | "operates_on"
   | "traces_to"
+  | "has_acceptance_criterion"
+  | "guides"
 
 export interface Node {
   id: string
@@ -187,6 +197,41 @@ export interface RequirementNode extends Node {
       security_criteria?: string[]
       performance_criteria?: string[]
     }
+  }
+}
+
+export interface AcceptanceCriterionNode extends Node {
+  type: "acceptance_criterion"
+  status: AcceptanceStatus
+  metadata: {
+    text: string
+    criterion_version: number
+    content_hash: string
+    accepted_by?: string
+    accepted_at?: string
+    observation?: string
+    evidence?: Array<{ type?: string; source?: string; id?: string; summary?: string }>
+    previous_status?: AcceptanceStatus
+    previous_hash?: string
+    legacy_source?: string
+  }
+}
+
+export interface GuidanceNode extends Node {
+  type: "guidance"
+  metadata: {
+    instruction: string
+    target_node_id: string
+    requested_by: string
+    priority?: "low" | "medium" | "high" | "critical"
+    scope?: string
+    status: "OPEN" | "ANALYZED" | "PROPOSED" | "APPLIED" | "REJECTED" | "SUPERSEDED"
+    proposal?: Record<string, unknown>
+    impact_node_ids?: string[]
+    applied_target_ids?: string[]
+    change_id?: string
+    applied_at?: string
+    resolution?: string
   }
 }
 
@@ -698,6 +743,8 @@ export type AnyNode =
   | FindingNode
   | SLANode
   | MilestoneNode
+  | AcceptanceCriterionNode
+  | GuidanceNode
 
 export interface KnowledgeGraph {
   version: string
@@ -755,6 +802,13 @@ export interface SddConfig {
     critical_requirement_without_test: "error" | "warning"
     missing_verification_scenario: "error" | "warning"
   }
+  acceptance: {
+    enabled: boolean
+    require_before_change_approval: boolean
+    require_before_change_completion: boolean
+    allow_waived: boolean
+    legacy_fallback: boolean
+  }
 }
 
 export const DEFAULT_SDD_CONFIG: SddConfig = {
@@ -779,5 +833,12 @@ export const DEFAULT_SDD_CONFIG: SddConfig = {
   validation: {
     critical_requirement_without_test: "error",
     missing_verification_scenario: "warning",
+  },
+  acceptance: {
+    enabled: true,
+    require_before_change_approval: false,
+    require_before_change_completion: false,
+    allow_waived: true,
+    legacy_fallback: true,
   },
 }

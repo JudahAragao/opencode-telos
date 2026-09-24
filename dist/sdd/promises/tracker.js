@@ -4,6 +4,7 @@ import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion
 import { classifyPromiseVerifiability } from "./classifier.js";
 import { fileContentFingerprint } from "../cache/fingerprint.js";
 import { join } from "path";
+import { getAcceptanceCriteria } from "../acceptance/service.js";
 /** Stable identity: reordering acceptance criteria must not change the promise. */
 export function stablePromiseId(sourceNodeId, description, kind = "criterion") {
     const digest = createHash("sha256")
@@ -22,11 +23,9 @@ export function extractPromises(graph, options) {
     const requirements = getNodesByType(graph, "requirement")
         .filter((r) => !isNodeExcludedOrDeprecated(r.id, r.status, removed, deprecated));
     for (const req of requirements) {
-        const criteria = req.metadata.acceptance_criteria || [];
+        const criteria = getAcceptanceCriteria(graph, req.id, true);
         for (let i = 0; i < criteria.length; i++) {
-            const criterion = criteria[i];
-            if (typeof criterion !== "string")
-                continue;
+            const criterion = criteria[i].metadata.text;
             const promiseId = stablePromiseId(req.id, criterion);
             const persisted = persistedStates.get(promiseId) || persistedStates.get(`PRM-${req.id}-${String(i + 1).padStart(3, "0")}`);
             let status = persisted?.status || "pending";

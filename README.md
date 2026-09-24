@@ -136,6 +136,10 @@ depending on the LLM to perform the action):
 | `/sdd tasks integrate` | `tasks integrate` | Shows the AI integration plan for tasks pending integration |
 | `/sdd tasks board` | `tasks board` | Opens the dashboard on the Kanban board |
 | `/sdd tasks change <TASK-ID>` | `tasks change <id>` | Opens the SDD Change that authorizes the code of a task (`--approve` approves it) |
+| `/sdd acceptance <REQ-ID>` | `acceptance <id>` | Lists the Requirement's canonical human acceptance criteria |
+| `/sdd acceptance accept <AC-ID>` | `acceptance accept <id>` | Accepts one criterion through the central service |
+| `/sdd acceptance accept-all <REQ-ID>` | `acceptance accept-all <id>` | Accepts all pending criteria as one audited operation |
+| `/sdd guide <NODE-ID> <instruction>` | `guide <id> <instruction>` | Records human guidance for any Knowledge Graph node |
 | `/sdd cache_reset` | `cache_reset` | Clears caches without killing the session |
 
 `/sdd-viz` and `/sdd:viz` are accepted as the same command as `/sdd viz`.
@@ -454,6 +458,30 @@ writes source code itself.
 | `sdd.infer_relationships` | Rebuilds graph traceability: infers the missing semantic edges (`requirement --specifies--> feature`, `endpoint/file --implements--> feature`, `endpoint --operates_on--> entity`, `task/change --belongs_to--> milestone`), normalizes redundant inverse pairs and creates milestone nodes. Idempotent; `dry_run` previews the edges |
 | `sdd.milestone` | Manages release milestones and reports traceability per release: `create`, `list`, `add`, `remove`, `assign`, `close`, `report`. The report shows the release scope, task progress and gaps (requirements without tests, features without implementation, endpoints/files without a feature) |
 | `sdd.findings` | Brownfield findings lifecycle: `scan`, `list`, `report`, `readiness`, `transition`, `resolve`, `create_task`. Documentation findings remain open until a Change verifies the fix; reverse-engineering findings become target requirements/decisions instead of old-code remediation tasks |
+
+### Acceptance and human guidance
+
+Acceptance criteria are first-class `acceptance_criterion` nodes linked to their
+Requirement with `has_acceptance_criterion`. Their text, version, SHA-256 hash,
+status, actor, timestamp, observation and evidence are stored in the graph.
+Tasks do not copy criteria; their dashboard status is derived from linked
+Requirements. CLI, dashboard, OpenCode tools and MCP use the same service.
+
+Use `sdd.acceptance` for list, accept, reject, waive, reopen, text updates and
+legacy migration. Change approval and completion can optionally require all
+affected criteria to be accepted; configure this through the SDD acceptance
+settings. Changing criterion text increments its version and returns it to
+`PENDING`.
+
+The gradual rollout flags are `acceptance.enabled`,
+`acceptance.require_before_change_approval`,
+`acceptance.require_before_change_completion`,
+`acceptance.allow_waived` and `acceptance.legacy_fallback` in the SDD config.
+
+Human instructions for any node are recorded as `guidance` nodes. The service
+calculates bidirectional impact, stores a structured proposal, checks the target
+version, and applies the update with audit history. Acceptance criteria receive
+special handling so text changes always refresh their hash/version invariants.
 
 ### Composite tools
 

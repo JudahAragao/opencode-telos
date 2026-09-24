@@ -557,6 +557,8 @@ function getHierarchyLevel(type: string): number {
     task: 4,
     test: 4,
     file: 4,
+    guidance: 2,
+    acceptance_criterion: 4,
     symbol: 5,
     change: 2,
     constitution: 1,

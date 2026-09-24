@@ -401,6 +401,7 @@ export function loadSddConfig(projectDir: string): SddConfig {
         graph: { ...DEFAULT_SDD_CONFIG.graph, ...(parsed.graph || {}) },
         git: { ...DEFAULT_SDD_CONFIG.git, ...(parsed.git || {}) },
         validation: { ...DEFAULT_SDD_CONFIG.validation, ...(parsed.validation || {}) },
+        acceptance: { ...DEFAULT_SDD_CONFIG.acceptance, ...(parsed.acceptance || {}) },
       }
     } catch (error) { sddDebug("repository", "Failed to load SDD config, using defaults") }
   }

@@ -6,10 +6,10 @@
  * `bun run build`, e disponível como `bun run version:sync`). Não edite o valor
  * à mão — edite o package.json e rode o script.
  */
-export declare const PLUGIN_VERSION = "2.2.0";
+export declare const PLUGIN_VERSION = "2.3.0";
 /**
  * Versão do formato de dados do Knowledge Graph em `.sdd/` (usada em
  * `graph.version` e `metadata.sdd_version`). É independente da versão de
  * release do plugin e evolui apenas quando o schema do grafo muda.
  */
-export declare const GRAPH_SCHEMA_VERSION = "1.1.0";
+export declare const GRAPH_SCHEMA_VERSION = "1.2.0";

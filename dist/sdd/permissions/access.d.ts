@@ -1,5 +1,5 @@
 export type Role = "admin" | "architect" | "developer" | "viewer";
-export type Permission = "create_feature" | "create_requirement" | "create_entity" | "create_endpoint" | "create_change" | "approve_feature" | "approve_requirement" | "approve_architecture" | "approve_breaking" | "modify_constitution" | "modify_decision" | "execute_rollback" | "manage_permissions" | "sync_push" | "sync_pull";
+export type Permission = "create_feature" | "create_requirement" | "create_entity" | "create_endpoint" | "create_change" | "approve_feature" | "approve_requirement" | "approve_architecture" | "approve_breaking" | "modify_constitution" | "modify_decision" | "execute_rollback" | "manage_permissions" | "sync_push" | "sync_pull" | "accept_requirement" | "reject_requirement" | "waive_requirement" | "reopen_requirement" | "guide_node" | "apply_node_guidance";
 export interface RolePermissions {
     role: Role;
     permissions: Permission[];

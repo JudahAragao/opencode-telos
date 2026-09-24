@@ -5,6 +5,7 @@ import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion
 import { classifyPromiseVerifiability, type DependencyRule } from "./classifier.js"
 import { fileContentFingerprint } from "../cache/fingerprint.js"
 import { join } from "path"
+import { getAcceptanceCriteria } from "../acceptance/service.js"
 
 export interface PromiseReport {
   total: number
@@ -47,10 +48,9 @@ export function extractPromises(
   const requirements = getNodesByType<RequirementNode>(graph, "requirement")
     .filter((r) => !isNodeExcludedOrDeprecated(r.id, r.status, removed, deprecated))
   for (const req of requirements) {
-    const criteria = req.metadata.acceptance_criteria || []
+    const criteria = getAcceptanceCriteria(graph, req.id, true)
     for (let i = 0; i < criteria.length; i++) {
-      const criterion = criteria[i]
-      if (typeof criterion !== "string") continue
+      const criterion = criteria[i].metadata.text
       const promiseId = stablePromiseId(req.id, criterion)
       const persisted = persistedStates.get(promiseId) || persistedStates.get(`PRM-${req.id}-${String(i + 1).padStart(3, "0")}`)
       let status: SpecPromise["status"] = (persisted?.status as SpecPromise["status"]) || "pending"

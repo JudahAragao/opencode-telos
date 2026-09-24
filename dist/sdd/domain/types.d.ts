@@ -1,11 +1,12 @@
-export type NodeStatus = "DRAFT" | "PROPOSED" | "APPROVED" | "IMPLEMENTING" | "IMPLEMENTED" | "VERIFIED" | "DEPRECATED" | "CONFLICT" | "DRIFTED" | "BLOCKED" | "todo" | "ready" | "in_progress" | "blocked" | "completed" | "VERIFYING" | "FAILED" | "ROLLED_BACK" | "COMPLETED" | "open" | "triaged" | "accepted" | "resolved" | "closed" | "wont_fix";
+export type NodeStatus = "DRAFT" | "PROPOSED" | "APPROVED" | "IMPLEMENTING" | "IMPLEMENTED" | "VERIFIED" | "DEPRECATED" | "CONFLICT" | "DRIFTED" | "BLOCKED" | "todo" | "ready" | "in_progress" | "blocked" | "completed" | "VERIFYING" | "FAILED" | "ROLLED_BACK" | "COMPLETED" | "open" | "triaged" | "accepted" | "resolved" | "closed" | "wont_fix" | "PENDING" | "ACCEPTED" | "REJECTED" | "WAIVED";
+export type AcceptanceStatus = "PENDING" | "ACCEPTED" | "REJECTED" | "WAIVED";
 export type ChangeStatus = NodeStatus;
 export type TaskStatus = NodeStatus;
 export type GapClassification = "CRITICAL" | "IMPORTANT" | "OPTIONAL" | "UNKNOWN";
 export type ImpactLevel = "DIRECT" | "INDIRECT" | "POTENTIAL";
 export type ApprovalLevel = "AUTO" | "REVIEW" | "APPROVAL" | "BLOCKED" | "POST_HOC";
-export type NodeType = "project" | "domain" | "feature" | "requirement" | "business_rule" | "actor" | "entity" | "value_object" | "flow" | "use_case" | "architecture_component" | "module" | "api" | "endpoint" | "database" | "table" | "field" | "task" | "test" | "file" | "symbol" | "change" | "decision" | "constraint" | "assumption" | "constitution" | "bug_fix" | "hotfix" | "refactoring" | "deprecation" | "migration" | "experiment" | "feature_flag" | "tenant" | "metric" | "alert" | "incident" | "finding" | "sla" | "milestone";
-export type RelationshipType = "contains" | "depends_on" | "requires" | "implements" | "implemented_by" | "satisfied_by" | "affects" | "modifies" | "creates" | "deletes" | "uses" | "calls" | "persists_to" | "exposes" | "tested_by" | "tests" | "derived_from" | "contradicts" | "supersedes" | "replaces" | "blocked_by" | "belongs_to" | "owned_by" | "triggered_by" | "flows_to" | "deprecates" | "migrates_to" | "experimented_by" | "flagged_by" | "validates" | "influences" | "constrains" | "applies_to" | "owned_by_tenant" | "monitored_by" | "alerted_by" | "incident_in" | "detected_in" | "tracked_by" | "resolves" | "evidenced_by" | "sla_for" | "defines" | "specifies" | "operates_on" | "traces_to";
+export type NodeType = "project" | "domain" | "feature" | "requirement" | "business_rule" | "actor" | "entity" | "value_object" | "flow" | "use_case" | "architecture_component" | "module" | "api" | "endpoint" | "database" | "table" | "field" | "task" | "test" | "file" | "symbol" | "change" | "decision" | "constraint" | "assumption" | "constitution" | "bug_fix" | "hotfix" | "refactoring" | "deprecation" | "migration" | "experiment" | "feature_flag" | "tenant" | "metric" | "alert" | "incident" | "finding" | "sla" | "milestone" | "acceptance_criterion" | "guidance";
+export type RelationshipType = "contains" | "depends_on" | "requires" | "implements" | "implemented_by" | "satisfied_by" | "affects" | "modifies" | "creates" | "deletes" | "uses" | "calls" | "persists_to" | "exposes" | "tested_by" | "tests" | "derived_from" | "contradicts" | "supersedes" | "replaces" | "blocked_by" | "belongs_to" | "owned_by" | "triggered_by" | "flows_to" | "deprecates" | "migrates_to" | "experimented_by" | "flagged_by" | "validates" | "influences" | "constrains" | "applies_to" | "owned_by_tenant" | "monitored_by" | "alerted_by" | "incident_in" | "detected_in" | "tracked_by" | "resolves" | "evidenced_by" | "sla_for" | "defines" | "specifies" | "operates_on" | "traces_to" | "has_acceptance_criterion" | "guides";
 export interface Node {
     id: string;
     type: NodeType;
@@ -71,6 +72,44 @@ export interface RequirementNode extends Node {
             security_criteria?: string[];
             performance_criteria?: string[];
         };
+    };
+}
+export interface AcceptanceCriterionNode extends Node {
+    type: "acceptance_criterion";
+    status: AcceptanceStatus;
+    metadata: {
+        text: string;
+        criterion_version: number;
+        content_hash: string;
+        accepted_by?: string;
+        accepted_at?: string;
+        observation?: string;
+        evidence?: Array<{
+            type?: string;
+            source?: string;
+            id?: string;
+            summary?: string;
+        }>;
+        previous_status?: AcceptanceStatus;
+        previous_hash?: string;
+        legacy_source?: string;
+    };
+}
+export interface GuidanceNode extends Node {
+    type: "guidance";
+    metadata: {
+        instruction: string;
+        target_node_id: string;
+        requested_by: string;
+        priority?: "low" | "medium" | "high" | "critical";
+        scope?: string;
+        status: "OPEN" | "ANALYZED" | "PROPOSED" | "APPLIED" | "REJECTED" | "SUPERSEDED";
+        proposal?: Record<string, unknown>;
+        impact_node_ids?: string[];
+        applied_target_ids?: string[];
+        change_id?: string;
+        applied_at?: string;
+        resolution?: string;
     };
 }
 export interface BusinessRuleNode extends Node {
@@ -491,7 +530,7 @@ export interface PromiseEvidenceRef {
     fingerprint?: string;
     summary?: string;
 }
-export type AnyNode = ProjectNode | DomainNode | FeatureNode | RequirementNode | BusinessRuleNode | ActorNode | EntityNode | ValueObjectNode | FlowNode | UseCaseNode | ArchitectureComponentNode | ModuleNode | ApiNode | EndpointNode | DatabaseNode | TableNode | FieldNode | TaskNode | TestNode | FileNode | SymbolNode | ChangeNode | DecisionNode | ConstraintNode | AssumptionNode | ConstitutionNode | BugFixNode | HotfixNode | RefactoringNode | DeprecationNode | MigrationNode | ExperimentNode | FeatureFlagNode | TenantNode | MetricNode | AlertNode | IncidentNode | FindingNode | SLANode | MilestoneNode;
+export type AnyNode = ProjectNode | DomainNode | FeatureNode | RequirementNode | BusinessRuleNode | ActorNode | EntityNode | ValueObjectNode | FlowNode | UseCaseNode | ArchitectureComponentNode | ModuleNode | ApiNode | EndpointNode | DatabaseNode | TableNode | FieldNode | TaskNode | TestNode | FileNode | SymbolNode | ChangeNode | DecisionNode | ConstraintNode | AssumptionNode | ConstitutionNode | BugFixNode | HotfixNode | RefactoringNode | DeprecationNode | MigrationNode | ExperimentNode | FeatureFlagNode | TenantNode | MetricNode | AlertNode | IncidentNode | FindingNode | SLANode | MilestoneNode | AcceptanceCriterionNode | GuidanceNode;
 export interface KnowledgeGraph {
     version: string;
     project_id: string;
@@ -544,6 +583,13 @@ export interface SddConfig {
     validation: {
         critical_requirement_without_test: "error" | "warning";
         missing_verification_scenario: "error" | "warning";
+    };
+    acceptance: {
+        enabled: boolean;
+        require_before_change_approval: boolean;
+        require_before_change_completion: boolean;
+        allow_waived: boolean;
+        legacy_fallback: boolean;
     };
 }
 export declare const DEFAULT_SDD_CONFIG: SddConfig;

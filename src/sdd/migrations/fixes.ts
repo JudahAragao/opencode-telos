@@ -2,6 +2,7 @@ import { registerMigration } from "./migration-runner.js"
 import { existsSync, readFileSync } from "fs"
 import { join } from "path"
 import { atomicWriteFile } from "../cache/atomic.js"
+import { materializeLegacyAcceptanceCriteria } from "../acceptance/service.js"
 
 // ── Migration 1: Sync graph.db from graph.yaml ──
 registerMigration({
@@ -153,3 +154,33 @@ registerMigration({
 })
 
 export function getFixes(): void {}
+
+// ── Migration 5: Materialize acceptance criteria as graph nodes ──
+registerMigration({
+  id: "20260924_materialize_acceptance_criteria",
+  description: "Materialize legacy requirement/task acceptance criteria as graph nodes",
+  version: "2.3.0",
+  up: (projectDir: string) => {
+    try {
+      const { createRepository } = require("../../sdd/persistence/repository.js")
+      const repo = createRepository(projectDir)
+      if (!repo.isInitialized()) return { success: true, message: "No graph found, skipping" }
+      const graph = repo.loadGraph()
+      const result = materializeLegacyAcceptanceCriteria(graph)
+      if (result.created === 0 && result.unresolved.length === 0) {
+        return { success: true, message: "Acceptance criteria are already materialized" }
+      }
+      repo.saveGraph(graph)
+      const unresolved = result.unresolved.length > 0
+        ? ` Unresolved tasks without a linked requirement: ${result.unresolved.join(", ")}.`
+        : ""
+      return {
+        success: true,
+        message: `Materialized ${result.created} acceptance criterion node(s) and linked ${result.linked}.${unresolved}`,
+        files_modified: [join(projectDir, ".sdd", repo.getStorageType() === "sqlite" ? "graph.db" : "graph.yaml")],
+      }
+    } catch (error) {
+      return { success: false, message: `Acceptance migration failed: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  },
+})

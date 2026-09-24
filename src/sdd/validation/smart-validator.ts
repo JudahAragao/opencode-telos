@@ -9,6 +9,7 @@ import {
 } from "./validator.js"
 import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion.js"
 import { ValidationIndex } from "./coverage-index.js"
+import { getAcceptanceCriteria } from "../acceptance/service.js"
 
 /**
  * Subsystem classification: which validation checks are relevant
@@ -226,7 +227,7 @@ export function validateSmart(
   for (const subsystem of subsystemsToCheck) {
     switch (subsystem) {
       case "requirements":
-        validateRequirementsSmart(indices, relevantNodes, removed, deprecated, warnings)
+        validateRequirementsSmart(graph, indices, relevantNodes, removed, deprecated, warnings)
         break
       case "entities":
         validateEntitiesSmart(relevantNodes, removed, deprecated, warnings)
@@ -271,6 +272,7 @@ export function validateSmart(
 // ── Smart subsystem validators (index-aware) ────────────────────────
 
 function validateRequirementsSmart(
+  graph: KnowledgeGraph,
   indices: GraphIndices,
   nodes: AnyNode[],
   removed: Set<string>,
@@ -298,8 +300,8 @@ function validateRequirementsSmart(
       })
     }
 
-    const meta = req.metadata as any
-    if (!meta.acceptance_criteria || meta.acceptance_criteria.length === 0) {
+    const criteria = getAcceptanceCriteria(graph, req.id, true)
+    if (criteria.length === 0) {
       if (!req.description || req.description.length < 10) {
         warnings.push({
           code: "REQUIREMENT_NO_CRITERIA",

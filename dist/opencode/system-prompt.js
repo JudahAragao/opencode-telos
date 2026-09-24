@@ -185,6 +185,9 @@ The graph has INTEGRITY CHECKSUMS. Any modification outside SDD tools is:
 The ONLY way to modify the graph is through SDD tools:
 - sdd.graph_mutation(action="add_node|update_node|remove_node")
 - sdd.graph_mutation(action="add_relationship|remove_relationship")
+- sdd.acceptance(action="list|summary|create|accept|reject|waive|reopen|accept_all|update_text")
+- sdd.node_guidance(action="create|analyze|propose|apply|reject") for human guidance on any node type
+- sdd.impact(node_id=...) before applying semantic changes
 - sdd.create_change, sdd.approve_change, sdd.complete_change
 - sdd.update_from_answers
 
@@ -240,6 +243,21 @@ If the workflow window expires mid-task, renew the SAME Change with **sdd.renew_
 - Validate
 - Regenerate affected code
 - Complete the change
+
+### If user gives guidance for any graph node:
+- Record the instruction with \`sdd.node_guidance(action="create")\`.
+- Analyze the target and all incoming/outgoing semantic impact with \`sdd.impact\`.
+- Present a structured proposal before applying semantic updates.
+- When dependent nodes must change, include explicit \`updates: [{node_id, patch, expected_version}]\` entries; they are accepted only for nodes returned by the impact analysis.
+- Use \`expected_target_version\` when applying the proposal.
+- Never rewrite dependent node content automatically without a validated proposal.
+
+### Acceptance criteria:
+- Requirements own the official acceptance criteria as \`acceptance_criterion\` nodes.
+- Tasks only reference requirements and display derived acceptance status.
+- Use \`sdd.acceptance\` for every acceptance operation; do not edit legacy acceptance arrays directly.
+- Changing criterion text increments its criterion version, changes its hash, and returns it to PENDING.
+- Human acceptance, Change approval, technical verification, and final delivery acceptance are distinct gates.
 
 ### If user says "delete feature X":
 - First run sdd.enforce (will likely be BLOCKED - needs approval)

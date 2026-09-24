@@ -16,6 +16,7 @@ import type {
   ExtractedTask,
 } from "./briefing-analyzer.js"
 import { progressEmitter } from "../../server/events.js"
+import { createAcceptanceCriterion } from "../acceptance/service.js"
 
 export interface GraphBuildResult {
   nodesCreated: number
@@ -221,13 +222,15 @@ function buildRequirementNodes(
         status: "DRAFT",
         version: 1,
         metadata: {
-          acceptance_criteria: r.acceptanceCriteria,
           priority: r.priority,
           req_type: r.type,
         },
         created_at: now(),
         updated_at: now(),
       } as AnyNode)
+      for (const criterion of r.acceptanceCriteria || []) {
+        try { createAcceptanceCriterion(graph, id, criterion, "discovery") } catch { /* invalid criterion is reported by validation */ }
+      }
       count++
     } catch { /* skip */ }
   }

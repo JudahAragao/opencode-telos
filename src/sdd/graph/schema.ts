@@ -47,6 +47,7 @@ export const RELATIONSHIP_TYPES = [
   "experimented_by", "flagged_by", "validates", "influences", "constrains",
   "applies_to", "owned_by_tenant", "monitored_by", "alerted_by",
   "incident_in", "detected_in", "tracked_by", "resolves", "evidenced_by", "sla_for", "defines", "specifies", "operates_on", "traces_to",
+  "has_acceptance_criterion", "guides",
 ] as const satisfies readonly RelationshipType[]
 
 /** Guarda de compilação: nenhum tipo do union pode faltar na lista runtime. */
@@ -114,12 +115,14 @@ const ANY: NodeType[] = [
   "constitution", "bug_fix", "hotfix", "refactoring", "deprecation",
   "migration", "experiment", "feature_flag", "tenant", "metric", "alert",
   "incident", "finding", "sla", "milestone",
+  "acceptance_criterion", "guidance",
 ]
 
 const SPEC_NODES: NodeType[] = [
   "domain", "feature", "requirement", "business_rule", "actor", "entity",
   "value_object", "flow", "use_case", "architecture_component", "module",
   "api", "endpoint", "database", "table", "field",
+  "acceptance_criterion",
 ]
 
 /**
@@ -136,6 +139,7 @@ export const RELATIONSHIP_RULES: RelationshipRule[] = [
   { type: "contains", from: ["file"], to: ["symbol", "test"], kind: "structural", inverse: "belongs_to" },
   { type: "contains", from: ["architecture_component"], to: ["module"], kind: "structural", inverse: "belongs_to" },
   { type: "contains", from: ["milestone"], to: ["change", "task", "feature", "requirement", "use_case", "business_rule", "endpoint", "module"], kind: "structural", inverse: "belongs_to" },
+  { type: "contains", from: ["project"], to: ["guidance"], kind: "structural" },
   { type: "belongs_to", from: ["endpoint"], to: ["api"], kind: "structural", inverse: "contains" },
   { type: "belongs_to", from: ["table"], to: ["database"], kind: "structural", inverse: "contains" },
   { type: "belongs_to", from: ["field"], to: ["table"], kind: "structural", inverse: "contains" },
@@ -145,6 +149,8 @@ export const RELATIONSHIP_RULES: RelationshipRule[] = [
   // ── Especificação: requirement ↔ feature ──────────────────────────
   { type: "specifies", from: ["requirement"], to: ["feature", "use_case", "flow", "business_rule"], kind: "semantic", inverse: "satisfied_by" },
   { type: "satisfied_by", from: ["feature", "use_case", "flow"], to: ["requirement"], kind: "semantic", inverse: "specifies" },
+  { type: "has_acceptance_criterion", from: ["requirement"], to: ["acceptance_criterion"], kind: "semantic" },
+  { type: "guides", from: ["guidance"], to: ANY, kind: "semantic" },
 
   // ── Implementação: endpoint/file/symbol ↔ feature/requirement ─────
   { type: "implements", from: ["endpoint", "file", "module", "symbol", "task", "architecture_component", "api"], to: ["feature", "requirement", "use_case", "business_rule", "flow"], kind: "semantic", inverse: "implemented_by" },
@@ -245,6 +251,8 @@ export const TRACEABILITY_RELATIONSHIP_TYPES: ReadonlySet<RelationshipType> = ne
   "resolves",
   "evidenced_by",
   "derived_from",
+  "has_acceptance_criterion",
+  "guides",
 ])
 
 /**

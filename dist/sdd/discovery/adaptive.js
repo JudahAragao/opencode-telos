@@ -1,4 +1,5 @@
 import { getNodesByType } from "../graph/engine.js";
+import { getAcceptanceCriteria } from "../acceptance/service.js";
 /**
  * Given a list of discovery questions and the current graph state,
  * filter out questions that are already answered by existing graph data.
@@ -82,8 +83,7 @@ export function generateGapQuestions(graph) {
     // Check for requirements without acceptance criteria
     const reqs = getNodesByType(graph, "requirement");
     const reqsWithoutCriteria = reqs.filter(r => {
-        const meta = r.metadata;
-        return !meta.acceptance_criteria || meta.acceptance_criteria.length === 0;
+        return getAcceptanceCriteria(graph, r.id, true).length === 0;
     });
     if (reqsWithoutCriteria.length > 0 && reqsWithoutCriteria.length <= 5) {
         for (const req of reqsWithoutCriteria.slice(0, 3)) {

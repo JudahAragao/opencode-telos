@@ -49,6 +49,9 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.infer_relationships": ["analysis", "mutation"],
   "sdd.milestone": ["workflow", "analysis", "mutation"],
   "sdd.integrate_tasks": ["workflow", "implementation", "mutation"],
+  "sdd.acceptance": ["workflow", "mutation", "query"],
+  "sdd.node_guidance": ["mutation", "workflow", "analysis"],
+  "sdd.impact": ["analysis", "query"],
 
   // ── Query ───────────────────────────────────────────────────────
   "sdd.inspect": ["query"],

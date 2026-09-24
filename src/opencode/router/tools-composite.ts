@@ -117,6 +117,8 @@ export function createGraphMutationTool(): ToolDefinition {
       switch (args.action) {
         case "add_node": {
           if (!args.type || !args.name) return "type and name are required for add_node"
+          if (args.type === "acceptance_criterion") return "Create acceptance criteria with `sdd.acceptance(action=\"create\")` so they are linked to a Requirement."
+          if (args.type === "guidance") return "Create human guidance with `sdd.node_guidance(action=\"create\")`."
           const existing = graph.nodes.find(
             (n) => n.type === args.type && n.name.toLowerCase() === args.name!.toLowerCase()
           )
@@ -160,6 +162,16 @@ export function createGraphMutationTool(): ToolDefinition {
           const indices = repo.getIndices()
           const node = getNodeIndexed(indices, args.node_id)
           if (!node) return `Node ${args.node_id} not found.`
+          if (node.type === "acceptance_criterion") {
+            return "Acceptance criteria must be changed through `sdd.acceptance` so version, hash and audit are preserved."
+          }
+          if (node.type === "guidance") {
+            return "Guidance must be changed through `sdd.node_guidance` so impact and audit are preserved."
+          }
+          const metadata = updates.metadata as Record<string, unknown> | undefined
+          if (metadata && ("acceptance_criteria" in metadata || "acceptance" in metadata || "legacy_acceptance" in metadata)) {
+            return "Acceptance criteria are Requirement-owned. Use `sdd.acceptance` instead of editing legacy metadata."
+          }
           updateNode(graph, args.node_id, updates)
           repo.saveGraph(graph)
           return `Node ${args.node_id} updated.`
@@ -170,6 +182,9 @@ export function createGraphMutationTool(): ToolDefinition {
           const indices = repo.getIndices()
           const node = getNodeIndexed(indices, args.node_id)
           if (!node) return `Node ${args.node_id} not found.`
+          if (node.type === "acceptance_criterion") {
+            return "Acceptance criteria cannot be removed through generic graph mutation; reopen or update them through `sdd.acceptance`."
+          }
           removeNode(graph, args.node_id)
           repo.saveGraph(graph)
           return `Node ${args.node_id} removed.`

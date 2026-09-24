@@ -21,4 +21,11 @@ export const DEFAULT_SDD_CONFIG = {
         critical_requirement_without_test: "error",
         missing_verification_scenario: "warning",
     },
+    acceptance: {
+        enabled: true,
+        require_before_change_approval: false,
+        require_before_change_completion: false,
+        allow_waived: true,
+        legacy_fallback: true,
+    },
 };

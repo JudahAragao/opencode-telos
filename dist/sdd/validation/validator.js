@@ -5,6 +5,7 @@ import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion
 import { ensureGraphIntegrity, formatIntegrityReport } from "../graph/integrity.js";
 import { validateGraphIntegrity } from "../graph/integrity-guard.js";
 import { sddDebug } from "../log.js";
+import { AcceptanceService, acceptanceContentHash } from "../acceptance/service.js";
 export const DEFAULT_VALIDATION_POLICY = {
     critical_requirement_without_test: "error",
     missing_verification_scenario: "warning",
@@ -57,6 +58,7 @@ export function validateGraph(graph, policy = DEFAULT_VALIDATION_POLICY, project
     validateSemantic(graph, errors, warnings, policy);
     validateReferences(graph, errors, warnings);
     validateCompleteness(graph, errors, warnings);
+    validateAcceptance(graph, errors, warnings);
     const constitutionResult = validateAgainstConstitution(graph);
     for (const v of constitutionResult.violations) {
         errors.push({
@@ -586,8 +588,8 @@ function validateSemanticDeep(graph, _errors, warnings) {
     // 5. Requirements without acceptance criteria
     const reqs = graph.nodes.filter(n => n.type === "requirement");
     for (const req of reqs) {
-        const meta = req.metadata;
-        if (!meta.acceptance_criteria || meta.acceptance_criteria.length === 0) {
+        const criteria = new AcceptanceService(graph).list(req.id, true);
+        if (criteria.length === 0) {
             if (!req.description || req.description.length < 10) {
                 warnings.push({
                     code: "REQUIREMENT_NO_CRITERIA",
@@ -595,6 +597,29 @@ function validateSemanticDeep(graph, _errors, warnings) {
                     node_id: req.id,
                 });
             }
+        }
+    }
+}
+function validateAcceptance(graph, errors, warnings) {
+    const criteria = graph.nodes.filter((node) => node.type === "acceptance_criterion");
+    for (const criterion of criteria) {
+        const parents = graph.relationships.filter((rel) => rel.to === criterion.id && rel.type === "has_acceptance_criterion");
+        if (parents.length !== 1) {
+            errors.push({ code: "ACCEPTANCE_CRITERION_PARENT", message: `Acceptance criterion ${criterion.id} must belong to exactly one requirement`, node_id: criterion.id });
+        }
+        const meta = criterion.metadata;
+        if (typeof meta.text !== "string" || !meta.text.trim()) {
+            errors.push({ code: "ACCEPTANCE_CRITERION_TEXT", message: `Acceptance criterion ${criterion.id} has no text`, node_id: criterion.id });
+            continue;
+        }
+        if (typeof meta.content_hash !== "string" || meta.content_hash !== acceptanceContentHash(meta.text)) {
+            errors.push({ code: "ACCEPTANCE_CRITERION_HASH", message: `Acceptance criterion ${criterion.id} content hash is stale`, node_id: criterion.id });
+        }
+        if (!["PENDING", "ACCEPTED", "REJECTED", "WAIVED"].includes(criterion.status)) {
+            errors.push({ code: "ACCEPTANCE_CRITERION_STATUS", message: `Acceptance criterion ${criterion.id} has invalid status`, node_id: criterion.id });
+        }
+        if ((criterion.status === "ACCEPTED" || criterion.status === "WAIVED") && (!meta.accepted_by || !meta.accepted_at)) {
+            warnings.push({ code: "ACCEPTANCE_CRITERION_AUDIT", message: `Acceptance criterion ${criterion.id} has no acceptance actor/timestamp`, node_id: criterion.id });
         }
     }
 }

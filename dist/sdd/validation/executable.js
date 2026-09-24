@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { execFileSync } from "child_process";
 import { atomicWriteFile } from "../cache/atomic.js";
+import { getAcceptanceCriteria } from "../acceptance/service.js";
 /**
  * Avalia a evidência funcional do Change (requisito → teste).
  *
@@ -45,10 +46,11 @@ export function validateFunctionalEvidence(graph, changeId) {
             continue;
         }
         const requirementMetadata = requirement.metadata;
-        const criteria = requirementMetadata.acceptance_criteria || [];
+        const criteriaNodes = getAcceptanceCriteria(graph, requirement.id, true);
+        const criteria = criteriaNodes.map((criterion) => ({ id: criterion.id, text: criterion.metadata.text }));
         const verification = requirementMetadata.verification;
         const requiredCriteria = [
-            ...criteria,
+            ...criteria.map((criterion) => criterion.text),
             ...(verification?.security_criteria || []),
             ...(verification?.performance_criteria || []),
             ...(verification?.invariants || []),
@@ -59,7 +61,8 @@ export function validateFunctionalEvidence(graph, changeId) {
                 return Array.isArray(metadata.verifies) ? metadata.verifies.filter((value) => typeof value === "string") : [];
             }));
             for (const criterion of requiredCriteria) {
-                if (!verifiedCriteria.has(criterion))
+                const node = criteria.find((item) => item.text === criterion);
+                if (!verifiedCriteria.has(criterion) && !(node && verifiedCriteria.has(node.id)))
                     gaps.push(`Requirement "${requirement.name}" lacks a linked test explicitly verifying: ${criterion}`);
             }
         }

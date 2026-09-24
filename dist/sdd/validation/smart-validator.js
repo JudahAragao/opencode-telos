@@ -1,6 +1,7 @@
 import { GraphIndices } from "../graph/index.js";
 import { validateGraph, } from "./validator.js";
 import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion.js";
+import { getAcceptanceCriteria } from "../acceptance/service.js";
 /**
  * Subsystem classification: which validation checks are relevant
  * for each node type.
@@ -138,7 +139,7 @@ export function validateSmart(graph, dirtyNodeIds, options) {
     for (const subsystem of subsystemsToCheck) {
         switch (subsystem) {
             case "requirements":
-                validateRequirementsSmart(indices, relevantNodes, removed, deprecated, warnings);
+                validateRequirementsSmart(graph, indices, relevantNodes, removed, deprecated, warnings);
                 break;
             case "entities":
                 validateEntitiesSmart(relevantNodes, removed, deprecated, warnings);
@@ -177,7 +178,7 @@ export function validateSmart(graph, dirtyNodeIds, options) {
     return result;
 }
 // ── Smart subsystem validators (index-aware) ────────────────────────
-function validateRequirementsSmart(indices, nodes, removed, deprecated, warnings) {
+function validateRequirementsSmart(graph, indices, nodes, removed, deprecated, warnings) {
     const requirements = nodes.filter((n) => n.type === "requirement");
     for (const req of requirements) {
         if (isNodeExcludedOrDeprecated(req.id, req.status, removed, deprecated))
@@ -194,8 +195,8 @@ function validateRequirementsSmart(indices, nodes, removed, deprecated, warnings
                 node_id: req.id,
             });
         }
-        const meta = req.metadata;
-        if (!meta.acceptance_criteria || meta.acceptance_criteria.length === 0) {
+        const criteria = getAcceptanceCriteria(graph, req.id, true);
+        if (criteria.length === 0) {
             if (!req.description || req.description.length < 10) {
                 warnings.push({
                     code: "REQUIREMENT_NO_CRITERIA",

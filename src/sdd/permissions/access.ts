@@ -21,6 +21,12 @@ export type Permission =
   | "manage_permissions"
   | "sync_push"
   | "sync_pull"
+  | "accept_requirement"
+  | "reject_requirement"
+  | "waive_requirement"
+  | "reopen_requirement"
+  | "guide_node"
+  | "apply_node_guidance"
 
 export interface RolePermissions {
   role: Role
@@ -78,6 +84,7 @@ const DEFAULT_ROLES: RolePermissions[] = [
       "approve_architecture", "approve_breaking", "modify_constitution",
       "modify_decision", "execute_rollback", "manage_permissions",
       "sync_push", "sync_pull",
+      "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "guide_node", "apply_node_guidance",
     ],
     max_approvals: 100,
   },
@@ -88,6 +95,7 @@ const DEFAULT_ROLES: RolePermissions[] = [
       "create_change", "approve_feature", "approve_requirement",
       "approve_architecture", "modify_decision",
       "sync_push", "sync_pull",
+      "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "guide_node", "apply_node_guidance",
     ],
     max_approvals: 50,
   },
@@ -97,6 +105,7 @@ const DEFAULT_ROLES: RolePermissions[] = [
       "create_feature", "create_requirement", "create_entity", "create_endpoint",
       "create_change", "approve_feature", "approve_requirement",
       "sync_push", "sync_pull",
+      "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "guide_node",
     ],
     max_approvals: 20,
   },

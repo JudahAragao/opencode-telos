@@ -1,6 +1,7 @@
 import { createRepository, type GraphRepository } from "../sdd/persistence/repository.js"
 import { getGraphStats, getNode } from "../sdd/graph/engine.js"
 import { computeImpact } from "../sdd/graph/traverse.js"
+import { analyzeNodeImpact } from "../sdd/impact/service.js"
 import { validateGraph } from "../sdd/validation/validator.js"
 import { detectDrift } from "../sdd/drift/detector.js"
 import { getPendingChanges } from "../sdd/changes/manager.js"
@@ -18,6 +19,15 @@ import {
 import type { SqliteGraphRepository } from "../sdd/persistence/sqlite.js"
 import type { NodeType } from "../sdd/domain/types.js"
 import { readExecutionRecords } from "../sdd/execution/ledger.js"
+import {
+  handleAcceptAll,
+  handleAcceptanceMigration,
+  handleAcceptanceMutation,
+  handleGuidance,
+  handleImpact,
+  handleListGuidance,
+  handleListAcceptance,
+} from "./acceptance-api.js"
 
 type DashboardSqliteAdapter = Partial<Pick<SqliteGraphRepository,
   | "getGraphCounts" | "getUpdatedAt" | "getAllNodesSummary" | "getAllRelationshipsSummary"
@@ -219,6 +229,54 @@ export class SddDashboardServer {
           .filter((record) => (!runId || record.runId === runId) && (!callId || record.callId === callId))
           .slice(-limit)
         return this.jsonResponse({ records }, corsHeaders)
+      }
+
+      // ── Acceptance and human guidance ─────────────────────────────
+      if (path === "/api/acceptance" && req.method === "GET") {
+        const result = handleListAcceptance(this.projectDir, url.searchParams.get("requirement_id") || undefined)
+        return this.jsonResponse(result.body, corsHeaders, result.status)
+      }
+      if (path === "/api/acceptance/migrate" && req.method === "POST") {
+        const result = handleAcceptanceMigration(this.projectDir)
+        return this.jsonResponse(result.body, corsHeaders, result.status)
+      }
+      if (path === "/api/acceptance/accept-all" && req.method === "POST") {
+        const requirementId = url.searchParams.get("requirement_id")
+        if (!requirementId) return this.jsonResponse({ error: "requirement_id is required" }, corsHeaders, 400)
+        const result = handleAcceptAll(this.projectDir, requirementId, (await this.readJsonBody(req)) ?? {})
+        return this.jsonResponse(result.body, corsHeaders, result.status)
+      }
+      if (path.startsWith("/api/acceptance/")) {
+        const rest = path.slice("/api/acceptance/".length).split("/")
+        const criterionId = decodeURIComponent(rest[0] || "")
+        const action = rest[1] as "accept" | "reject" | "waive" | "reopen" | "update_text" | undefined
+        if (!criterionId || !action || req.method !== "POST") return this.jsonResponse({ error: "Criterion id and action are required" }, corsHeaders, 400)
+        const result = handleAcceptanceMutation(this.projectDir, criterionId, action, (await this.readJsonBody(req)) ?? {})
+        return this.jsonResponse(result.body, corsHeaders, result.status)
+      }
+      if (path.startsWith("/api/impact/")) {
+        const nodeId = decodeURIComponent(path.slice("/api/impact/".length))
+        const result = handleImpact(this.projectDir, nodeId, Number.parseInt(url.searchParams.get("depth") || "5", 10) || 5)
+        return this.jsonResponse(result.body, corsHeaders, result.status)
+      }
+      if (path === "/api/guidance" && req.method === "POST") {
+        const body = (await this.readJsonBody(req)) as Record<string, unknown> | undefined
+        const targetId = typeof body?.target_node_id === "string" ? body.target_node_id : ""
+        if (!targetId) return this.jsonResponse({ error: "target_node_id is required" }, corsHeaders, 400)
+        const result = handleGuidance(this.projectDir, "create", targetId, body)
+        return this.jsonResponse(result.body, corsHeaders, result.status)
+      }
+      if (path === "/api/guidance" && req.method === "GET") {
+        const result = handleListGuidance(this.projectDir, url.searchParams.get("target_node_id") || undefined)
+        return this.jsonResponse(result.body, corsHeaders, result.status)
+      }
+      if (path.startsWith("/api/guidance/")) {
+        const rest = path.slice("/api/guidance/".length).split("/")
+        const guidanceId = decodeURIComponent(rest[0] || "")
+        const action = rest[1] as "analyze" | "propose" | "apply" | "reject" | undefined
+        if (!guidanceId || !action || req.method !== "POST") return this.jsonResponse({ error: "Guidance id and action are required" }, corsHeaders, 400)
+        const result = handleGuidance(this.projectDir, action, guidanceId, (await this.readJsonBody(req)) ?? {})
+        return this.jsonResponse(result.body, corsHeaders, result.status)
       }
 
       // ── Kanban tasks ─────────────────────────────────────────────
@@ -532,7 +590,7 @@ export class SddDashboardServer {
   private getNodeImpact(nodeId: string, depth: number) {
     if (!this.repo.isInitialized()) return { error: "Not initialized" }
     const graph = this.repo.loadGraph()
-    return computeImpact(graph, nodeId, depth)
+    return { ...computeImpact(graph, nodeId, depth), semantic: analyzeNodeImpact(graph, nodeId, depth) }
   }
 
   private getStatus() {
@@ -1020,15 +1078,24 @@ ${KANBAN_MODAL_HTML}
       highlightNode(id);
       fetch("/api/nodes/" + id)
         .then(function(res) { return res.json(); })
-        .then(function(node) {
+      .then(function(node) {
           return fetch("/api/nodes/" + id + "/relationships")
             .then(function(res2) { return res2.json(); })
-            .then(function(rels) { renderDetails(node, rels); centerOnNode(id); });
+            .then(function(rels) {
+              var acceptancePromise = node.type !== "requirement"
+                ? Promise.resolve(null)
+                : fetch("/api/acceptance?requirement_id=" + encodeURIComponent(node.id)).then(function(res3) { return res3.json(); });
+              return Promise.all([
+                acceptancePromise,
+                fetch("/api/guidance?target_node_id=" + encodeURIComponent(node.id)).then(function(res4) { return res4.json(); }),
+              ]).then(function(values) { return { rels: rels, acceptance: values[0], guidance: values[1] }; });
+            })
+            .then(function(result) { renderDetails(node, result.rels, result.acceptance, result.guidance); centerOnNode(id); });
         })
         .catch(function(e) { console.error("Failed to load node:", e); });
     }
 
-    function renderDetails(node, rels) {
+    function renderDetails(node, rels, acceptance, guidanceData) {
       var el = document.getElementById("details");
       var outgoing = rels.filter(function(r) { return r.from === node.id; });
       var incoming = rels.filter(function(r) { return r.to === node.id; });
@@ -1044,6 +1111,24 @@ ${KANBAN_MODAL_HTML}
         html += '<div class="detail-field"><span class="label">Metadata:</span> <pre style="font-size:11px;color:#8b949e;white-space:pre-wrap;margin-top:4px">' + JSON.stringify(node.metadata, null, 2) + "</pre></div>";
       }
       html += "</div>";
+      if (acceptance && Array.isArray(acceptance.criteria)) {
+        html += '<div class="detail-section"><h3>Acceptance Criteria (' + acceptance.criteria.length + ')</h3>';
+        html += '<div class="detail-field">Summary: ' + JSON.stringify(acceptance.summary || {}) + '</div>';
+        html += '<button class="btn primary" data-accept-all="' + node.id + '">Accept all pending</button>';
+        acceptance.criteria.forEach(function(criterion) {
+          html += '<div class="detail-field" style="margin-top:8px"><span class="node-status status-' + criterion.status + '">' + criterion.status + '</span> ' + criterion.metadata.text +
+            ' <button class="btn" data-accept="' + criterion.id + '">Accept</button></div>';
+        });
+        html += '</div>';
+      }
+      html += '<div class="detail-section"><h3>Human guidance</h3>';
+      if (guidanceData && Array.isArray(guidanceData.guidance)) {
+        guidanceData.guidance.forEach(function(guidance) {
+          html += '<div class="detail-field"><span class="node-status status-' + guidance.metadata.status + '">' + guidance.metadata.status + '</span> ' + guidance.metadata.instruction + ' <small>' + guidance.id + '</small></div>';
+        });
+      }
+      html += '<textarea id="node-guidance-input" placeholder="Orientação humana para este nó" style="width:100%;min-height:60px"></textarea>';
+      html += '<button class="btn primary" data-guide-node="' + node.id + '">Registrar orientação</button></div>';
       if (outgoing.length) {
         html += '<div class="detail-section"><h3>Outgoing (' + outgoing.length + ')</h3>';
         outgoing.forEach(function(r) { html += '<div class="detail-field" style="cursor:pointer" data-goto="' + r.to + '">' + r.type + " &rarr; " + r.to + "</div>"; });
@@ -1057,6 +1142,27 @@ ${KANBAN_MODAL_HTML}
       el.innerHTML = html;
       el.querySelectorAll("[data-goto]").forEach(function(el) {
         el.addEventListener("click", function() { selectNode(this.getAttribute("data-goto")); });
+      });
+      el.querySelectorAll("[data-accept]").forEach(function(button) {
+        button.addEventListener("click", function() {
+          fetch("/api/acceptance/" + encodeURIComponent(this.getAttribute("data-accept")) + "/accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+            .then(function() { selectNode(node.id); });
+        });
+      });
+      el.querySelectorAll("[data-accept-all]").forEach(function(button) {
+        button.addEventListener("click", function() {
+          fetch("/api/acceptance/accept-all?requirement_id=" + encodeURIComponent(this.getAttribute("data-accept-all")), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+            .then(function() { selectNode(node.id); });
+        });
+      });
+      el.querySelectorAll("[data-guide-node]").forEach(function(button) {
+        button.addEventListener("click", function() {
+          var input = document.getElementById("node-guidance-input");
+          var instruction = input && input.value ? input.value : "";
+          if (!instruction) return;
+          fetch("/api/guidance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target_node_id: this.getAttribute("data-guide-node"), instruction: instruction }) })
+            .then(function() { selectNode(node.id); });
+        });
       });
     }
 

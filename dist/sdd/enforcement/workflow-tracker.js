@@ -239,6 +239,9 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
     // requested action and allow read-only ones; mutating actions are still
     // gated by COMPOSITE_MUTATING_ACTIONS below.
     "sdd.graph_mutation",
+    "sdd.acceptance",
+    "sdd.node_guidance",
+    "sdd.impact",
     "sdd.graph_admin",
     "sdd.drift_whitelist",
     "sdd.workflow_new_feature",

@@ -82,8 +82,8 @@ export const KANBAN_MODAL_HTML = `
         <input id="task-goal" type="text" placeholder="Resultado esperado">
       </div>
       <div class="field">
-        <label for="task-acceptance">Critérios de aceite (um por linha)</label>
-        <textarea id="task-acceptance" placeholder="Dado ... quando ... então ..."></textarea>
+        <label for="task-acceptance">Critérios de aceite derivados do Requirement</label>
+        <textarea id="task-acceptance" placeholder="Vincule a Task a um Requirement para visualizar os critérios" readonly></textarea>
       </div>
       <div class="field">
         <label for="task-files">Arquivos previstos (separados por vírgula)</label>
@@ -445,7 +445,10 @@ export const KANBAN_SCRIPT = `
     el("task-description").value = task && task.description ? task.description : "";
     var meta = (task && task.metadata) || {};
     el("task-goal").value = meta.goal || "";
-    el("task-acceptance").value = Array.isArray(meta.acceptance) ? meta.acceptance.join("\\n") : "";
+    var acceptanceSummary = meta.acceptance_summary || null;
+    el("task-acceptance").value = acceptanceSummary
+      ? "Total: " + acceptanceSummary.total + " | Pendentes: " + acceptanceSummary.pending + " | Aceitos: " + acceptanceSummary.accepted + " | Rejeitados: " + acceptanceSummary.rejected
+      : "Nenhum critério derivado. Vincule a Task a um Requirement.";
     el("task-files").value = Array.isArray(meta.files) ? meta.files.join(", ") : "";
     el("task-priority").value = meta.priority || "medium";
     el("task-column").value = task ? columnForStatus(task.status) : "backlog";
@@ -477,7 +480,6 @@ export const KANBAN_SCRIPT = `
       name: name,
       description: el("task-description").value.trim(),
       goal: el("task-goal").value.trim(),
-      acceptance: splitList(el("task-acceptance").value, "\\n"),
       files: splitList(el("task-files").value, ","),
       priority: el("task-priority").value,
       column: el("task-column").value

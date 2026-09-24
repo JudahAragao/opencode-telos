@@ -5,6 +5,10 @@ import { validateGraph, formatValidationResult } from "../sdd/validation/validat
 import { generateHandoff, formatHandoffPack } from "../sdd/session/handoff.js"
 import { buildReleaseReport, formatReleaseReport } from "../sdd/release/milestone.js"
 import { PLUGIN_VERSION } from "../version.js"
+import { AcceptanceService } from "../sdd/acceptance/service.js"
+import { applyGuidancePatch, createGuidance } from "../sdd/guidance/service.js"
+import { analyzeNodeImpact } from "../sdd/impact/service.js"
+import { addAuditEntry, checkPermission, getUserRoleWithAuth } from "../sdd/permissions/access.js"
 
 export interface McpServerConfig {
   name: string
@@ -48,6 +52,31 @@ export function createMcpServer(projectDir: string) {
           description: "Get traceability report per release milestone",
           inputSchema: { type: "object" as const, properties: {} },
         },
+        {
+          name: "sdd_get_acceptance",
+          description: "List acceptance criteria and status for a requirement",
+          inputSchema: { type: "object" as const, properties: { requirement_id: { type: "string" } }, required: ["requirement_id"] },
+        },
+        {
+          name: "sdd_accept_criterion",
+          description: "Accept one acceptance criterion through the central service",
+          inputSchema: { type: "object" as const, properties: { criterion_id: { type: "string" }, actor: { type: "string" }, observation: { type: "string" } }, required: ["criterion_id"] },
+        },
+        {
+          name: "sdd_node_impact",
+          description: "Analyze the bidirectional impact of any Knowledge Graph node",
+          inputSchema: { type: "object" as const, properties: { node_id: { type: "string" }, depth: { type: "number" } }, required: ["node_id"] },
+        },
+        {
+          name: "sdd_create_guidance",
+          description: "Record human guidance for any Knowledge Graph node",
+          inputSchema: { type: "object" as const, properties: { node_id: { type: "string" }, instruction: { type: "string" }, actor: { type: "string" } }, required: ["node_id", "instruction"] },
+        },
+        {
+          name: "sdd_apply_guidance",
+          description: "Apply a validated guidance proposal to any Knowledge Graph node",
+          inputSchema: { type: "object" as const, properties: { guidance_id: { type: "string" }, proposal: { type: "object" }, actor: { type: "string" }, expected_target_version: { type: "number" } }, required: ["guidance_id", "proposal"] },
+        },
       ]
     },
     async handleToolCall(toolName: string, _args: Record<string, unknown>) {
@@ -80,6 +109,41 @@ export function createMcpServer(projectDir: string) {
           const nameOf = (id: string) => graph.nodes.find((n) => n.id === id)?.name ?? id
           const report = buildReleaseReport(graph)
           return { content: [{ type: "text", text: formatReleaseReport(report, nameOf) }] }
+        }
+        case "sdd_get_acceptance": {
+          const requirementId = String(_args.requirement_id || "")
+          const service = new AcceptanceService(graph)
+          return { content: [{ type: "text", text: JSON.stringify({ criteria: service.list(requirementId), summary: service.summary(requirementId) }, null, 2) }] }
+        }
+        case "sdd_accept_criterion": {
+          const criterionId = String(_args.criterion_id || "")
+          const actor = String(_args.actor || process.env.USER || "mcp")
+          if (!checkPermission(getUserRoleWithAuth(projectDir, actor), "accept_requirement", projectDir)) return { error: "Permission denied: accept_requirement" }
+          const service = new AcceptanceService(graph)
+          const result = service.accept(criterionId, { actor, observation: typeof _args.observation === "string" ? _args.observation : undefined })
+          repo.saveGraph(graph)
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
+        }
+        case "sdd_node_impact": {
+          const result = analyzeNodeImpact(graph, String(_args.node_id || ""), typeof _args.depth === "number" ? _args.depth : 5)
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
+        }
+        case "sdd_create_guidance": {
+          const actor = String(_args.actor || process.env.USER || "mcp")
+          if (!checkPermission(getUserRoleWithAuth(projectDir, actor), "guide_node", projectDir)) return { error: "Permission denied: guide_node" }
+          const guidance = createGuidance(graph, String(_args.node_id || ""), { instruction: String(_args.instruction || ""), requested_by: actor })
+          repo.saveGraph(graph)
+          addAuditEntry(projectDir, actor, "guidance.create", guidance.id, "allowed", guidance.metadata.instruction)
+          return { content: [{ type: "text", text: JSON.stringify(guidance, null, 2) }] }
+        }
+        case "sdd_apply_guidance": {
+          const actor = String(_args.actor || process.env.USER || "mcp")
+          if (!checkPermission(getUserRoleWithAuth(projectDir, actor), "apply_node_guidance", projectDir)) return { error: "Permission denied: apply_node_guidance" }
+          const proposal = (_args.proposal && typeof _args.proposal === "object" ? _args.proposal : {}) as Record<string, unknown>
+          const result = applyGuidancePatch(graph, String(_args.guidance_id || ""), proposal, actor, typeof _args.expected_target_version === "number" ? _args.expected_target_version : undefined)
+          repo.saveGraph(graph)
+          addAuditEntry(projectDir, actor, "guidance.apply", result.target.id, "allowed", JSON.stringify(proposal))
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
         }
         default:
           return { error: `Unknown tool: ${toolName}` }

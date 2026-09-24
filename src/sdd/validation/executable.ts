@@ -4,6 +4,7 @@ import { join } from "path"
 import { execFileSync } from "child_process"
 import { atomicWriteFile } from "../cache/atomic.js"
 import type { KnowledgeGraph } from "../domain/types.js"
+import { getAcceptanceCriteria } from "../acceptance/service.js"
 
 export interface ExecutableCheck {
   name: string
@@ -92,11 +93,12 @@ export function validateFunctionalEvidence(graph: KnowledgeGraph, changeId: stri
       continue
     }
 
-    const requirementMetadata = requirement.metadata as { acceptance_criteria?: string[]; verification?: { security_criteria?: string[]; performance_criteria?: string[]; invariants?: string[] } }
-    const criteria = requirementMetadata.acceptance_criteria || []
+    const requirementMetadata = requirement.metadata as { verification?: { security_criteria?: string[]; performance_criteria?: string[]; invariants?: string[] } }
+    const criteriaNodes = getAcceptanceCriteria(graph, requirement.id, true)
+    const criteria = criteriaNodes.map((criterion) => ({ id: criterion.id, text: criterion.metadata.text }))
     const verification = requirementMetadata.verification
     const requiredCriteria = [
-      ...criteria,
+      ...criteria.map((criterion) => criterion.text),
       ...(verification?.security_criteria || []),
       ...(verification?.performance_criteria || []),
       ...(verification?.invariants || []),
@@ -107,7 +109,8 @@ export function validateFunctionalEvidence(graph: KnowledgeGraph, changeId: stri
         return Array.isArray(metadata.verifies) ? metadata.verifies.filter((value): value is string => typeof value === "string") : []
       }))
       for (const criterion of requiredCriteria) {
-        if (!verifiedCriteria.has(criterion)) gaps.push(`Requirement "${requirement.name}" lacks a linked test explicitly verifying: ${criterion}`)
+        const node = criteria.find((item) => item.text === criterion)
+        if (!verifiedCriteria.has(criterion) && !(node && verifiedCriteria.has(node.id))) gaps.push(`Requirement "${requirement.name}" lacks a linked test explicitly verifying: ${criterion}`)
       }
     }
   }
