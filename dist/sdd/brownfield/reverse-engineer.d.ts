@@ -17,6 +17,7 @@
  */
 import type { BriefingDeepAnalysis } from "../discovery/briefing-analyzer.js";
 import { type BrownfieldAnalysis } from "./scanner.js";
+import { type FindingInput } from "./findings.js";
 export interface ReverseEngineeringOptions {
     purpose: "documentation" | "reverse_engineering";
     depth: "structure" | "full";
@@ -59,6 +60,7 @@ export interface DiscoveredArchitecture {
 export interface ReverseEngineeringResult {
     analysis: BriefingDeepAnalysis;
     brownfield: BrownfieldAnalysis;
+    findings: FindingInput[];
     discoveredEntities: DiscoveredEntity[];
     discoveredEndpoints: DiscoveredEndpoint[];
     discoveredBusinessRules: DiscoveredBusinessRule[];

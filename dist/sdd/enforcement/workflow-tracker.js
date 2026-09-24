@@ -208,6 +208,7 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
     "sdd.detect_remote",
     // Infrastructure
     "sdd.brownfield_scan",
+    "sdd.findings",
     "sdd.start_dashboard",
     // Graph build
     "sdd.build_graph",

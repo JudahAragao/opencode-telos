@@ -67,6 +67,13 @@ export function generateKnowledgeTransfer(
         common_issues.push(`Assumpção não confirmada: ${meta.description}`)
       }
     }
+
+    const findings = graph.nodes.filter(n => n.type === 'finding')
+    for (const finding of findings.slice(0, maxItems)) {
+      const meta = finding.metadata as any
+      const resolution = meta.resolution?.description ? ` — resolução: ${meta.resolution.description}` : ''
+      common_issues.push(`[${finding.status}/${meta.severity ?? 'unknown'}] ${meta.title ?? finding.name}: ${meta.observed_behavior ?? finding.description ?? ''}${resolution}`)
+    }
   }
 
   if (focusAreas === 'all' || focusAreas === 'files') {

@@ -73,6 +73,7 @@ export const STANDALONE_CATEGORIES = {
     "sdd.quality": ["analysis", "quality"],
     "sdd.brownfield_scan": ["analysis"],
     "sdd.reverse_engineer": ["discovery", "analysis"],
+    "sdd.findings": ["analysis", "workflow", "mutation"],
     // ── Implementation ──────────────────────────────────────────────
     "sdd.generate_code": ["implementation"],
     "sdd.install_hooks": ["implementation"],

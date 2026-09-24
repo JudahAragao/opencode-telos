@@ -321,9 +321,17 @@ When the Knowledge Graph has purpose=reverse_engineering in its metadata (check 
 
 ### When purpose is documentation:
 - The SDD documents the existing system AS-IS with its real tech stack
-- All nodes are already in APPROVED status (they represent reality)
+- All discovered nodes are APPROVED because they represent reality; APPROVED does not mean defect-free
 - Use this for understanding, onboarding, and knowledge transfer
+- Run \`sdd.findings(action="scan")\` after brownfield documentation. Keep each finding in the graph, create its remediation task, and resolve it only with a Change and verification evidence.
+- Documentation must show open findings, accepted risks, and resolved findings without deleting history.
 - The normal SDD workflow applies for making changes to the documented system
+
+### Brownfield findings lifecycle:
+- \`documentation\`: findings describe problems in the implemented system and remain open until corrected, accepted, or explicitly marked wont_fix.
+- \`reverse_engineering\`: findings are source evidence. Convert each one into a target requirement, decision, or constraint; do not create remediation work against the old code.
+- Do not silently copy a defect into the target system. Preserve, correct, exclude, or ask for a decision and record that choice in the graph.
+- Use \`sdd.findings(action="report")\` or \`sdd.findings(action="readiness")\` to review readiness and \`sdd.findings(action="resolve")\` only after storing the target or implementation evidence.
 
 ## Change Rules
 

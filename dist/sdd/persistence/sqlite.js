@@ -359,7 +359,7 @@ export class SqliteGraphRepository {
         this.ensureSddDir();
         const now = new Date().toISOString();
         const graph = {
-            version: "1.0.0",
+            version: GRAPH_SCHEMA_VERSION,
             project_id: projectId,
             nodes: [
                 {

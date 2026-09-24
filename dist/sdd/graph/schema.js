@@ -25,7 +25,7 @@ export const RELATIONSHIP_TYPES = [
     "owned_by", "triggered_by", "flows_to", "deprecates", "migrates_to",
     "experimented_by", "flagged_by", "validates", "influences", "constrains",
     "applies_to", "owned_by_tenant", "monitored_by", "alerted_by",
-    "incident_in", "sla_for", "defines", "specifies", "operates_on", "traces_to",
+    "incident_in", "detected_in", "tracked_by", "resolves", "evidenced_by", "sla_for", "defines", "specifies", "operates_on", "traces_to",
 ];
 const _assertNoMissingRelationshipType = true;
 void _assertNoMissingRelationshipType;
@@ -83,7 +83,7 @@ const ANY = [
     "file", "symbol", "change", "decision", "constraint", "assumption",
     "constitution", "bug_fix", "hotfix", "refactoring", "deprecation",
     "migration", "experiment", "feature_flag", "tenant", "metric", "alert",
-    "incident", "sla", "milestone",
+    "incident", "finding", "sla", "milestone",
 ];
 const SPEC_NODES = [
     "domain", "feature", "requirement", "business_rule", "actor", "entity",
@@ -138,6 +138,12 @@ export const RELATIONSHIP_RULES = [
     { type: "affects", from: ["change"], to: ["task"], kind: "semantic" },
     { type: "creates", from: ["change"], to: ANY, kind: "semantic" },
     { type: "deletes", from: ["change"], to: ANY, kind: "semantic" },
+    // ── Descobertas brownfield e resolução ───────────────────────────
+    { type: "detected_in", from: ["finding"], to: ANY, kind: "semantic" },
+    { type: "tracked_by", from: ["finding"], to: ["task", "change"], kind: "semantic" },
+    { type: "resolves", from: ["change", "task", "requirement", "decision", "constraint"], to: ["finding"], kind: "semantic" },
+    { type: "evidenced_by", from: ["finding", "change", "requirement", "decision"], to: ANY, kind: "semantic" },
+    { type: "derived_from", from: ["requirement", "decision", "constraint"], to: ["finding"], kind: "semantic" },
     // ── Fallback fraco (não conta como rastreabilidade forte) ─────────
     { type: "traces_to", from: ANY, to: ANY, kind: "semantic" },
 ];
@@ -191,6 +197,11 @@ export const TRACEABILITY_RELATIONSHIP_TYPES = new Set([
     "uses",
     "calls",
     "depends_on",
+    "detected_in",
+    "tracked_by",
+    "resolves",
+    "evidenced_by",
+    "derived_from",
 ]);
 /**
  * Quando duas arestas inversas descrevem o mesmo fato (ex.:

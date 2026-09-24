@@ -26,6 +26,7 @@ A **Spec-Driven Development (SDD)** plugin for [OpenCode](https://github.com/ano
 - **Workflow export**: exports the SDD state as a structured report
 - **Shell hooks**: installs Git hooks for SDD integration
 - **Brownfield scanning**: analyzes existing projects for integration
+- **Brownfield SDD findings**: documentation mode preserves AS-IS defects as persistent findings and remediation tasks; reverse-engineering mode converts them into target requirements with source evidence and readiness gates
 - **CI/CD Integration**: generates GitHub Actions, GitLab CI, Jenkins, Docker, CircleCI, Azure DevOps, AWS CodePipeline, Travis CI, NPM Publish, Docker Compose, Maven (Java), Python (pip), Go (GoReleaser) with SDD validation
 - **Multi-developer Sync**: Git-based synchronization with conflict detection and resolution
 - **Rollback**: 3 rollback layers (git → snapshot → backup)
@@ -452,6 +453,7 @@ writes source code itself.
 | `sdd.auto_link_tests` | Links orphan tests to requirements by name/import analysis (`tested_by`), optionally as a dry run |
 | `sdd.infer_relationships` | Rebuilds graph traceability: infers the missing semantic edges (`requirement --specifies--> feature`, `endpoint/file --implements--> feature`, `endpoint --operates_on--> entity`, `task/change --belongs_to--> milestone`), normalizes redundant inverse pairs and creates milestone nodes. Idempotent; `dry_run` previews the edges |
 | `sdd.milestone` | Manages release milestones and reports traceability per release: `create`, `list`, `add`, `remove`, `assign`, `close`, `report`. The report shows the release scope, task progress and gaps (requirements without tests, features without implementation, endpoints/files without a feature) |
+| `sdd.findings` | Brownfield findings lifecycle: `scan`, `list`, `report`, `readiness`, `transition`, `resolve`, `create_task`. Documentation findings remain open until a Change verifies the fix; reverse-engineering findings become target requirements/decisions instead of old-code remediation tasks |
 
 ### Composite tools
 

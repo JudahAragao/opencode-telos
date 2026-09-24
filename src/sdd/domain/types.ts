@@ -18,6 +18,12 @@ export type NodeStatus =
   | "FAILED"
   | "ROLLED_BACK"
   | "COMPLETED"
+  | "open"
+  | "triaged"
+  | "accepted"
+  | "resolved"
+  | "closed"
+  | "wont_fix"
 
 export type ChangeStatus = NodeStatus
 
@@ -67,6 +73,7 @@ export type NodeType =
   | "metric"
   | "alert"
   | "incident"
+  | "finding"
   | "sla"
   | "milestone"
 
@@ -108,6 +115,10 @@ export type RelationshipType =
   | "monitored_by"
   | "alerted_by"
   | "incident_in"
+  | "detected_in"
+  | "tracked_by"
+  | "resolves"
+  | "evidenced_by"
   | "sla_for"
   | "defines"
   | "specifies"
@@ -535,6 +546,64 @@ export interface IncidentNode extends Node {
   }
 }
 
+export type FindingCategory =
+  | "bug"
+  | "security"
+  | "quality"
+  | "architecture"
+  | "performance"
+  | "operational"
+  | "documentation"
+  | "test_gap"
+  | "ambiguity"
+  | "behavior_gap"
+  | "compliance"
+
+export type FindingStatus = "open" | "triaged" | "accepted" | "in_progress" | "resolved" | "closed" | "wont_fix"
+
+export interface FindingEvidence {
+  kind: "file" | "node" | "test" | "scan" | "answer" | "change"
+  path?: string
+  node_id?: string
+  detector?: string
+  excerpt?: string
+  confidence?: number
+  fingerprint?: string
+}
+
+export interface FindingNode extends Node {
+  type: "finding"
+  status: FindingStatus
+  metadata: {
+    fingerprint: string
+    category: FindingCategory
+    severity: "critical" | "high" | "medium" | "low"
+    title: string
+    observed_behavior: string
+    expected_behavior?: string
+    purpose: SddPurpose
+    confidence: number
+    evidence: FindingEvidence[]
+    source_files: string[]
+    source_node_ids: string[]
+    remediation?: string
+    target_behavior?: string
+    resolution?: {
+      description: string
+      change_id?: string
+      task_id?: string
+      evidence: FindingEvidence[]
+      resolved_at: string
+    }
+    history: Array<{
+      status: FindingStatus
+      at: string
+      reason?: string
+      actor?: string
+    }>
+  }
+}
+
 export interface SLANode extends Node {
   type: "sla"
   metadata: {
@@ -626,6 +695,7 @@ export type AnyNode =
   | MetricNode
   | AlertNode
   | IncidentNode
+  | FindingNode
   | SLANode
   | MilestoneNode
 

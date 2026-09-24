@@ -20,6 +20,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from "fs"
 import { join, relative, extname, basename } from "path"
 import type { BriefingDeepAnalysis } from "../discovery/briefing-analyzer.js"
 import { scanExistingProject, type BrownfieldAnalysis } from "./scanner.js"
+import { detectBrownfieldFindings, type FindingInput } from "./findings.js"
 import { sddDebug } from "../log.js"
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ export interface DiscoveredArchitecture {
 export interface ReverseEngineeringResult {
   analysis: BriefingDeepAnalysis
   brownfield: BrownfieldAnalysis
+  findings: FindingInput[]
   discoveredEntities: DiscoveredEntity[]
   discoveredEndpoints: DiscoveredEndpoint[]
   discoveredBusinessRules: DiscoveredBusinessRule[]
@@ -532,6 +534,8 @@ export function reverseEngineerProject(
     options.purpose,
   )
 
+  const findingScan = detectBrownfieldFindings(projectDir, brownfield, options.purpose)
+
   // 7. Build summary
   const summary = buildSummary(
     discoveredEntities,
@@ -545,6 +549,7 @@ export function reverseEngineerProject(
   return {
     analysis,
     brownfield,
+    findings: findingScan.findings,
     discoveredEntities,
     discoveredEndpoints,
     discoveredBusinessRules,
@@ -608,8 +613,51 @@ function buildAnalysis(
 ): BriefingDeepAnalysis {
   const isReverseEng = purpose === "reverse_engineering"
 
+  const discoveredFeatures = [
+    ...endpoints.map((endpoint) => ({
+      name: `${endpoint.method} ${endpoint.path}`,
+      description: endpoint.description,
+      priority: "medium" as const,
+    })),
+    ...entities.map((entity) => ({
+      name: `Gerenciar ${entity.name}`,
+      description: `Permite consultar e operar a entidade ${entity.name}.`,
+      priority: "medium" as const,
+    })),
+  ].filter((feature, index, all) => all.findIndex((candidate) => candidate.name.toLowerCase() === feature.name.toLowerCase()) === index)
+
+  const discoveredRequirements = [
+    ...endpoints.map((endpoint) => ({
+      name: `Expor ${endpoint.method} ${endpoint.path}`,
+      description: `O sistema deve disponibilizar o comportamento observado em ${endpoint.method} ${endpoint.path}.`,
+      type: "functional" as const,
+      priority: "medium" as const,
+      acceptanceCriteria: [
+        `O fluxo ${endpoint.method} ${endpoint.path} deve possuir contrato documentado.`,
+        "Cenários de sucesso e falha devem ser verificáveis por testes.",
+      ],
+    })),
+    ...entities.map((entity) => ({
+      name: `Persistir ${entity.name}`,
+      description: `O sistema deve representar a entidade ${entity.name} e seus campos observados.`,
+      type: "functional" as const,
+      priority: "medium" as const,
+      acceptanceCriteria: [
+        `Os campos observados de ${entity.name} devem possuir contrato agnóstico de tecnologia.`,
+        "Regras de validação e persistência devem ser verificáveis.",
+      ],
+    })),
+  ].filter((requirement, index, all) => all.findIndex((candidate) => candidate.name.toLowerCase() === requirement.name.toLowerCase()) === index)
+
+  const discoveredDecisions = architecture.map((component) => ({
+    title: `Preservar camada ${component.layer}`,
+    context: `A análise encontrou o componente arquitetural ${component.name} na origem (${component.source}).`,
+    decision: `O SDD alvo deve manter a responsabilidade da camada ${component.layer}, podendo substituir a tecnologia.`,
+    consequences: "A escolha concreta de framework e infraestrutura permanece pendente da decisão de stack do novo projeto.",
+  }))
+
   return {
-    features: [], // Features are inferred by the LLM from the briefing, not from code scanning
+    features: discoveredFeatures,
     entities: entities.map(e => ({
       name: e.name,
       description: e.description,
@@ -636,9 +684,16 @@ function buildAnalysis(
       technology: isReverseEng ? `[${a.layer}]` : a.technology,
       description: a.description,
     })),
-    decisions: [], // Decisions are inferred by the LLM, not from code
-    requirements: [], // Requirements are inferred by the LLM
-    tasks: [], // Tasks are generated after requirements are confirmed
+    decisions: discoveredDecisions,
+    requirements: discoveredRequirements,
+    tasks: isReverseEng ? discoveredRequirements.map((requirement) => ({
+      name: `Implement ${requirement.name}`,
+      description: `Implement the target behaviour specified by ${requirement.name}.`,
+      goal: requirement.description,
+      acceptance: requirement.acceptanceCriteria,
+      priority: requirement.priority,
+      requirement: requirement.name,
+    })) : [],
     relationships: [], // Relationships are built by the graph builder
     domains: inferDomains(entities, endpoints),
     // For reverse engineering: clear tech stack (will be chosen by user)

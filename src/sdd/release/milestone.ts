@@ -215,7 +215,7 @@ export function closeMilestone(
   updates.metadata = {
     ...(milestone.metadata as Record<string, unknown>),
     closed_at: new Date().toISOString(),
-  } as AnyNode["metadata"]
+  } as any
   const updated = updateNode(graph, milestoneId, updates)
   return updated as MilestoneNode
 }

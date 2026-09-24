@@ -7,11 +7,11 @@
  * à mão — edite o package.json e rode o script.
  */
 // BEGIN GENERATED: PLUGIN_VERSION (scripts/sync-version.cjs)
-export const PLUGIN_VERSION = "2.1.1";
+export const PLUGIN_VERSION = "2.2.0";
 // END GENERATED: PLUGIN_VERSION
 /**
  * Versão do formato de dados do Knowledge Graph em `.sdd/` (usada em
  * `graph.version` e `metadata.sdd_version`). É independente da versão de
  * release do plugin e evolui apenas quando o schema do grafo muda.
  */
-export const GRAPH_SCHEMA_VERSION = "1.0.0";
+export const GRAPH_SCHEMA_VERSION = "1.1.0";

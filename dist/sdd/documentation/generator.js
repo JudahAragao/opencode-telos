@@ -1,16 +1,42 @@
 export function generateDocumentation(graph, config) {
+    let document;
     if (config.type === 'api') {
-        return generateAPIDocumentation(graph);
+        document = generateAPIDocumentation(graph);
     }
     else if (config.type === 'user_guide') {
-        return generateUserGuide(graph);
+        document = generateUserGuide(graph);
     }
     else if (config.type === 'developer_guide') {
-        return generateDeveloperGuide(graph);
+        document = generateDeveloperGuide(graph);
     }
     else {
-        return generateArchitectureDoc(graph);
+        document = generateArchitectureDoc(graph);
     }
+    return `${document}\n\n${generateFindingsSection(graph)}`;
+}
+function generateFindingsSection(graph) {
+    const findings = graph.nodes.filter((node) => node.type === 'finding');
+    const open = findings.filter((node) => !['resolved', 'closed', 'wont_fix'].includes(node.status));
+    const resolved = findings.filter((node) => ['resolved', 'closed', 'wont_fix'].includes(node.status));
+    const lines = [
+        '## Descobertas, Riscos e Resoluções',
+        '',
+        'Esta seção registra problemas observados no sistema documentado. `APPROVED` significa que o comportamento foi confirmado no AS-IS; não significa que ele esteja correto.',
+        '',
+        `- Descobertas abertas: ${open.length}`,
+        `- Descobertas resolvidas ou aceitas: ${resolved.length}`,
+    ];
+    for (const node of findings) {
+        const meta = node.metadata;
+        lines.push('', `### ${node.id} — ${meta.title ?? node.name}`, `- Status: ${node.status}`, `- Severidade: ${meta.severity ?? 'unknown'}`, `- Categoria: ${meta.category ?? 'unknown'}`, `- Observado: ${meta.observed_behavior ?? node.description ?? ''}`);
+        if (meta.expected_behavior)
+            lines.push(`- Esperado: ${meta.expected_behavior}`);
+        if (meta.resolution?.description)
+            lines.push(`- Resolução: ${meta.resolution.description}`);
+    }
+    if (findings.length === 0)
+        lines.push('', 'Nenhuma descoberta foi registrada.');
+    return lines.join('\n');
 }
 function generateAPIDocumentation(graph) {
     const lines = [

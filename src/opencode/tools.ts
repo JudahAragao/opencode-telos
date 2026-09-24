@@ -63,6 +63,7 @@ import { calculateCoverage, formatCoverageReport } from "../sdd/coverage/tracker
 import { generateShellHooks, formatShellHookResult } from "./shell-hooks.js"
 import { scanExistingProject, formatBrownfieldAnalysis } from "../sdd/brownfield/scanner.js"
 import { reverseEngineerProject } from "../sdd/brownfield/reverse-engineer.js"
+import { detectBrownfieldFindings, findingFingerprint, formatFindingsReport, getFindings, resolveFinding, transitionFinding, upsertFinding, createFindingTask, type FindingInput } from "../sdd/brownfield/findings.js"
 import { generateCicd, writeCicdFiles, formatCicdResults } from "../sdd/cicd/generators.js"
 
 
@@ -71,7 +72,7 @@ import { addAuditEntry, detectRemote, formatRemoteStatus } from "../sdd/permissi
 import { createMcpServer } from "../mcp/server.js"
 import { startSharedDashboard, getSharedDashboardUrl, resolveDashboardPort } from "../server/server.js"
 
-import type { KnowledgeGraph, AnyNode, ConstitutionNode, ChangeNode, Transaction } from "../sdd/domain/types.js"
+import type { KnowledgeGraph, AnyNode, ConstitutionNode, ChangeNode, Transaction, FindingStatus, FindingNode } from "../sdd/domain/types.js"
 import { getCacheManager } from "../sdd/cache/manager.js"
 import { markEnforced, markApproved, markValidated, markCompleted, resetWorkflowState, workflowScope, renewWorkflow, workflowRemainingMs, workflowTtlMs } from "../sdd/enforcement/workflow-tracker.js"
 import { validateSmart, type SmartValidationOptions } from "../sdd/validation/smart-validator.js"
@@ -196,6 +197,94 @@ function loadOrEmpty(directory: string): KnowledgeGraph {
   const repo = getRepo(directory)
   if (repo.isInitialized()) return repo.loadGraph()
   return createGraph("pending")
+}
+
+function ensureTargetRequirementForFinding(graph: KnowledgeGraph, finding: AnyNode): AnyNode {
+  const existing = graph.nodes.find((node) =>
+    node.type === "requirement" && (node.metadata as Record<string, unknown>).source_finding_id === finding.id,
+  )
+  if (existing) return existing
+
+  const meta = finding.metadata as Record<string, any>
+  const now = new Date().toISOString()
+  const requirement: AnyNode = {
+    id: `${graph.project_id}-REQ-FND-${finding.id.slice(-12)}`,
+    type: "requirement",
+    name: `Comportamento alvo: ${meta.title ?? finding.name}`,
+    description: meta.target_behavior ?? meta.expected_behavior ?? meta.observed_behavior ?? finding.description,
+    status: "DRAFT",
+    version: 1,
+    metadata: {
+      acceptance_criteria: [
+        "O comportamento alvo não reproduz a limitação observada na origem.",
+        "A decisão possui teste ou evidência verificável.",
+      ],
+      priority: meta.severity ?? "medium",
+      req_type: "non_functional",
+      source_finding_id: finding.id,
+      source_purpose: "reverse_engineering",
+      evidence: (meta.evidence ?? []).map((e: Record<string, unknown>) => ({
+        source: String(e.path ?? e.detector ?? "brownfield_scan"),
+        excerpt: e.excerpt,
+        confidence: e.confidence,
+        confirmed: true,
+      })),
+    },
+    created_at: now,
+    updated_at: now,
+  } as AnyNode
+  addNode(graph, requirement)
+  try { addRelationship(graph, requirement.id, finding.id, "derived_from", { source: "reverse_engineering" }) } catch {}
+  return requirement
+}
+
+function materializeBrownfieldFindings(
+  graph: KnowledgeGraph,
+  inputs: FindingInput[],
+  purpose: "documentation" | "reverse_engineering",
+): { created: number; tasks: number; resolvedForTarget: number } {
+  let created = 0
+  let tasks = 0
+  let resolvedForTarget = 0
+
+  for (const input of inputs) {
+    const fingerprint = input.fingerprint ?? findingFingerprint(input)
+    const wasExisting = graph.nodes.some((node) => node.type === "finding" && (node.metadata as Record<string, unknown>).fingerprint === fingerprint)
+    const finding = upsertFinding(graph, input)
+    if (!wasExisting) created++
+
+    if (purpose === "documentation") {
+      const task = createFindingTask(graph, finding, { purpose })
+      if (task) tasks++
+      continue
+    }
+
+    const targetRequirement = ensureTargetRequirementForFinding(graph, finding)
+    const existingResolution = finding.metadata.resolution
+    if (!existingResolution || !["resolved", "closed", "accepted", "wont_fix"].includes(finding.status)) {
+      resolveFinding(graph, {
+        findingId: finding.id,
+        description: `Convertido em requisito do sistema alvo: ${targetRequirement.id}. O sistema novo deve tratar explicitamente essa descoberta.`,
+        status: "resolved",
+        targetNodeIds: [targetRequirement.id],
+        evidence: [{ kind: "node", node_id: targetRequirement.id, detector: "reverse_engineering_target" }],
+        actor: "sdd.reverse_engineer",
+      })
+      resolvedForTarget++
+    }
+    const task = createFindingTask(graph, finding, { purpose, targetNodeId: targetRequirement.id })
+    if (task) tasks++
+  }
+
+  const metadata = graph.metadata as Record<string, unknown>
+  metadata.brownfield_findings = {
+    last_scan_at: new Date().toISOString(),
+    purpose,
+    total: getFindings(graph).filter((finding) => finding.metadata.purpose === purpose).length,
+    open: getFindings(graph).filter((finding) => finding.metadata.purpose === purpose && !["resolved", "closed", "accepted", "wont_fix"].includes(finding.status)).length,
+    resolved: getFindings(graph).filter((finding) => finding.metadata.purpose === purpose && ["resolved", "closed", "accepted", "wont_fix"].includes(finding.status)).length,
+  }
+  return { created, tasks, resolvedForTarget }
 }
 
 function attachResponseCache(tools: Record<string, ToolDefinition>): Record<string, ToolDefinition> {
@@ -1619,6 +1708,24 @@ function createAllTools(): Record<string, ToolDefinition> {
         }
 
         const graph = repo.loadGraph()
+
+        if (graph.metadata.purpose === "reverse_engineering") {
+          const blockers = graph.nodes.filter((node) =>
+            node.type === "finding" &&
+            ["critical", "high"].includes(String((node.metadata as Record<string, unknown>).severity)) &&
+            !["resolved", "closed", "accepted", "wont_fix"].includes(node.status),
+          )
+          if (blockers.length > 0) {
+            return [
+              "## SDD Enforcement: BLOCKED",
+              "",
+              "The reverse-engineering SDD still has critical/high findings that were not converted into target decisions or requirements.",
+              "Resolve them with `sdd.findings(action=\"resolve\")` or classify them as an accepted risk before implementation.",
+              "",
+              ...blockers.map((node) => `- ${node.id}: ${node.name}`),
+            ].join("\n")
+          }
+        }
         const request = classifyChangeRequest(args.request_description)
 
         const affectedEntities = args.affected_entities
@@ -2259,6 +2366,93 @@ function createAllTools(): Record<string, ToolDefinition> {
       },
     }),
 
+    "sdd.findings": tool({
+      description:
+        "Gerenciar descobertas brownfield persistentes. No modo documentation, mantém problemas no AS-IS e cria tasks de correção; " +
+        "no modo reverse_engineering, converte descobertas em requisitos do sistema alvo.",
+      args: {
+        action: tool.schema.enum(["scan", "list", "report", "readiness", "transition", "resolve", "create_task"]).describe("Operação sobre findings"),
+        finding_id: tool.schema.string().optional().describe("ID do finding"),
+        status: tool.schema.enum(["open", "triaged", "accepted", "in_progress", "resolved", "closed", "wont_fix"]).optional().describe("Novo status"),
+        purpose: tool.schema.enum(["documentation", "reverse_engineering"]).optional().describe("Fluxo brownfield"),
+        description: tool.schema.string().optional().describe("Descrição da resolução ou transição"),
+        change_id: tool.schema.string().optional().describe("Change que resolveu o finding"),
+        task_id: tool.schema.string().optional().describe("Task que resolveu ou acompanha o finding"),
+        target_node_ids: tool.schema.array(tool.schema.string()).optional().describe("Nós do SDD alvo que resolvem o finding"),
+        evidence: tool.schema.string().optional().describe("Evidência textual da resolução"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized. Run sdd.reverse_engineer first."
+        const graph = repo.loadGraph()
+        const action = args.action as string
+        const purpose = (args.purpose as "documentation" | "reverse_engineering" | undefined) ?? graph.metadata.purpose ?? "documentation"
+
+        if (action === "scan") {
+          const brownfield = scanExistingProject(ctx.directory)
+          const scan = detectBrownfieldFindings(ctx.directory, brownfield, purpose as "documentation" | "reverse_engineering")
+          const summary = materializeBrownfieldFindings(graph, scan.findings, purpose as "documentation" | "reverse_engineering")
+          repo.saveGraph(graph)
+          invalidateCacheForMutation(ctx.directory, ["finding", "task", "requirement", "file"], ["detected_in", "tracked_by", "resolves", "derived_from"])
+          return [
+            `Scan completed: ${scan.findings.length} findings from ${scan.filesInspected} source files.`,
+            `Created: ${summary.created}; tasks: ${summary.tasks}; converted to target requirements: ${summary.resolvedForTarget}.`,
+            "",
+            formatFindingsReport(graph, purpose as "documentation" | "reverse_engineering"),
+          ].join("\n")
+        }
+
+        if (action === "list" || action === "report" || action === "readiness") {
+          const findings = getFindings(graph).filter((finding) => finding.metadata.purpose === purpose)
+          if (action === "list") return JSON.stringify(findings.map((finding) => ({ id: finding.id, title: finding.name, status: finding.status, severity: finding.metadata.severity, category: finding.metadata.category })), null, 2)
+          if (action === "readiness") {
+            const blockers = findings.filter((finding) =>
+              !["resolved", "closed", "accepted", "wont_fix"].includes(finding.status) && ["critical", "high"].includes(finding.metadata.severity),
+            )
+            return [
+              `Reverse-engineering readiness: ${blockers.length === 0 ? "READY" : "BLOCKED"}`,
+              `Critical/high unresolved findings: ${blockers.length}`,
+              ...blockers.map((finding) => `- ${finding.id}: ${finding.name}`),
+              "",
+              formatFindingsReport(graph, purpose as "documentation" | "reverse_engineering"),
+            ].join("\n")
+          }
+          return formatFindingsReport(graph, purpose as "documentation" | "reverse_engineering")
+        }
+
+        if (!args.finding_id) return "`finding_id` is required for this action."
+        const finding = graph.nodes.find((node) => node.id === args.finding_id && node.type === "finding")
+        if (!finding) return `Finding ${args.finding_id} not found.`
+
+        if (action === "transition") {
+          if (!args.status) return "`status` is required for transition."
+          transitionFinding(graph, args.finding_id, args.status as FindingStatus, args.description)
+        } else if (action === "resolve") {
+          if (!args.description) return "`description` is required to resolve a finding."
+          resolveFinding(graph, {
+            findingId: args.finding_id,
+            description: args.description,
+            status: (args.status as "resolved" | "closed" | "accepted" | "wont_fix" | undefined) ?? "resolved",
+            changeId: args.change_id,
+            taskId: args.task_id,
+            targetNodeIds: args.target_node_ids,
+            evidence: args.evidence ? [{ kind: "change", detector: "sdd.findings", excerpt: args.evidence }] : [],
+          })
+        } else if (action === "create_task") {
+          createFindingTask(graph, finding as FindingNode, {
+            purpose: purpose as "documentation" | "reverse_engineering",
+            targetNodeId: args.target_node_ids?.[0],
+          })
+        } else {
+          return `Unknown action ${action}.`
+        }
+
+        repo.saveGraph(graph)
+        invalidateCacheForMutation(ctx.directory, ["finding", "task"], ["tracked_by", "resolves", "evidenced_by"])
+        return formatFindingsReport(graph, purpose as "documentation" | "reverse_engineering")
+      },
+    }),
+
     "sdd.reverse_engineer": tool({
       description:
         "Reverse-engineer an existing codebase into a Knowledge Graph. " +
@@ -2310,6 +2504,12 @@ function createAllTools(): Record<string, ToolDefinition> {
         const { buildGraphFromAnalysis } = await import("../sdd/discovery/graph-builder.js")
         buildGraphFromAnalysis(graph, result.analysis)
 
+        // Brownfield discoveries are first-class graph records. Documentation
+        // keeps them open and creates remediation tasks; reverse engineering
+        // converts them into target requirements and closes the source finding
+        // only after the target behaviour is represented in the SDD.
+        const findingSummary = materializeBrownfieldFindings(graph, result.findings, args.purpose as "documentation" | "reverse_engineering")
+
         // For documentation mode: mark all spec nodes as APPROVED (they represent reality)
         if (args.purpose === "documentation") {
           for (const node of graph.nodes) {
@@ -2329,11 +2529,14 @@ function createAllTools(): Record<string, ToolDefinition> {
           `- **Nodes:** ${graph.nodes.length}`,
           `- **Relationships:** ${graph.relationships.length}`,
           `- **Purpose:** ${args.purpose}`,
+          `- **Findings created:** ${findingSummary.created}`,
+          `- **Tasks created:** ${findingSummary.tasks}`,
           "",
           "Use `sdd.inspect` to review the graph.",
         ]
 
         if (args.purpose === "reverse_engineering") {
+          const unresolved = getFindings(graph).filter((finding) => finding.metadata.purpose === "reverse_engineering" && !["resolved", "closed", "accepted", "wont_fix"].includes(finding.status))
           lines.push(
             "",
             "### Next Steps",
@@ -2341,7 +2544,9 @@ function createAllTools(): Record<string, ToolDefinition> {
             "1. The LLM will detect `purpose: reverse_engineering` in the graph",
             "2. It will ask you to choose a tech stack (frontend, backend, database, etc.)",
             "3. Architecture components will be updated with your chosen technologies",
-            "4. Then proceed with the normal SDD workflow",
+            `4. Reverse-engineering findings converted to target requirements: ${findingSummary.resolvedForTarget}`,
+            `5. Unresolved target gaps: ${unresolved.length}`,
+            "6. Then proceed with the normal SDD workflow",
           )
         }
 

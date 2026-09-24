@@ -34,7 +34,7 @@ export interface RelationshipRule {
  * consultável. O bloco de asserção abaixo falha em compilação se um membro do
  * union ficar de fora, então ela não pode divergir silenciosamente.
  */
-export declare const RELATIONSHIP_TYPES: readonly ["contains", "depends_on", "requires", "implements", "implemented_by", "satisfied_by", "affects", "modifies", "creates", "deletes", "uses", "calls", "persists_to", "exposes", "tested_by", "tests", "derived_from", "contradicts", "supersedes", "replaces", "blocked_by", "belongs_to", "owned_by", "triggered_by", "flows_to", "deprecates", "migrates_to", "experimented_by", "flagged_by", "validates", "influences", "constrains", "applies_to", "owned_by_tenant", "monitored_by", "alerted_by", "incident_in", "sla_for", "defines", "specifies", "operates_on", "traces_to"];
+export declare const RELATIONSHIP_TYPES: readonly ["contains", "depends_on", "requires", "implements", "implemented_by", "satisfied_by", "affects", "modifies", "creates", "deletes", "uses", "calls", "persists_to", "exposes", "tested_by", "tests", "derived_from", "contradicts", "supersedes", "replaces", "blocked_by", "belongs_to", "owned_by", "triggered_by", "flows_to", "deprecates", "migrates_to", "experimented_by", "flagged_by", "validates", "influences", "constrains", "applies_to", "owned_by_tenant", "monitored_by", "alerted_by", "incident_in", "detected_in", "tracked_by", "resolves", "evidenced_by", "sla_for", "defines", "specifies", "operates_on", "traces_to"];
 /** Conjunto de tipos válidos, para validação O(1). */
 export declare const KNOWN_RELATIONSHIP_TYPES: ReadonlySet<string>;
 /**
