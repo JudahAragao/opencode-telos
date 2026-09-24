@@ -53,6 +53,26 @@ export declare function getLastConflictResolution(): {
     winner: "yaml" | "sqlite";
     reason: string;
 } | null;
+export interface StorageConsistencyReport {
+    sentinel?: "yaml" | "sqlite";
+    canonical?: "yaml" | "sqlite";
+    yaml_present: boolean;
+    sqlite_present: boolean;
+    consistent: boolean;
+    reason: string;
+    yaml?: {
+        updated_at: string;
+        nodes: number;
+        relationships: number;
+    };
+    sqlite?: {
+        updated_at: string;
+        nodes: number;
+        relationships: number;
+    };
+}
+/** Read-only comparison used before repairing a dual-backend project. */
+export declare function inspectStorageConsistency(projectDir: string): StorageConsistencyReport;
 /**
  * Auto-detect the best storage backend and return a repository.
  *

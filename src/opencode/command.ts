@@ -25,8 +25,10 @@ import {
 } from "../server/server.js"
 import { join as joinPath } from "path"
 import { sddDebug } from "../sdd/log.js"
-import { AcceptanceService } from "../sdd/acceptance/service.js"
+import { AcceptanceService, materializeLegacyAcceptanceCriteria } from "../sdd/acceptance/service.js"
 import { addAuditEntry, checkPermission, getUserRoleWithAuth, type Permission } from "../sdd/permissions/access.js"
+import { createAcceptanceAuditSink } from "../sdd/acceptance/audit.js"
+import { transitionFinalAcceptance } from "../sdd/acceptance/final.js"
 
 /**
  * Command hub interativo para SDD.
@@ -340,6 +342,9 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
     "- `sdd acceptance <REQ-ID>` — List human acceptance criteria.",
     "- `sdd acceptance accept <AC-ID>` — Accept one criterion.",
     "- `sdd acceptance accept-all <REQ-ID>` — Accept all pending criteria transactionally.",
+    "- `sdd acceptance create <REQ-ID> <text>` — Create an official criterion.",
+    "- `sdd acceptance update <AC-ID> <text>` — Version and reopen a criterion.",
+    "- `sdd acceptance final-accept <CHG-ID>` — Record final delivery acceptance.",
     "- `sdd guide <NODE-ID> <instruction>` — Register human guidance for any node.",
     "- `sdd viz`      — Start the Knowledge Graph dashboard (deterministic).",
     "- `sdd viz stop` — Stop the dashboard.",
@@ -363,7 +368,7 @@ function sddAcceptance(projectDir: string, input: SddCommandInput): string {
   const repo = createRepository(projectDir)
   if (!repo.isInitialized()) return "## SDD Acceptance\n\nThe Knowledge Graph is not initialized. Run `sdd.initialize` first."
   const graph = repo.loadGraph()
-  const service = new AcceptanceService(graph, loadSddConfig(projectDir).acceptance.legacy_fallback)
+  const service = new AcceptanceService(graph, loadSddConfig(projectDir).acceptance.legacy_fallback, createAcceptanceAuditSink(projectDir))
   const actor = process.env.USER || process.env.USERNAME || "current"
   const action = (parts[0] || "list").toLowerCase()
   const target = parts[1]
@@ -376,6 +381,12 @@ function sddAcceptance(projectDir: string, input: SddCommandInput): string {
         ? "waive_requirement"
         : action === "reopen"
           ? "reopen_requirement"
+    : action === "create" || action === "update" || action === "migrate"
+      ? "create_requirement"
+      : action === "final-accept"
+        ? "accept_final"
+        : action === "final-reject"
+          ? "reject_final"
           : undefined
   if (requiredPermission && !checkPermission(getUserRoleWithAuth(projectDir, actor), requiredPermission, projectDir)) {
     addAuditEntry(projectDir, actor, `acceptance.${action}`, target || "unknown", "denied", `Missing permission ${requiredPermission}`)
@@ -400,7 +411,6 @@ function sddAcceptance(projectDir: string, input: SddCommandInput): string {
           ? service.waive(target, { actor, observation: parts.slice(2).join(" ") || "Waived through CLI" })
           : service.reopen(target, { actor })
     repo.saveGraph(graph)
-    addAuditEntry(projectDir, actor, `acceptance.${result.audit.action}`, target, "allowed", JSON.stringify(result.audit))
     return `${target} -> ${result.criterion.status}`
   }
 
@@ -408,11 +418,42 @@ function sddAcceptance(projectDir: string, input: SddCommandInput): string {
     if (!target) return "Informe o Requirement ID."
     const result = service.acceptAll(target, { actor })
     repo.saveGraph(graph)
-    for (const event of result.audit) addAuditEntry(projectDir, actor, "acceptance.accept", event.criterion_id, "allowed", JSON.stringify(event))
     return JSON.stringify(result, null, 2)
   }
 
-  return "Uso: `/sdd acceptance REQ-001`, `accept AC-001`, `reject AC-001`, `waive AC-001`, `reopen AC-001` ou `accept-all REQ-001`."
+  if (action === "create") {
+    if (!target || parts.length < 3) return "Uso: `/sdd acceptance create REQ-001 texto do critério`."
+    const criterion = service.create(target, parts.slice(2).join(" "), undefined, actor)
+    repo.saveGraph(graph)
+    return `Acceptance criterion created: ${criterion.id}`
+  }
+
+  if (action === "update") {
+    if (!target || parts.length < 3) return "Uso: `/sdd acceptance update AC-001 novo texto`."
+    const result = service.updateText(target, parts.slice(2).join(" "), { actor })
+    repo.saveGraph(graph)
+    return `Acceptance criterion ${result.criterion.id} updated to version ${result.criterion.metadata.criterion_version} and returned to PENDING.`
+  }
+
+  if (action === "migrate") {
+    const result = materializeLegacyAcceptanceCriteria(graph, { removeLegacy: true })
+    repo.saveGraph(graph)
+    addAuditEntry(projectDir, actor, "acceptance.migrate", "knowledge-graph", "allowed", JSON.stringify(result))
+    return JSON.stringify(result, null, 2)
+  }
+
+  if (action === "final-accept" || action === "final-reject") {
+    if (!target) return "Uso: `/sdd acceptance final-accept CHG-001 [observação]`."
+    const result = transitionFinalAcceptance(graph, target, action === "final-accept" ? "ACCEPTED" : "REJECTED", {
+      actor,
+      observation: parts.slice(2).join(" ") || undefined,
+    })
+    repo.saveGraph(graph)
+    addAuditEntry(projectDir, actor, `acceptance.${action}`, target, "allowed", JSON.stringify(result))
+    return `${target} -> final acceptance ${result.status}`
+  }
+
+  return "Uso: `/sdd acceptance REQ-001`, `create REQ-001 texto`, `update AC-001 texto`, `accept AC-001`, `reject AC-001`, `waive AC-001`, `reopen AC-001`, `migrate`, `final-accept CHG-001` ou `accept-all REQ-001`."
 }
 
 function sddGuide(projectDir: string, input: SddCommandInput): string {

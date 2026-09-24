@@ -5,8 +5,15 @@ function now() {
     return new Date().toISOString();
 }
 function guidanceId(graph) {
-    const count = graph.nodes.filter((node) => node.type === "guidance").length + 1;
-    return `${graph.project_id}-GUIDE-${String(count).padStart(4, "0")}`;
+    const prefix = `${graph.project_id}-GUIDE-`;
+    const used = new Set(graph.nodes.filter((node) => node.type === "guidance").map((node) => node.id));
+    let count = graph.nodes.filter((node) => node.type === "guidance").length + 1;
+    let id = `${prefix}${String(count).padStart(4, "0")}`;
+    while (used.has(id)) {
+        count++;
+        id = `${prefix}${String(count).padStart(4, "0")}`;
+    }
+    return id;
 }
 export function createGuidance(graph, targetNodeId, input) {
     const target = getNode(graph, targetNodeId);
@@ -71,15 +78,18 @@ export function proposeGuidancePatch(graph, guidanceId, proposal) {
     });
 }
 export function applyGuidancePatch(graph, guidanceId, proposal, actor, expectedTargetVersion) {
-    const node = getNode(graph, guidanceId);
+    // Work on an isolated graph so a failed propagated update cannot partially
+    // mutate the caller's graph before the repository commit.
+    const working = structuredClone(graph);
+    const node = getNode(working, guidanceId);
     if (!node || node.type !== "guidance")
         throw new Error(`Guidance ${guidanceId} not found`);
     let guidance = node;
-    const target = getNode(graph, guidance.metadata.target_node_id);
+    const target = getNode(working, guidance.metadata.target_node_id);
     if (!target)
         throw new Error(`Guidance target ${guidance.metadata.target_node_id} not found`);
     if (!guidance.metadata.impact_node_ids) {
-        guidance = analyzeGuidance(graph, guidanceId).guidance;
+        guidance = analyzeGuidance(working, guidanceId).guidance;
     }
     if (expectedTargetVersion !== undefined && target.version !== expectedTargetVersion) {
         throw new Error(`Guidance target version conflict: expected ${expectedTargetVersion}, current ${target.version}`);
@@ -96,7 +106,7 @@ export function applyGuidancePatch(graph, guidanceId, proposal, actor, expectedT
     for (const update of propagated) {
         if (!impactIds.has(update.node_id))
             throw new Error(`Guidance propagation target ${update.node_id} was not identified by impact analysis`);
-        const affected = getNode(graph, update.node_id);
+        const affected = getNode(working, update.node_id);
         if (!affected)
             throw new Error(`Guidance propagation target ${update.node_id} not found`);
         if (update.expected_version !== undefined && affected.version !== update.expected_version) {
@@ -107,7 +117,7 @@ export function applyGuidancePatch(graph, guidanceId, proposal, actor, expectedT
         if (nodeToUpdate.type === "acceptance_criterion") {
             if (typeof patchToApply.text !== "string")
                 throw new Error(`Acceptance criterion guidance for ${nodeToUpdate.id} must provide a text update`);
-            return updateAcceptanceCriterionText(graph, nodeToUpdate.id, patchToApply.text, {
+            return updateAcceptanceCriterionText(working, nodeToUpdate.id, patchToApply.text, {
                 actor,
                 observation: typeof patchToApply.observation === "string" ? patchToApply.observation : undefined,
             });
@@ -118,6 +128,11 @@ export function applyGuidancePatch(graph, guidanceId, proposal, actor, expectedT
                 updates[key] = patchToApply[key];
         }
         if (patchToApply.metadata && typeof patchToApply.metadata === "object" && !Array.isArray(patchToApply.metadata)) {
+            const metadataPatch = patchToApply.metadata;
+            const protectedKeys = ["accepted_by", "accepted_at", "criterion_version", "content_hash", "previous_hash", "target_node_id", "impact_node_ids", "applied_target_ids", "applied_at"];
+            const protectedKey = Object.keys(metadataPatch).find((key) => protectedKeys.includes(key));
+            if (protectedKey)
+                throw new Error(`Guidance cannot directly modify protected metadata field ${protectedKey}`);
             updates.metadata = {
                 ...nodeToUpdate.metadata,
                 ...patchToApply.metadata,
@@ -125,7 +140,7 @@ export function applyGuidancePatch(graph, guidanceId, proposal, actor, expectedT
         }
         if (Object.keys(updates).length === 0)
             throw new Error(`Guidance proposal contains no supported updates for ${nodeToUpdate.id}`);
-        return updateNode(graph, nodeToUpdate.id, { ...updates, created_by: actor });
+        return updateNode(working, nodeToUpdate.id, { ...updates, created_by: actor });
     };
     const hasSupportedPatch = (nodeToUpdate, patchToApply) => {
         if (nodeToUpdate.type === "acceptance_criterion")
@@ -138,23 +153,26 @@ export function applyGuidancePatch(graph, guidanceId, proposal, actor, expectedT
     if (!hasSupportedPatch(target, proposal))
         throw new Error(`Guidance proposal contains no supported updates for ${target.id}`);
     for (const update of propagated) {
-        if (!hasSupportedPatch(getNode(graph, update.node_id), update.patch))
+        if (!hasSupportedPatch(getNode(working, update.node_id), update.patch))
             throw new Error(`Guidance proposal contains no supported updates for ${update.node_id}`);
     }
     if (target.type === "acceptance_criterion") {
         const updatedTarget = applyOne(target, proposal);
         for (const update of propagated)
-            applyOne(getNode(graph, update.node_id), update.patch);
-        const updatedGuidance = updateNode(graph, guidanceId, {
+            applyOne(getNode(working, update.node_id), update.patch);
+        const updatedGuidance = updateNode(working, guidanceId, {
             metadata: { ...guidance.metadata, status: "APPLIED", proposal, applied_target_ids: [target.id, ...propagated.map((update) => update.node_id)], applied_at: now() },
             created_by: actor,
         });
+        graph.nodes = working.nodes;
+        graph.relationships = working.relationships;
+        graph.metadata = working.metadata;
         return { guidance: updatedGuidance, target: updatedTarget };
     }
     const updatedTarget = applyOne(target, proposal);
     for (const update of propagated)
-        applyOne(getNode(graph, update.node_id), update.patch);
-    const updatedGuidance = updateNode(graph, guidanceId, {
+        applyOne(getNode(working, update.node_id), update.patch);
+    const updatedGuidance = updateNode(working, guidanceId, {
         metadata: {
             ...guidance.metadata,
             status: "APPLIED",
@@ -164,6 +182,9 @@ export function applyGuidancePatch(graph, guidanceId, proposal, actor, expectedT
         },
         created_by: actor,
     });
+    graph.nodes = working.nodes;
+    graph.relationships = working.relationships;
+    graph.metadata = working.metadata;
     return { guidance: updatedGuidance, target: updatedTarget };
 }
 export function rejectGuidance(graph, guidanceId, actor, resolution) {

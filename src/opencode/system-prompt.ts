@@ -190,7 +190,7 @@ The graph has INTEGRITY CHECKSUMS. Any modification outside SDD tools is:
 The ONLY way to modify the graph is through SDD tools:
 - sdd.graph_mutation(action="add_node|update_node|remove_node")
 - sdd.graph_mutation(action="add_relationship|remove_relationship")
-- sdd.acceptance(action="list|summary|create|accept|reject|waive|reopen|accept_all|update_text")
+- sdd.acceptance(action="list|summary|create|accept|reject|waive|reopen|accept_all|update_text|final_accept|final_reject")
 - sdd.node_guidance(action="create|analyze|propose|apply|reject") for human guidance on any node type
 - sdd.impact(node_id=...) before applying semantic changes
 - sdd.create_change, sdd.approve_change, sdd.complete_change
@@ -263,6 +263,7 @@ If the workflow window expires mid-task, renew the SAME Change with **sdd.renew_
 - Use \`sdd.acceptance\` for every acceptance operation; do not edit legacy acceptance arrays directly.
 - Changing criterion text increments its criterion version, changes its hash, and returns it to PENDING.
 - Human acceptance, Change approval, technical verification, and final delivery acceptance are distinct gates.
+- Final delivery acceptance is recorded on the Change with \`final_accept\` or \`final_reject\`; it is not a duplicate criterion status.
 
 ### If user says "delete feature X":
 - First run sdd.enforce (will likely be BLOCKED - needs approval)

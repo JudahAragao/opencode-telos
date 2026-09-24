@@ -6,7 +6,7 @@ export interface AcceptanceEvidence {
     summary?: string;
 }
 export interface AcceptanceAuditEvent {
-    action: "accept" | "reject" | "waive" | "reopen" | "invalidate" | "create";
+    action: "accept" | "reject" | "waive" | "reopen" | "invalidate" | "create" | "update_text";
     criterion_id: string;
     actor: string;
     timestamp: string;
@@ -15,6 +15,9 @@ export interface AcceptanceAuditEvent {
     previous_hash?: string;
     content_hash: string;
     observation?: string;
+}
+export interface AcceptanceAuditSink {
+    record(event: AcceptanceAuditEvent): void;
 }
 export interface AcceptanceMutationInput {
     actor: string;
@@ -59,10 +62,16 @@ export declare function updateAcceptanceCriterionText(graph: KnowledgeGraph, cri
 export declare class AcceptanceService {
     private readonly graph;
     private readonly includeLegacyFallback;
-    constructor(graph: KnowledgeGraph, includeLegacyFallback?: boolean);
+    private readonly auditSink?;
+    constructor(graph: KnowledgeGraph, includeLegacyFallback?: boolean, auditSink?: AcceptanceAuditSink | undefined);
+    private emit;
     list(requirementId?: string, includeLegacy?: boolean): AcceptanceCriterionNode[];
-    summary(requirementId: string, includeLegacy?: boolean): AcceptanceSummary;
-    create(requirementId: string, text: string, legacySource?: string): AcceptanceCriterionNode;
+    summary(requirementId: string, includeLegacy?: boolean, allowWaived?: boolean): AcceptanceSummary;
+    create(requirementId: string, text: string, legacySource?: string, actor?: string): AcceptanceCriterionNode;
+    updateText(criterionId: string, text: string, input: Pick<AcceptanceMutationInput, "actor" | "observation">): {
+        criterion: AcceptanceCriterionNode;
+        audit?: AcceptanceAuditEvent;
+    };
     transition(criterionId: string, status: AcceptanceStatus, input: AcceptanceMutationInput): {
         criterion: AcceptanceCriterionNode;
         audit: AcceptanceAuditEvent;
@@ -91,8 +100,13 @@ export declare function checkChangeAcceptance(graph: KnowledgeGraph, changeId: s
     allowWaived?: boolean;
     legacyFallback?: boolean;
 }): ChangeAcceptanceCheck;
-export declare function materializeLegacyAcceptanceCriteria(graph: KnowledgeGraph): {
+export interface LegacyAcceptanceMigrationOptions {
+    /** Remove legacy copies only after every value was materialized successfully. */
+    removeLegacy?: boolean;
+}
+export declare function materializeLegacyAcceptanceCriteria(graph: KnowledgeGraph, options?: LegacyAcceptanceMigrationOptions): {
     created: number;
     linked: number;
     unresolved: string[];
+    removed: number;
 };

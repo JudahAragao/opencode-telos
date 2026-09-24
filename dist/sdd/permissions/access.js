@@ -13,7 +13,7 @@ const DEFAULT_ROLES = [
             "approve_architecture", "approve_breaking", "modify_constitution",
             "modify_decision", "execute_rollback", "manage_permissions",
             "sync_push", "sync_pull",
-            "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "guide_node", "apply_node_guidance",
+            "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "accept_final", "reject_final", "guide_node", "apply_node_guidance",
         ],
         max_approvals: 100,
     },
@@ -24,7 +24,7 @@ const DEFAULT_ROLES = [
             "create_change", "approve_feature", "approve_requirement",
             "approve_architecture", "modify_decision",
             "sync_push", "sync_pull",
-            "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "guide_node", "apply_node_guidance",
+            "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "accept_final", "reject_final", "guide_node", "apply_node_guidance",
         ],
         max_approvals: 50,
     },
@@ -182,6 +182,14 @@ export function setRole(projectDir, user, role) {
     atomicWriteFile(usersFile, JSON.stringify(users, null, 2));
     addAuditEntry(projectDir, "system", "set_role", user, "allowed", `Role set to ${role}`);
 }
+/**
+ * A project without a local access configuration may bootstrap exactly one
+ * administrator through the permissions tool.  After that first assignment,
+ * permission changes require manage_permissions like every other mutation.
+ */
+export function canBootstrapPermissions(projectDir) {
+    return !existsSync(join(projectDir, PERMISSIONS_FILE)) && !existsSync(join(projectDir, ".sdd", "users.json"));
+}
 export function getUserRole(projectDir, user) {
     const usersFile = join(projectDir, ".sdd", "users.json");
     if (!existsSync(usersFile))
@@ -200,6 +208,7 @@ export function detectRemote(projectDir) {
             cwd: projectDir,
             encoding: "utf-8",
             timeout: 5000,
+            stdio: ["ignore", "pipe", "ignore"],
         }).trim();
         if (!remoteUrl)
             return null;
@@ -310,7 +319,7 @@ export function getUserRoleWithAuth(projectDir, user) {
     if (remote && remote.token) {
         return "viewer";
     }
-    return "admin";
+    return "viewer";
 }
 export function formatRemoteStatus(remote) {
     if (!remote)

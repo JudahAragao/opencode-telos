@@ -3,6 +3,7 @@ import { createGraph, addNode, addRelationship } from "../src/sdd/graph/engine.j
 import { AcceptanceService, acceptanceContentHash, materializeLegacyAcceptanceCriteria } from "../src/sdd/acceptance/service.js"
 import { analyzeNodeImpact } from "../src/sdd/impact/service.js"
 import { analyzeGuidance, applyGuidancePatch, createGuidance } from "../src/sdd/guidance/service.js"
+import { transitionFinalAcceptance, getFinalAcceptanceStatus } from "../src/sdd/acceptance/final.js"
 import type { AnyNode } from "../src/sdd/domain/types.js"
 
 function node(id: string, type: AnyNode["type"], name: string, metadata: Record<string, unknown> = {}): AnyNode {
@@ -54,6 +55,29 @@ describe("acceptance service", () => {
     expect(second.created).toBe(0)
     expect(graph.relationships.filter((rel) => rel.type === "has_acceptance_criterion")).toHaveLength(1)
   })
+
+  test("audits mutations, invalidates acceptance on text changes, and honors waiver policy", () => {
+    const graph = baseGraph()
+    const events: Array<{ action: string }> = []
+    const service = new AcceptanceService(graph, true, { record: (event) => events.push(event) })
+    const criterion = service.create("REQ-1", "User can sign in", undefined, "alice")
+    service.waive(criterion.id, { actor: "alice", observation: "Deferred" })
+    expect(service.summary("REQ-1", false, true).all_accepted).toBe(true)
+    expect(service.summary("REQ-1", false, false).all_accepted).toBe(false)
+    const updated = service.updateText(criterion.id, "User can sign in with MFA", { actor: "alice" })
+    expect(updated.criterion.status).toBe("PENDING")
+    expect(updated.criterion.metadata.criterion_version).toBe(2)
+    expect(events.map((event) => event.action)).toEqual(["create", "waive", "update_text"])
+  })
+
+  test("final acceptance is stored on the Change and is version guarded", () => {
+    const graph = baseGraph()
+    addNode(graph, node("CHG-1", "change", "Release", { affected_requirements: ["REQ-1"] }))
+    const result = transitionFinalAcceptance(graph, "CHG-1", "ACCEPTED", { actor: "alice", expected_version: 1 })
+    expect(result.status).toBe("ACCEPTED")
+    expect(getFinalAcceptanceStatus(result.change)).toBe("ACCEPTED")
+    expect(() => transitionFinalAcceptance(graph, "CHG-1", "REJECTED", { actor: "bob", expected_version: 1 })).toThrow("version conflict")
+  })
 })
 
 describe("generic impact and guidance", () => {
@@ -85,5 +109,17 @@ describe("generic impact and guidance", () => {
     expect(applied.target.name).toBe("Authentication")
     expect(graph.nodes.find((candidate) => candidate.id === "REQ-1")?.description).toBe("Authentication behavior")
     expect(applied.guidance.metadata.applied_target_ids).toEqual(expect.arrayContaining(["FEAT-1", "REQ-1"]))
+  })
+
+  test("guidance propagation is atomic when one dependent patch is invalid", () => {
+    const graph = baseGraph()
+    const guidance = createGuidance(graph, "FEAT-1", { instruction: "Rename feature", requested_by: "alice" })
+    analyzeGuidance(graph, guidance.id)
+    expect(() => applyGuidancePatch(graph, guidance.id, {
+      name: "Authentication",
+      updates: [{ node_id: "REQ-1", patch: { version: "invalid" }, expected_version: 1 }],
+    }, "alice", 1)).toThrow()
+    expect(graph.nodes.find((candidate) => candidate.id === "FEAT-1")?.name).toBe("Auth")
+    expect(graph.nodes.find((candidate) => candidate.id === "REQ-1")?.version).toBe(1)
   })
 })

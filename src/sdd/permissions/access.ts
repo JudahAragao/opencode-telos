@@ -25,6 +25,8 @@ export type Permission =
   | "reject_requirement"
   | "waive_requirement"
   | "reopen_requirement"
+  | "accept_final"
+  | "reject_final"
   | "guide_node"
   | "apply_node_guidance"
 
@@ -84,7 +86,7 @@ const DEFAULT_ROLES: RolePermissions[] = [
       "approve_architecture", "approve_breaking", "modify_constitution",
       "modify_decision", "execute_rollback", "manage_permissions",
       "sync_push", "sync_pull",
-      "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "guide_node", "apply_node_guidance",
+      "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "accept_final", "reject_final", "guide_node", "apply_node_guidance",
     ],
     max_approvals: 100,
   },
@@ -95,7 +97,7 @@ const DEFAULT_ROLES: RolePermissions[] = [
       "create_change", "approve_feature", "approve_requirement",
       "approve_architecture", "modify_decision",
       "sync_push", "sync_pull",
-      "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "guide_node", "apply_node_guidance",
+      "accept_requirement", "reject_requirement", "waive_requirement", "reopen_requirement", "accept_final", "reject_final", "guide_node", "apply_node_guidance",
     ],
     max_approvals: 50,
   },
@@ -307,6 +309,15 @@ export function setRole(
   addAuditEntry(projectDir, "system", "set_role", user, "allowed", `Role set to ${role}`)
 }
 
+/**
+ * A project without a local access configuration may bootstrap exactly one
+ * administrator through the permissions tool.  After that first assignment,
+ * permission changes require manage_permissions like every other mutation.
+ */
+export function canBootstrapPermissions(projectDir: string): boolean {
+  return !existsSync(join(projectDir, PERMISSIONS_FILE)) && !existsSync(join(projectDir, ".sdd", "users.json"))
+}
+
 export function getUserRole(projectDir: string, user: string): Role {
   const usersFile = join(projectDir, ".sdd", "users.json")
   if (!existsSync(usersFile)) return "viewer"
@@ -325,6 +336,7 @@ export function detectRemote(projectDir: string): RemoteAuthConfig | null {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim()
 
     if (!remoteUrl) return null
@@ -456,7 +468,7 @@ export function getUserRoleWithAuth(projectDir: string, user: string): Role {
     return "viewer"
   }
 
-  return "admin"
+  return "viewer"
 }
 
 export function formatRemoteStatus(remote: RemoteAuthConfig | null): string {

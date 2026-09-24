@@ -15,12 +15,15 @@ export declare function createMcpServer(projectDir: string): {
                 criterion_id?: undefined;
                 actor?: undefined;
                 observation?: undefined;
+                text?: undefined;
                 node_id?: undefined;
                 depth?: undefined;
                 instruction?: undefined;
                 guidance_id?: undefined;
                 proposal?: undefined;
                 expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
             };
             required?: undefined;
         };
@@ -36,12 +39,15 @@ export declare function createMcpServer(projectDir: string): {
                 criterion_id?: undefined;
                 actor?: undefined;
                 observation?: undefined;
+                text?: undefined;
                 node_id?: undefined;
                 depth?: undefined;
                 instruction?: undefined;
                 guidance_id?: undefined;
                 proposal?: undefined;
                 expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
             };
             required: string[];
         };
@@ -61,14 +67,127 @@ export declare function createMcpServer(projectDir: string): {
                     type: string;
                 };
                 requirement_id?: undefined;
+                text?: undefined;
                 node_id?: undefined;
                 depth?: undefined;
                 instruction?: undefined;
                 guidance_id?: undefined;
                 proposal?: undefined;
                 expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
             };
             required: string[];
+        };
+    } | {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: "object";
+            properties: {
+                requirement_id: {
+                    type: string;
+                };
+                actor: {
+                    type: string;
+                };
+                observation: {
+                    type: string;
+                };
+                criterion_id?: undefined;
+                text?: undefined;
+                node_id?: undefined;
+                depth?: undefined;
+                instruction?: undefined;
+                guidance_id?: undefined;
+                proposal?: undefined;
+                expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
+            };
+            required: string[];
+        };
+    } | {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: "object";
+            properties: {
+                requirement_id: {
+                    type: string;
+                };
+                text: {
+                    type: string;
+                };
+                actor: {
+                    type: string;
+                };
+                criterion_id?: undefined;
+                observation?: undefined;
+                node_id?: undefined;
+                depth?: undefined;
+                instruction?: undefined;
+                guidance_id?: undefined;
+                proposal?: undefined;
+                expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
+            };
+            required: string[];
+        };
+    } | {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: "object";
+            properties: {
+                criterion_id: {
+                    type: string;
+                };
+                text: {
+                    type: string;
+                };
+                actor: {
+                    type: string;
+                };
+                observation: {
+                    type: string;
+                };
+                requirement_id?: undefined;
+                node_id?: undefined;
+                depth?: undefined;
+                instruction?: undefined;
+                guidance_id?: undefined;
+                proposal?: undefined;
+                expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
+            };
+            required: string[];
+        };
+    } | {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: "object";
+            properties: {
+                actor: {
+                    type: string;
+                };
+                requirement_id?: undefined;
+                criterion_id?: undefined;
+                observation?: undefined;
+                text?: undefined;
+                node_id?: undefined;
+                depth?: undefined;
+                instruction?: undefined;
+                guidance_id?: undefined;
+                proposal?: undefined;
+                expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
+            };
+            required?: undefined;
         };
     } | {
         name: string;
@@ -86,10 +205,13 @@ export declare function createMcpServer(projectDir: string): {
                 criterion_id?: undefined;
                 actor?: undefined;
                 observation?: undefined;
+                text?: undefined;
                 instruction?: undefined;
                 guidance_id?: undefined;
                 proposal?: undefined;
                 expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
             };
             required: string[];
         };
@@ -111,10 +233,13 @@ export declare function createMcpServer(projectDir: string): {
                 requirement_id?: undefined;
                 criterion_id?: undefined;
                 observation?: undefined;
+                text?: undefined;
                 depth?: undefined;
                 guidance_id?: undefined;
                 proposal?: undefined;
                 expected_target_version?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
             };
             required: string[];
         };
@@ -139,9 +264,42 @@ export declare function createMcpServer(projectDir: string): {
                 requirement_id?: undefined;
                 criterion_id?: undefined;
                 observation?: undefined;
+                text?: undefined;
                 node_id?: undefined;
                 depth?: undefined;
                 instruction?: undefined;
+                change_id?: undefined;
+                evidence?: undefined;
+            };
+            required: string[];
+        };
+    } | {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: "object";
+            properties: {
+                change_id: {
+                    type: string;
+                };
+                actor: {
+                    type: string;
+                };
+                observation: {
+                    type: string;
+                };
+                evidence: {
+                    type: string;
+                };
+                requirement_id?: undefined;
+                criterion_id?: undefined;
+                text?: undefined;
+                node_id?: undefined;
+                depth?: undefined;
+                instruction?: undefined;
+                guidance_id?: undefined;
+                proposal?: undefined;
+                expected_target_version?: undefined;
             };
             required: string[];
         };

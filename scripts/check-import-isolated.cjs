@@ -8,9 +8,7 @@ const DIST = path.resolve(ROOT, "dist")
 const TMP = path.resolve(ROOT, ".build-check-tmp")
 
 function fail(message) {
-  console.error(`❌ build check failed: ${message}`)
-  process.exitCode = 1
-  process.exit(1)
+  throw new Error(message)
 }
 
 try {
@@ -24,13 +22,17 @@ try {
   fs.writeFileSync(pkgPath, JSON.stringify({
     name: "opencode-telos-check",
     version: pkg.version,
+    type: pkg.type || "module",
     dependencies: pkg.dependencies || {}
   }, null, 2))
 
   let used
   try {
-    execSync("npm ci --omit=dev --prefix .", { cwd: TMP, stdio: "pipe" })
-    used = "npm"
+    // The isolated package intentionally has no lockfile. Use npm's
+    // production resolver before relying on Bun's temp-directory behavior,
+    // which is restricted in some CI sandboxes.
+    execSync("npm install --omit=dev --ignore-scripts --no-audit --no-fund --legacy-peer-deps", { cwd: TMP, stdio: "inherit" })
+    used = "npm-install"
   } catch {
     execSync("bun install --production", { cwd: TMP, stdio: "inherit" })
     used = "bun"
@@ -44,7 +46,8 @@ try {
     fail(`Could not require dist/index.js: ${err && err.message ? err.message : String(err)}`)
   }
 } catch (err) {
-  fail(err && err.message ? err.message : String(err))
+  console.error(`❌ build check failed: ${err && err.message ? err.message : String(err)}`)
+  process.exitCode = 1
 } finally {
   try { fs.rmSync(TMP, { recursive: true, force: true }) } catch {}
 }

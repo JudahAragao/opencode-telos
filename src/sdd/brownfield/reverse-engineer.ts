@@ -16,7 +16,7 @@
  * Dependências: brownfield/scanner.ts, fs, path
  */
 
-import { readFileSync, existsSync, readdirSync, statSync } from "fs"
+import { readFileSync, existsSync, readdirSync } from "fs"
 import { join, relative, extname, basename } from "path"
 import type { BriefingDeepAnalysis } from "../discovery/briefing-analyzer.js"
 import { scanExistingProject, type BrownfieldAnalysis } from "./scanner.js"
@@ -385,7 +385,6 @@ function detectArchitecture(
 
   // Detect layers from directory structure
   const dirs = brownfield.structure.directories
-  const dirSet = new Set(dirs)
 
   // Frontend detection
   const frontendDirs = dirs.filter(d =>
@@ -608,7 +607,7 @@ function buildAnalysis(
   endpoints: DiscoveredEndpoint[],
   rules: DiscoveredBusinessRule[],
   architecture: DiscoveredArchitecture[],
-  brownfield: BrownfieldAnalysis,
+  _brownfield: BrownfieldAnalysis,
   purpose: "documentation" | "reverse_engineering",
 ): BriefingDeepAnalysis {
   const isReverseEng = purpose === "reverse_engineering"
@@ -742,28 +741,6 @@ function inferDomains(
   }
 
   return [...domains]
-}
-
-function detectLanguage(brownfield: BrownfieldAnalysis): string | null {
-  const langs = brownfield.structure.languages
-  const tsFiles = (langs[".ts"] || 0) + (langs[".tsx"] || 0)
-  const jsFiles = (langs[".js"] || 0) + (langs[".jsx"] || 0)
-  const pyFiles = langs[".py"] || 0
-  const goFiles = langs[".go"] || 0
-  const javaFiles = langs[".java"] || 0
-  const rbFiles = langs[".rb"] || 0
-  const rsFiles = langs[".rs"] || 0
-
-  const max = Math.max(tsFiles, jsFiles, pyFiles, goFiles, javaFiles, rbFiles, rsFiles)
-  if (max === 0) return null
-  if (max === tsFiles) return "TypeScript"
-  if (max === jsFiles) return "JavaScript"
-  if (max === pyFiles) return "Python"
-  if (max === goFiles) return "Go"
-  if (max === javaFiles) return "Java"
-  if (max === rbFiles) return "Ruby"
-  if (max === rsFiles) return "Rust"
-  return null
 }
 
 function buildSummary(

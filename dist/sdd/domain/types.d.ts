@@ -272,6 +272,14 @@ export interface ChangeNode extends Node {
          * declarados (o hook de escrita não vai liberar nenhum arquivo nesse caso).
          */
         files_scope_acknowledged?: boolean;
+        final_acceptance?: {
+            status: "PENDING" | "ACCEPTED" | "REJECTED";
+            actor?: string;
+            accepted_at?: string;
+            observation?: string;
+            evidence?: Array<Record<string, unknown>>;
+            previous_status?: "PENDING" | "ACCEPTED" | "REJECTED";
+        };
         origin?: string;
         transaction_id?: string;
         auto_archived?: boolean;
@@ -588,6 +596,7 @@ export interface SddConfig {
         enabled: boolean;
         require_before_change_approval: boolean;
         require_before_change_completion: boolean;
+        require_final_acceptance_before_completion: boolean;
         allow_waived: boolean;
         legacy_fallback: boolean;
     };

@@ -2,7 +2,9 @@ import type { KnowledgeGraph, AnyNode, NodeType, Relationship, RelationshipType,
 import { GraphIndices } from "./index.js";
 export declare function createGraph(projectId: string): KnowledgeGraph;
 export declare function addNode(graph: KnowledgeGraph, node: AnyNode): void;
-export declare function updateNode(graph: KnowledgeGraph, nodeId: string, updates: Partial<AnyNode>): AnyNode;
+export declare function updateNode(graph: KnowledgeGraph, nodeId: string, updates: Partial<AnyNode>, options?: {
+    expected_version?: number;
+}): AnyNode;
 export declare function removeNode(graph: KnowledgeGraph, nodeId: string): void;
 /**
  * Get a node by ID. Uses indices when available, falls back to linear scan.
@@ -16,7 +18,9 @@ export declare function getNodesByType<T extends AnyNode = AnyNode>(graph: Knowl
  * Get nodes by status. Uses indices when available, falls back to linear scan.
  */
 export declare function getNodesByStatus(graph: KnowledgeGraph, status: NodeStatus): AnyNode[];
-export declare function addRelationship(graph: KnowledgeGraph, from: string, to: string, type: RelationshipType, metadata?: Record<string, unknown>): Relationship;
+export declare function addRelationship(graph: KnowledgeGraph, from: string, to: string, type: RelationshipType, metadata?: Record<string, unknown>, options?: {
+    strictSchema?: boolean;
+}): Relationship;
 export declare function removeRelationship(graph: KnowledgeGraph, from: string, to: string, type: RelationshipType): void;
 export declare function getRelationships(graph: KnowledgeGraph, nodeId: string): Relationship[];
 export declare function getOutgoing(graph: KnowledgeGraph, nodeId: string): Relationship[];

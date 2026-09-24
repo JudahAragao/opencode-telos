@@ -74,7 +74,7 @@ import { startSharedDashboard, getSharedDashboardUrl, resolveDashboardPort } fro
 
 import type { KnowledgeGraph, AnyNode, ConstitutionNode, ChangeNode, Transaction, FindingStatus, FindingNode } from "../sdd/domain/types.js"
 import { getCacheManager } from "../sdd/cache/manager.js"
-import { markEnforced, markApproved, markValidated, markCompleted, resetWorkflowState, workflowScope, renewWorkflow, workflowRemainingMs, workflowTtlMs } from "../sdd/enforcement/workflow-tracker.js"
+import { markEnforced, markApproved, markValidated, markCompleted, resetWorkflowState, workflowScope, renewWorkflow, workflowRemainingMs, workflowTtlMs, getWorkflowState } from "../sdd/enforcement/workflow-tracker.js"
 import { validateSmart, type SmartValidationOptions } from "../sdd/validation/smart-validator.js"
 import { validateExecutableProject, validateFunctionalEvidence, saveExecutableValidation, loadExecutableValidation, isExecutableValidationCurrent, computeScopedFileHashes, verifyScopedFiles } from "../sdd/validation/executable.js"
 import { getTelemetrySummary, recordFeedback, recordTelemetry } from "../sdd/monitoring/telemetry.js"
@@ -86,7 +86,9 @@ import { TransactionManager, reconcileChangeTransactions } from "../sdd/transact
 import { createWorkflowTools } from "./workflows/tools-workflow.js"
 import { graphFingerprint } from "../sdd/cache/fingerprint.js"
 import { projectPath } from "../sdd/security/paths.js"
-import { AcceptanceService, checkChangeAcceptance, materializeLegacyAcceptanceCriteria, updateAcceptanceCriterionText } from "../sdd/acceptance/service.js"
+import { AcceptanceService, checkChangeAcceptance, materializeLegacyAcceptanceCriteria } from "../sdd/acceptance/service.js"
+import { createAcceptanceAuditSink } from "../sdd/acceptance/audit.js"
+import { getFinalAcceptanceStatus, transitionFinalAcceptance } from "../sdd/acceptance/final.js"
 import { analyzeNodeImpact, formatNodeImpact } from "../sdd/impact/service.js"
 import { analyzeGuidance, applyGuidancePatch, createGuidance, proposeGuidancePatch, rejectGuidance } from "../sdd/guidance/service.js"
 
@@ -185,6 +187,16 @@ function recordGeneratedArtifacts(graph: KnowledgeGraph, files: GeneratedFile[],
     }
   }
   if (change) change.updated_at = now
+}
+
+function requireApprovedWorkflowChange(directory: string, sessionId: string, graph: KnowledgeGraph): ChangeNode | undefined {
+  const state = getWorkflowState(workflowScope(directory, sessionId))
+  const candidateId = state.changeId
+  const change = candidateId
+    ? graph.nodes.find((node) => node.id === candidateId && node.type === "change") as ChangeNode | undefined
+    : undefined
+  if (change?.status === "APPROVED") return change
+  return graph.nodes.find((node) => node.type === "change" && node.status === "APPROVED") as ChangeNode | undefined
 }
 
 /** Call after any operation that changes the active storage backend. */
@@ -359,6 +371,10 @@ function completionGateFailures(projectDir: string, graph: KnowledgeGraph, chang
     const acceptance = checkChangeAcceptance(graph, changeId, { allowWaived: config.acceptance.allow_waived, legacyFallback: config.acceptance.legacy_fallback })
     if (!acceptance.allowed) failures.push(acceptance.reason)
   }
+  if (config.acceptance.enabled && config.acceptance.require_final_acceptance_before_completion) {
+    const change = graph.nodes.find((node) => node.id === changeId && node.type === "change") as ChangeNode | undefined
+    if (change && getFinalAcceptanceStatus(change) !== "ACCEPTED") failures.push("Final delivery acceptance is still pending or rejected.")
+  }
   return failures
 }
 
@@ -376,17 +392,6 @@ export function invalidateCacheForMutation(directory: string, nodeTypes: string[
 export const invalidateCache = invalidateCacheForMutation
 
 
-// ── Pagination helpers ───────────────────────────────────────────────
-const DEFAULT_PAGE_SIZE = 30
-const MAX_PAGE_SIZE = 100
-
-function paginate<T>(items: T[], pageSize: number = DEFAULT_PAGE_SIZE): { page: T[]; total: number; hasMore: boolean } {
-  const total = items.length
-  const size = Math.min(pageSize, MAX_PAGE_SIZE)
-  const hasMore = total > size
-  return { page: items.slice(0, size), total, hasMore }
-}
-
 function truncateList(items: string[], maxItems: number = 20): string[] {
   if (items.length <= maxItems) return items
   return [...items.slice(0, maxItems), `... and ${items.length - maxItems} more`]
@@ -400,9 +405,10 @@ function createAllTools(): Record<string, ToolDefinition> {
     "sdd.acceptance": tool({
       description: "Centralized acceptance criteria service backed by the Knowledge Graph.",
       args: {
-        action: tool.schema.enum(["list", "summary", "create", "accept", "reject", "waive", "reopen", "accept_all", "update_text", "migrate"]),
+        action: tool.schema.enum(["list", "summary", "create", "accept", "reject", "waive", "reopen", "accept_all", "update_text", "migrate", "final_accept", "final_reject"]),
         requirement_id: tool.schema.string().optional().describe("Requirement ID"),
         criterion_id: tool.schema.string().optional().describe("Acceptance criterion ID"),
+        change_id: tool.schema.string().optional().describe("Change ID for final delivery acceptance"),
         text: tool.schema.string().optional().describe("Criterion text"),
         observation: tool.schema.string().optional().describe("Observation or reason"),
         evidence_json: tool.schema.string().optional().describe("Evidence array as JSON"),
@@ -413,7 +419,7 @@ function createAllTools(): Record<string, ToolDefinition> {
         const repo = getRepo(ctx.directory)
         if (!repo.isInitialized()) return "SDD not initialized."
         const graph = repo.loadGraph()
-        const service = new AcceptanceService(graph, loadSddConfig(ctx.directory).acceptance.legacy_fallback)
+        const service = new AcceptanceService(graph, loadSddConfig(ctx.directory).acceptance.legacy_fallback, createAcceptanceAuditSink(ctx.directory))
         const actor = process.env.USER || process.env.USERNAME || "current"
         const evidence = args.evidence_json ? (() => { try { return JSON.parse(args.evidence_json!) } catch { return undefined } })() : undefined
         const input = { actor, observation: args.observation, evidence, expected_version: args.expected_version, expected_hash: args.expected_hash }
@@ -426,18 +432,35 @@ function createAllTools(): Record<string, ToolDefinition> {
                 ? "reject_requirement"
                 : args.action === "waive"
                   ? "waive_requirement"
-                  : args.action === "reopen"
-                    ? "reopen_requirement"
+                    : args.action === "reopen"
+                      ? "reopen_requirement"
+                      : args.action === "final_accept"
+                        ? "accept_final"
+                        : args.action === "final_reject"
+                          ? "reject_final"
                     : undefined
           if (requiredPermission && !checkPermission(getUserRoleWithAuth(ctx.directory, actor), requiredPermission, ctx.directory)) {
             addAuditEntry(ctx.directory, actor, `acceptance.${args.action}`, args.criterion_id || args.requirement_id || "unknown", "denied", `Missing permission ${requiredPermission}`)
             return `Permission denied: ${requiredPermission}`
           }
           if (args.action === "migrate") {
-            const result = materializeLegacyAcceptanceCriteria(graph)
+            const result = materializeLegacyAcceptanceCriteria(graph, { removeLegacy: true })
             repo.saveGraph(graph)
+            addAuditEntry(ctx.directory, actor, "acceptance.migrate", "knowledge-graph", "allowed", JSON.stringify(result))
             invalidateCacheForMutation(ctx.directory, ["acceptance_criterion", "requirement"], ["has_acceptance_criterion"])
             return `Acceptance migration complete: ${result.created} created, ${result.linked} linked, ${result.unresolved.length} unresolved task(s).`
+          }
+          if (args.action === "final_accept" || args.action === "final_reject") {
+            if (!args.change_id) return "change_id is required"
+            const result = transitionFinalAcceptance(graph, args.change_id, args.action === "final_accept" ? "ACCEPTED" : "REJECTED", {
+              actor,
+              observation: args.observation,
+              evidence,
+              expected_version: args.expected_version,
+            })
+            repo.saveGraph(graph)
+            addAuditEntry(ctx.directory, actor, `acceptance.${args.action}`, args.change_id, "allowed", JSON.stringify(result))
+            return JSON.stringify(result, null, 2)
           }
           if (args.action === "list" || args.action === "summary") {
             if (!args.requirement_id) return "requirement_id is required"
@@ -447,23 +470,22 @@ function createAllTools(): Record<string, ToolDefinition> {
           }
           if (args.action === "create") {
             if (!args.requirement_id || !args.text) return "requirement_id and text are required"
-            const criterion = service.create(args.requirement_id, args.text)
+            const criterion = service.create(args.requirement_id, args.text, undefined, actor)
             repo.saveGraph(graph)
             invalidateCacheForMutation(ctx.directory, ["acceptance_criterion"], ["has_acceptance_criterion"])
             return `Acceptance criterion created: ${criterion.id}`
           }
           if (args.action === "update_text") {
             if (!args.criterion_id || !args.text) return "criterion_id and text are required"
-            const criterion = updateAcceptanceCriterionText(graph, args.criterion_id, args.text, { actor, observation: args.observation })
+            const result = service.updateText(args.criterion_id, args.text, { actor, observation: args.observation })
             repo.saveGraph(graph)
             invalidateCacheForMutation(ctx.directory, ["acceptance_criterion"], [])
-            return `Acceptance criterion ${criterion.id} updated to version ${criterion.metadata.criterion_version} and returned to PENDING.`
+            return `Acceptance criterion ${result.criterion.id} updated to version ${result.criterion.metadata.criterion_version} and returned to PENDING.`
           }
           if (args.action === "accept_all") {
             if (!args.requirement_id) return "requirement_id is required"
             const result = service.acceptAll(args.requirement_id, input)
             repo.saveGraph(graph)
-            for (const event of result.audit) addAuditEntry(ctx.directory, actor, `acceptance.${event.action}`, event.criterion_id, "allowed", JSON.stringify(event))
             invalidateCacheForMutation(ctx.directory, ["acceptance_criterion"], [])
             return JSON.stringify(result, null, 2)
           }
@@ -476,7 +498,6 @@ function createAllTools(): Record<string, ToolDefinition> {
                 ? service.waive(args.criterion_id, input)
                 : service.reopen(args.criterion_id, input)
           repo.saveGraph(graph)
-          addAuditEntry(ctx.directory, actor, `acceptance.${result.audit.action}`, args.criterion_id, "allowed", JSON.stringify(result.audit))
           invalidateCacheForMutation(ctx.directory, ["acceptance_criterion"], [])
           return `${args.criterion_id} -> ${result.criterion.status}`
         } catch (error) {
@@ -1127,8 +1148,8 @@ function createAllTools(): Record<string, ToolDefinition> {
       },
       async execute(args, ctx) {
         const { hasPendingMigrations, runMigrations, getMigrations } = await import("../sdd/migrations/index.js")
-        const { getLastConflictResolution } = await import("../sdd/persistence/repository.js")
-        const { existsSync, statSync } = await import("fs")
+        const { getLastConflictResolution, inspectStorageConsistency } = await import("../sdd/persistence/repository.js")
+        const { existsSync } = await import("fs")
         const { join } = await import("path")
 
         const lines: string[] = []
@@ -1157,6 +1178,9 @@ function createAllTools(): Record<string, ToolDefinition> {
         lines.push(`- graph.yaml: ${hasYaml ? "present" : "absent"}`)
         lines.push(`- graph.db: ${hasDb ? "present" : "absent"}`)
         lines.push(`- graph.yaml.bak: ${hasBak ? "present (archive — do not read or delete)" : "absent"}`)
+        const consistency = inspectStorageConsistency(ctx.directory)
+        lines.push(`- backend consistency: ${consistency.consistent ? "consistent" : "DIVERGENT"}`)
+        if (!consistency.consistent) issues.push(consistency.reason)
 
         // Ambiguous state: both files exist without sentinel
         if (hasYaml && hasDb && !hasSentinel) {
@@ -2541,8 +2565,15 @@ function createAllTools(): Record<string, ToolDefinition> {
         hooks: tool.schema.array(tool.schema.string()).describe("Hooks to install: pre-commit, post-checkout, post-merge"),
       },
       async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+        const change = requireApprovedWorkflowChange(ctx.directory, ctx.sessionID, graph)
+        if (!change) return "An approved Change is required before installing hooks."
         const hooks = (args.hooks as string[]) || ["pre-commit"]
         const created = generateShellHooks({ projectDir: ctx.directory, hooks })
+        recordGeneratedArtifacts(graph, created.map((hook) => ({ path: `.git/hooks/${hook}`, description: `SDD ${hook} hook`, content: "" })), change.id)
+        repo.saveGraph(graph)
         return formatShellHookResult(created)
       },
     }),
@@ -2756,6 +2787,8 @@ function createAllTools(): Record<string, ToolDefinition> {
         const repo = getRepo(ctx.directory)
         if (!repo.isInitialized()) return "SDD not initialized."
         const graph = repo.loadGraph()
+        const change = requireApprovedWorkflowChange(ctx.directory, ctx.sessionID, graph)
+        if (!change) return "An approved Change is required before generating CI/CD files."
 
         const config = {
           platform: (args.platform as "github" | "gitlab" | "jenkins" | "docker" | "all") || "all",
@@ -2765,6 +2798,8 @@ function createAllTools(): Record<string, ToolDefinition> {
 
         const results = generateCicd(config)
         writeCicdFiles(results, ctx.directory)
+        recordGeneratedArtifacts(graph, results.map((result) => ({ path: result.file_path, content: result.content, description: `${result.platform} CI/CD configuration` })), change.id)
+        repo.saveGraph(graph)
         return formatCicdResults(results)
       },
     }),
@@ -2786,6 +2821,7 @@ function createAllTools(): Record<string, ToolDefinition> {
         severity: tool.schema.enum(["critical", "high", "medium", "low"]).describe("Severidade do bug"),
       },
       async execute(args, ctx) {
+        if (!getRepo(ctx.directory).isInitialized()) return "SDD not initialized. Run sdd.initialize first."
         const graph = loadOrEmpty(ctx.directory)
         const { createBugFixChange, getBugFixInstructions } = await import("../sdd/workflows/bug-fix.js")
         const { change, bugFix } = createBugFixChange(graph, {
@@ -2815,6 +2851,7 @@ function createAllTools(): Record<string, ToolDefinition> {
         urgency: tool.schema.enum(["critical", "high", "medium"]).describe("Urgência"),
       },
       async execute(args, ctx) {
+        if (!getRepo(ctx.directory).isInitialized()) return "SDD not initialized. Run sdd.initialize first."
         const graph = loadOrEmpty(ctx.directory)
         const { createHotfixChange, getHotfixInstructions } = await import("../sdd/workflows/hotfix.js")
         const { change, hotfix } = createHotfixChange(graph, {
@@ -2849,6 +2886,7 @@ function createAllTools(): Record<string, ToolDefinition> {
         files: tool.schema.array(tool.schema.string()).describe("Arquivos envolvidos"),
       },
       async execute(args, ctx) {
+        if (!getRepo(ctx.directory).isInitialized()) return "SDD not initialized. Run sdd.initialize first."
         const graph = loadOrEmpty(ctx.directory)
         const { createRefactoringChange, getRefactoringInstructions } = await import("../sdd/workflows/refactoring.js")
         const { change, refactoring } = createRefactoringChange(graph, {
@@ -2880,6 +2918,7 @@ function createAllTools(): Record<string, ToolDefinition> {
         endpoints: tool.schema.array(tool.schema.string()).describe("Endpoints afetados"),
       },
       async execute(args, ctx) {
+        if (!getRepo(ctx.directory).isInitialized()) return "SDD not initialized. Run sdd.initialize first."
         const graph = loadOrEmpty(ctx.directory)
         const { createDeprecationChange, getDeprecationInstructions } = await import("../sdd/workflows/deprecation.js")
         const { change, deprecation } = createDeprecationChange(graph, {

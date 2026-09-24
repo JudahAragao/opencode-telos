@@ -41,6 +41,7 @@ export function analyzeNodeImpact(graph: KnowledgeGraph, nodeId: string, maxDept
   const source = getNode(graph, nodeId)
   if (!source) throw new Error(`Node ${nodeId} not found`)
 
+  const depth = Math.max(1, Math.min(20, Number.isFinite(maxDepth) ? Math.floor(maxDepth) : 5))
   const distances = new Map<string, number>([[nodeId, 0]])
   const directionMap = new Map<string, Set<"incoming" | "outgoing">>()
   const relationshipMap = new Map<string, Relationship[]>()
@@ -50,7 +51,7 @@ export function analyzeNodeImpact(graph: KnowledgeGraph, nodeId: string, maxDept
   while (queue.length > 0) {
     const current = queue.shift()!
     const distance = distances.get(current) ?? 0
-    if (distance >= maxDepth) continue
+    if (distance >= depth) continue
     for (const entry of neighbors(graph, current)) {
       affectedRelationships.push(entry.rel)
       if (!directionMap.has(entry.node.id)) directionMap.set(entry.node.id, new Set())
@@ -58,7 +59,10 @@ export function analyzeNodeImpact(graph: KnowledgeGraph, nodeId: string, maxDept
       const rels = relationshipMap.get(entry.node.id) || []
       rels.push(entry.rel)
       relationshipMap.set(entry.node.id, rels)
-      if (!distances.has(entry.node.id)) {
+      // Structural parent/child edges are useful as direct context but must
+      // not turn a project/domain node into a graph-wide impact hub.
+      const structural = entry.rel.type === "contains" || entry.rel.type === "belongs_to"
+      if (!distances.has(entry.node.id) && !structural) {
         distances.set(entry.node.id, distance + 1)
         queue.push(entry.node.id)
       }
@@ -86,7 +90,7 @@ export function analyzeNodeImpact(graph: KnowledgeGraph, nodeId: string, maxDept
       if (rel.from === source.id && rel.type === "has_acceptance_criterion") acceptanceCriteria.add(rel.to)
     }
   }
-  for (const item of [...build(1, maxDepth)]) {
+  for (const item of [...build(1, depth)]) {
     if (item.node.type === "requirement") {
       for (const rel of graph.relationships) {
         if (rel.from === item.node.id && rel.type === "has_acceptance_criterion") acceptanceCriteria.add(rel.to)
@@ -99,7 +103,7 @@ export function analyzeNodeImpact(graph: KnowledgeGraph, nodeId: string, maxDept
     source,
     direct: build(1, 1),
     indirect: build(2, 2),
-    potential: build(3, maxDepth),
+    potential: build(3, depth),
     affected_relationships: uniqueRelationships,
     acceptance_criteria: [...acceptanceCriteria].map((id) => getNode(graph, id)).filter(Boolean) as AnyNode[],
   }

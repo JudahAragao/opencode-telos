@@ -159,14 +159,14 @@ export function getFixes(): void {}
 registerMigration({
   id: "20260924_materialize_acceptance_criteria",
   description: "Materialize legacy requirement/task acceptance criteria as graph nodes",
-  version: "2.3.1",
+  version: "2.4.0",
   up: (projectDir: string) => {
     try {
       const { createRepository } = require("../../sdd/persistence/repository.js")
       const repo = createRepository(projectDir)
       if (!repo.isInitialized()) return { success: true, message: "No graph found, skipping" }
       const graph = repo.loadGraph()
-      const result = materializeLegacyAcceptanceCriteria(graph)
+      const result = materializeLegacyAcceptanceCriteria(graph, { removeLegacy: true })
       if (result.created === 0 && result.unresolved.length === 0) {
         return { success: true, message: "Acceptance criteria are already materialized" }
       }

@@ -1,5 +1,5 @@
 export type Role = "admin" | "architect" | "developer" | "viewer";
-export type Permission = "create_feature" | "create_requirement" | "create_entity" | "create_endpoint" | "create_change" | "approve_feature" | "approve_requirement" | "approve_architecture" | "approve_breaking" | "modify_constitution" | "modify_decision" | "execute_rollback" | "manage_permissions" | "sync_push" | "sync_pull" | "accept_requirement" | "reject_requirement" | "waive_requirement" | "reopen_requirement" | "guide_node" | "apply_node_guidance";
+export type Permission = "create_feature" | "create_requirement" | "create_entity" | "create_endpoint" | "create_change" | "approve_feature" | "approve_requirement" | "approve_architecture" | "approve_breaking" | "modify_constitution" | "modify_decision" | "execute_rollback" | "manage_permissions" | "sync_push" | "sync_pull" | "accept_requirement" | "reject_requirement" | "waive_requirement" | "reopen_requirement" | "accept_final" | "reject_final" | "guide_node" | "apply_node_guidance";
 export interface RolePermissions {
     role: Role;
     permissions: Permission[];
@@ -63,6 +63,12 @@ export interface AuditLogFilters {
 /** Cache for audit log reads. Key: projectDir. */
 export declare function getAuditLog(projectDir: string, filters?: AuditLogFilters): AuditEntry[];
 export declare function setRole(projectDir: string, user: string, role: Role): void;
+/**
+ * A project without a local access configuration may bootstrap exactly one
+ * administrator through the permissions tool.  After that first assignment,
+ * permission changes require manage_permissions like every other mutation.
+ */
+export declare function canBootstrapPermissions(projectDir: string): boolean;
 export declare function getUserRole(projectDir: string, user: string): Role;
 export declare function detectRemote(projectDir: string): RemoteAuthConfig | null;
 export declare function fetchRemoteUser(projectDir: string, username: string): RemoteUser | null;

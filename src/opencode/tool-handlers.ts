@@ -10,14 +10,12 @@
  */
 
 import { createRepository, type GraphRepository } from "../sdd/persistence/repository.js"
-import { loadPermissions, savePermissions } from "../sdd/permissions/access.js"
+import { savePermissions } from "../sdd/permissions/access.js"
 import { detectConfigDrift, formatConfigDriftReport } from "../sdd/patterns/config-drift.js"
 import { exportWorkflow, formatWorkflowExport } from "../sdd/workflow/exporter.js"
 import { analyzeCodebase } from "../code-intelligence/analyzer.js"
 import { sddDebug } from "../sdd/log.js"
 import { projectPath } from "../sdd/security/paths.js"
-import { getCacheManager } from "../sdd/cache/manager.js"
-import { graphFingerprint } from "../sdd/cache/fingerprint.js"
 import type { KnowledgeGraph } from "../sdd/domain/types.js"
 
 // ── Repository helpers ─────────────────────────────────────────────

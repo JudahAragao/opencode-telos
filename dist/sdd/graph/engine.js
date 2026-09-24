@@ -1,4 +1,5 @@
 import { GRAPH_SCHEMA_VERSION } from "../../version.js";
+import { isRelationshipAllowed } from "./schema.js";
 export function createGraph(projectId) {
     const now = new Date().toISOString();
     return {
@@ -20,11 +21,19 @@ export function addNode(graph, node) {
     graph.nodes.push(node);
     graph.metadata.updated_at = new Date().toISOString();
 }
-export function updateNode(graph, nodeId, updates) {
+export function updateNode(graph, nodeId, updates, options = {}) {
     const idx = graph.nodes.findIndex((n) => n.id === nodeId);
     if (idx === -1)
         throw new Error(`Node ${nodeId} not found`);
     const node = graph.nodes[idx];
+    if (options.expected_version !== undefined && node.version !== options.expected_version) {
+        throw new Error(`Node ${nodeId} version conflict: expected ${options.expected_version}, current ${node.version}`);
+    }
+    const currentRecord = node;
+    const updateRecord = updates;
+    const changed = Object.keys(updates).some((key) => JSON.stringify(currentRecord[key]) !== JSON.stringify(updateRecord[key]));
+    if (!changed)
+        return node;
     const updated = {
         ...node,
         ...updates,
@@ -61,11 +70,16 @@ export function getNodesByType(graph, type) {
 export function getNodesByStatus(graph, status) {
     return graph.nodes.filter((n) => n.status === status);
 }
-export function addRelationship(graph, from, to, type, metadata = {}) {
+export function addRelationship(graph, from, to, type, metadata = {}, options = {}) {
     if (!getNode(graph, from))
         throw new Error(`Source node ${from} not found`);
     if (!getNode(graph, to))
         throw new Error(`Target node ${to} not found`);
+    const source = getNode(graph, from);
+    const target = getNode(graph, to);
+    if (options.strictSchema && !isRelationshipAllowed(source.type, type, target.type)) {
+        throw new Error(`Relationship ${source.type} --[${type}]--> ${target.type} is not allowed by the graph schema`);
+    }
     // Prevent self-loops
     if (from === to)
         throw new Error(`Cannot create self-loop relationship on ${from}`);

@@ -56,10 +56,10 @@ describe("setRole / getUserRoleWithAuth", () => {
     expect(role).toBe("architect")
   })
 
-  test("default role is admin when no auth configured", () => {
-    // When no remote auth is configured, getUserRoleWithAuth defaults to admin
+  test("default role is viewer when no auth is configured", () => {
+    // Access is fail-closed until a local role or explicit bootstrap is configured.
     const role = getUserRoleWithAuth(dir, "unknown-user")
-    expect(role).toBe("admin")
+    expect(role).toBe("viewer")
   })
 
   test("setRole persists role for user", () => {

@@ -5,7 +5,7 @@ import { join } from "path"
 import { createGraph, addNode, addRelationship } from "../src/sdd/graph/engine.js"
 import { SqliteGraphRepository } from "../src/sdd/persistence/sqlite.js"
 import { YamlGraphRepository } from "../src/sdd/persistence/yaml.js"
-import { createRepository } from "../src/sdd/persistence/repository.js"
+import { createRepository, inspectStorageConsistency } from "../src/sdd/persistence/repository.js"
 
 function makeTestGraph() {
   const graph = createGraph("persistence-test")
@@ -86,6 +86,19 @@ describe("SqliteGraphRepository", () => {
     expect(yamlRepo).toBeInstanceOf(YamlGraphRepository)
     const loaded = yamlRepo.loadGraph()
     expect(loaded.nodes.length).toBe(2)
+  })
+})
+
+describe("storage consistency inspection", () => {
+  test("reports a single backend as consistent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "storage-consistency-"))
+    mkdirSync(join(dir, ".sdd"), { recursive: true })
+    const repo = new YamlGraphRepository(dir)
+    repo.saveGraph(makeTestGraph())
+    const report = inspectStorageConsistency(dir)
+    expect(report.consistent).toBe(true)
+    expect(report.canonical).toBe("yaml")
+    rmSync(dir, { recursive: true, force: true })
   })
 })
 

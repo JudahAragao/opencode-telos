@@ -122,16 +122,21 @@ export function updateAcceptanceCriterionText(graph, criterionId, text, input) {
 export class AcceptanceService {
     graph;
     includeLegacyFallback;
-    constructor(graph, includeLegacyFallback = true) {
+    auditSink;
+    constructor(graph, includeLegacyFallback = true, auditSink) {
         this.graph = graph;
         this.includeLegacyFallback = includeLegacyFallback;
+        this.auditSink = auditSink;
+    }
+    emit(event) {
+        this.auditSink?.record(event);
     }
     list(requirementId, includeLegacy = true) {
         if (requirementId)
             return getAcceptanceCriteria(this.graph, requirementId, includeLegacy && this.includeLegacyFallback);
         return this.graph.nodes.filter((node) => node.type === "acceptance_criterion");
     }
-    summary(requirementId, includeLegacy = true) {
+    summary(requirementId, includeLegacy = true, allowWaived = true) {
         const criteria = this.list(requirementId, includeLegacy);
         const counts = { total: criteria.length, pending: 0, accepted: 0, rejected: 0, waived: 0 };
         for (const criterion of criteria) {
@@ -144,10 +149,49 @@ export class AcceptanceService {
             else if (criterion.status === "WAIVED")
                 counts.waived++;
         }
-        return { ...counts, all_accepted: counts.total > 0 && counts.pending === 0 && counts.rejected === 0 };
+        return {
+            ...counts,
+            all_accepted: counts.total > 0 && counts.pending === 0 && counts.rejected === 0 && (allowWaived || counts.waived === 0),
+        };
     }
-    create(requirementId, text, legacySource) {
-        return createAcceptanceCriterion(this.graph, requirementId, text, legacySource);
+    create(requirementId, text, legacySource, actor = "system") {
+        const before = getAcceptanceCriteria(this.graph, requirementId, false);
+        const criterion = createAcceptanceCriterion(this.graph, requirementId, text, legacySource);
+        if (!before.some((item) => item.id === criterion.id)) {
+            const timestamp = now();
+            this.emit({
+                action: "create",
+                criterion_id: criterion.id,
+                actor,
+                timestamp,
+                status: criterion.status,
+                content_hash: criterion.metadata.content_hash,
+            });
+        }
+        return criterion;
+    }
+    updateText(criterionId, text, input) {
+        const current = getNode(this.graph, criterionId);
+        if (!current || current.type !== "acceptance_criterion") {
+            throw new Error(`Acceptance criterion ${criterionId} not found`);
+        }
+        const previous = current;
+        const criterion = updateAcceptanceCriterionText(this.graph, criterionId, text, input);
+        if (criterion.version === previous.version)
+            return { criterion };
+        const audit = {
+            action: "update_text",
+            criterion_id: criterionId,
+            actor: input.actor,
+            timestamp: now(),
+            previous_status: previous.status,
+            status: criterion.status,
+            previous_hash: previous.metadata.content_hash,
+            content_hash: criterion.metadata.content_hash,
+            observation: input.observation,
+        };
+        this.emit(audit);
+        return { criterion, audit };
     }
     transition(criterionId, status, input) {
         const node = getNode(this.graph, criterionId);
@@ -178,18 +222,20 @@ export class AcceptanceService {
             metadata,
             created_by: input.actor,
         });
+        const audit = {
+            action: status === "ACCEPTED" ? "accept" : status === "REJECTED" ? "reject" : status === "WAIVED" ? "waive" : "reopen",
+            criterion_id: criterionId,
+            actor: input.actor,
+            timestamp,
+            previous_status: criterion.status,
+            status,
+            content_hash: criterion.metadata.content_hash,
+            observation: input.observation,
+        };
+        this.emit(audit);
         return {
             criterion: updated,
-            audit: {
-                action: status === "ACCEPTED" ? "accept" : status === "REJECTED" ? "reject" : status === "WAIVED" ? "waive" : "reopen",
-                criterion_id: criterionId,
-                actor: input.actor,
-                timestamp,
-                previous_status: criterion.status,
-                status,
-                content_hash: criterion.metadata.content_hash,
-                observation: input.observation,
-            },
+            audit,
         };
     }
     accept(criterionId, input) {
@@ -205,15 +251,19 @@ export class AcceptanceService {
         return this.transition(criterionId, "PENDING", input);
     }
     acceptAll(requirementId, input) {
-        let criteria = this.list(requirementId, false);
+        // Prepare the complete operation on an isolated graph. The caller only
+        // receives the new state after every criterion and version check passes.
+        const working = structuredClone(this.graph);
+        const worker = new AcceptanceService(working, false);
+        let criteria = worker.list(requirementId, false);
         // Legacy projects may still expose virtual criteria. Materialize them on
         // the first mutating operation so accept-all always updates persisted
         // records and remains a single auditable transaction for YAML/SQLite.
         if (criteria.length === 0) {
             const legacy = this.list(requirementId, true);
             for (const criterion of legacy)
-                createAcceptanceCriterion(this.graph, requirementId, criterion.metadata.text, criterion.metadata.legacy_source);
-            criteria = this.list(requirementId, false);
+                createAcceptanceCriterion(working, requirementId, criterion.metadata.text, criterion.metadata.legacy_source);
+            criteria = worker.list(requirementId, false);
         }
         const result = {
             requirement_id: requirementId,
@@ -246,7 +296,7 @@ export class AcceptanceService {
                 continue;
             }
             try {
-                const transitioned = this.accept(criterion.id, input);
+                const transitioned = worker.accept(criterion.id, input);
                 result.accepted.push(criterion.id);
                 result.audit.push(transitioned.audit);
             }
@@ -255,6 +305,13 @@ export class AcceptanceService {
                 break;
             }
         }
+        if (result.failed.length > 0)
+            return result;
+        this.graph.nodes = working.nodes;
+        this.graph.relationships = working.relationships;
+        this.graph.metadata = working.metadata;
+        for (const event of result.audit)
+            this.emit(event);
         return result;
     }
     invalidateForRequirement(requirementId, actor, observation) {
@@ -321,21 +378,34 @@ export function checkChangeAcceptance(graph, changeId, options = {}) {
         reason: allowed ? "" : `Acceptance incomplete: ${pending.length} pending, ${rejected.length} rejected and ${options.allowWaived === false ? waived.length : 0} non-waived criterion(s).`,
     };
 }
-export function materializeLegacyAcceptanceCriteria(graph) {
+export function materializeLegacyAcceptanceCriteria(graph, options = {}) {
     let created = 0;
     let linked = 0;
     const unresolved = [];
+    let removed = 0;
     for (const requirement of graph.nodes.filter((node) => node.type === "requirement")) {
         const values = requirement.metadata.acceptance_criteria;
         if (!Array.isArray(values))
             continue;
+        let materialized = true;
         for (const value of values.filter((item) => typeof item === "string" && item.trim().length > 0)) {
-            const before = getAcceptanceCriteria(graph, requirement.id, false).length;
-            const criterion = createAcceptanceCriterion(graph, requirement.id, value, "requirement.metadata.acceptance_criteria");
-            if (getAcceptanceCriteria(graph, requirement.id, false).length > before)
-                created++;
-            if (criterion)
-                linked++;
+            try {
+                const before = getAcceptanceCriteria(graph, requirement.id, false).length;
+                const criterion = createAcceptanceCriterion(graph, requirement.id, value, "requirement.metadata.acceptance_criteria");
+                if (getAcceptanceCriteria(graph, requirement.id, false).length > before)
+                    created++;
+                if (criterion)
+                    linked++;
+            }
+            catch {
+                materialized = false;
+            }
+        }
+        if (options.removeLegacy && materialized) {
+            delete requirement.metadata.acceptance_criteria;
+            requirement.metadata.acceptance_migrated_at = now();
+            requirement.updated_at = now();
+            removed++;
         }
     }
     for (const task of graph.nodes.filter((node) => node.type === "task")) {
@@ -349,7 +419,15 @@ export function materializeLegacyAcceptanceCriteria(graph) {
             for (const value of values.filter((item) => typeof item === "string" && item.trim().length > 0)) {
                 createAcceptanceCriterion(graph, requirementRel.to, value, `task:${task.id}`);
             }
+            if (options.removeLegacy) {
+                const metadata = task.metadata;
+                delete metadata.acceptance;
+                delete metadata.legacy_acceptance;
+                metadata.acceptance_migrated_at = now();
+                task.updated_at = now();
+                removed++;
+            }
         }
     }
-    return { created, linked, unresolved };
+    return { created, linked, unresolved, removed };
 }

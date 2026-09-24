@@ -308,7 +308,6 @@ function detectArchitecture(brownfield, projectDir) {
     const arch = [];
     // Detect layers from directory structure
     const dirs = brownfield.structure.directories;
-    const dirSet = new Set(dirs);
     // Frontend detection
     const frontendDirs = dirs.filter(d => /^(?:src[\\/])?(?:client|frontend|web|app|pages|components|views|ui)/i.test(d) ||
         /(?:public|static|assets)/i.test(d));
@@ -481,7 +480,7 @@ function findFilesByPatterns(projectDir, patterns, options) {
     }
     return results;
 }
-function buildAnalysis(entities, endpoints, rules, architecture, brownfield, purpose) {
+function buildAnalysis(entities, endpoints, rules, architecture, _brownfield, purpose) {
     const isReverseEng = purpose === "reverse_engineering";
     const discoveredFeatures = [
         ...endpoints.map((endpoint) => ({
@@ -613,34 +612,6 @@ function inferDomains(entities, endpoints) {
             domains.add("integration");
     }
     return [...domains];
-}
-function detectLanguage(brownfield) {
-    const langs = brownfield.structure.languages;
-    const tsFiles = (langs[".ts"] || 0) + (langs[".tsx"] || 0);
-    const jsFiles = (langs[".js"] || 0) + (langs[".jsx"] || 0);
-    const pyFiles = langs[".py"] || 0;
-    const goFiles = langs[".go"] || 0;
-    const javaFiles = langs[".java"] || 0;
-    const rbFiles = langs[".rb"] || 0;
-    const rsFiles = langs[".rs"] || 0;
-    const max = Math.max(tsFiles, jsFiles, pyFiles, goFiles, javaFiles, rbFiles, rsFiles);
-    if (max === 0)
-        return null;
-    if (max === tsFiles)
-        return "TypeScript";
-    if (max === jsFiles)
-        return "JavaScript";
-    if (max === pyFiles)
-        return "Python";
-    if (max === goFiles)
-        return "Go";
-    if (max === javaFiles)
-        return "Java";
-    if (max === rbFiles)
-        return "Ruby";
-    if (max === rsFiles)
-        return "Rust";
-    return null;
 }
 function buildSummary(entities, endpoints, rules, architecture, brownfield, purpose) {
     const lines = [];

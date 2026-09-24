@@ -12,7 +12,7 @@ import { describeRelationshipTypes, normalizeRelationshipType } from "../../sdd/
 import { createRepository } from "../../sdd/persistence/repository.js";
 import { getNodeIndexed, updateNode, removeNode, addRelationship, removeRelationship, getNodesByTypeIndexed, getGraphStatsIndexed, } from "../../sdd/graph/engine.js";
 import { bfsOutgoing, bfsBoth, bfsIncoming, getSubgraph, findPath } from "../../sdd/graph/traverse.js";
-import { checkPermission, getUserRoleWithAuth, getAuditLog, formatAuditLog, loadPermissions, setRole, getRequiredApprovals, } from "../../sdd/permissions/access.js";
+import { checkPermission, getUserRoleWithAuth, getAuditLog, formatAuditLog, loadPermissions, setRole, canBootstrapPermissions, getRequiredApprovals, } from "../../sdd/permissions/access.js";
 import { createSnapshot, executeRollback, loadRollbackHistory, formatRollbackResult, formatRollbackHistory } from "../../sdd/rollback/manager.js";
 import { getSyncStatus, pullLatest, pushChanges, detectConflicts, mergeGraphs, resolveConflict, formatSyncStatus } from "../../sdd/sync/git-sync.js";
 import { computeGraphHealth } from "../../sdd/session/handoff.js";
@@ -49,6 +49,19 @@ function parseJson(value) {
         return {};
     }
 }
+function nodeMutationPermission(type) {
+    if (type === "feature")
+        return "create_feature";
+    if (type === "requirement" || type === "acceptance_criterion")
+        return "create_requirement";
+    if (type === "entity" || type === "value_object")
+        return "create_entity";
+    if (type === "endpoint" || type === "api")
+        return "create_endpoint";
+    if (type === "change")
+        return "create_change";
+    return "create_feature";
+}
 // ── Composite: sdd.graph_mutation ──────────────────────────────────
 export function createGraphMutationTool() {
     return tool({
@@ -63,6 +76,7 @@ export function createGraphMutationTool() {
             metadata_json: tool.schema.string().optional().describe("Metadados como JSON (para add_node)"),
             node_id: tool.schema.string().optional().describe("ID do nó (para update_node, remove_node)"),
             updates_json: tool.schema.string().optional().describe("Updates como JSON (para update_node)"),
+            expected_version: tool.schema.number().optional().describe("Versão esperada para evitar sobrescrita concorrente"),
             from_id: tool.schema.string().optional().describe("Nó origem (para add_relationship)"),
             to_id: tool.schema.string().optional().describe("Nó destino (para add_relationship)"),
             rel_type: tool.schema.string().optional().describe("Tipo da relação (para add_relationship)"),
@@ -77,6 +91,10 @@ export function createGraphMutationTool() {
                 case "add_node": {
                     if (!args.type || !args.name)
                         return "type and name are required for add_node";
+                    const actor = process.env.USER || process.env.USERNAME || "current";
+                    const permission = nodeMutationPermission(args.type);
+                    if (!checkPermission(getUserRoleWithAuth(ctx.directory, actor), permission, ctx.directory))
+                        return `Permission denied: ${permission}`;
                     if (args.type === "acceptance_criterion")
                         return "Create acceptance criteria with `sdd.acceptance(action=\"create\")` so they are linked to a Requirement.";
                     if (args.type === "guidance")
@@ -142,6 +160,10 @@ export function createGraphMutationTool() {
                     const node = getNodeIndexed(indices, args.node_id);
                     if (!node)
                         return `Node ${args.node_id} not found.`;
+                    const actor = process.env.USER || process.env.USERNAME || "current";
+                    const permission = nodeMutationPermission(node.type);
+                    if (!checkPermission(getUserRoleWithAuth(ctx.directory, actor), permission, ctx.directory))
+                        return `Permission denied: ${permission}`;
                     if (node.type === "acceptance_criterion") {
                         return "Acceptance criteria must be changed through `sdd.acceptance` so version, hash and audit are preserved.";
                     }
@@ -152,7 +174,7 @@ export function createGraphMutationTool() {
                     if (metadata && ("acceptance_criteria" in metadata || "acceptance" in metadata || "legacy_acceptance" in metadata)) {
                         return "Acceptance criteria are Requirement-owned. Use `sdd.acceptance` instead of editing legacy metadata.";
                     }
-                    updateNode(graph, args.node_id, updates);
+                    updateNode(graph, args.node_id, updates, { expected_version: args.expected_version });
                     repo.saveGraph(graph);
                     return `Node ${args.node_id} updated.`;
                 }
@@ -163,6 +185,10 @@ export function createGraphMutationTool() {
                     const node = getNodeIndexed(indices, args.node_id);
                     if (!node)
                         return `Node ${args.node_id} not found.`;
+                    const actor = process.env.USER || process.env.USERNAME || "current";
+                    const permission = nodeMutationPermission(node.type);
+                    if (!checkPermission(getUserRoleWithAuth(ctx.directory, actor), permission, ctx.directory))
+                        return `Permission denied: ${permission}`;
                     if (node.type === "acceptance_criterion") {
                         return "Acceptance criteria cannot be removed through generic graph mutation; reopen or update them through `sdd.acceptance`.";
                     }
@@ -177,8 +203,11 @@ export function createGraphMutationTool() {
                     if (!relType) {
                         return `Unknown relationship type "${args.rel_type}". Valid types: ${describeRelationshipTypes()}`;
                     }
+                    const actor = process.env.USER || process.env.USERNAME || "current";
+                    if (!checkPermission(getUserRoleWithAuth(ctx.directory, actor), "create_change", ctx.directory))
+                        return "Permission denied: create_change";
                     try {
-                        addRelationship(graph, args.from_id, args.to_id, relType);
+                        addRelationship(graph, args.from_id, args.to_id, relType, {}, { strictSchema: true });
                         repo.saveGraph(graph);
                         return `Relationship created: ${args.from_id} --[${relType}]--> ${args.to_id}`;
                     }
@@ -193,6 +222,9 @@ export function createGraphMutationTool() {
                     if (!relType) {
                         return `Unknown relationship type "${args.rel_type}". Valid types: ${describeRelationshipTypes()}`;
                     }
+                    const actor = process.env.USER || process.env.USERNAME || "current";
+                    if (!checkPermission(getUserRoleWithAuth(ctx.directory, actor), "create_change", ctx.directory))
+                        return "Permission denied: create_change";
                     removeRelationship(graph, args.from_id, args.to_id, relType);
                     repo.saveGraph(graph);
                     return `Relationship removed: ${args.from_id} --[${relType}]--> ${args.to_id}`;
@@ -359,6 +391,10 @@ export function createPermissionsTool() {
                 case "set_role": {
                     if (!args.user || !args.role)
                         return "user and role are required";
+                    const role = getUserRoleWithAuth(ctx.directory, currentUser);
+                    if (!checkPermission(role, "manage_permissions", ctx.directory) && !canBootstrapPermissions(ctx.directory)) {
+                        return "Permission denied: manage_permissions";
+                    }
                     setRole(ctx.directory, args.user, args.role);
                     return `Role "${args.role}" set for user "${args.user}".`;
                 }
@@ -381,6 +417,9 @@ export function createPermissionsTool() {
                 case "save_config": {
                     if (!args.config_json)
                         return "config_json is required";
+                    if (!checkPermission(getUserRoleWithAuth(ctx.directory, currentUser), "manage_permissions", ctx.directory)) {
+                        return "Permission denied: manage_permissions";
+                    }
                     return savePermissionsConfigHandler({ config_json: args.config_json }, ctx);
                 }
                 case "role": {

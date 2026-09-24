@@ -61,6 +61,13 @@ describe("Graph Engine", () => {
     expect(node!.version).toBe(2)
   })
 
+  test("updateNode supports optimistic concurrency and no-op stability", () => {
+    addNode(graph, makeNode("TEST-001"))
+    updateNode(graph, "TEST-001", { name: "Node TEST-001" }, { expected_version: 1 })
+    expect(getNode(graph, "TEST-001")!.version).toBe(1)
+    expect(() => updateNode(graph, "TEST-001", { name: "Updated" }, { expected_version: 99 })).toThrow("version conflict")
+  })
+
   test("removeNode removes a node and its relationships", () => {
     addNode(graph, makeNode("TEST-001"))
     addNode(graph, makeNode("TEST-002"))

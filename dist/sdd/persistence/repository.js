@@ -75,7 +75,7 @@ function assertNotBackup(filePath) {
  * The result is also surfaced to sdd.check_migrations so the LLM learns what
  * happened and why.
  */
-function resolveConflictingBackends(projectDir, yamlPath, dbPath) {
+function resolveConflictingBackends(projectDir) {
     const { SqliteGraphRepository } = require("./sqlite.js");
     const { YamlGraphRepository } = require("./yaml.js");
     let sqliteTime = 0;
@@ -148,6 +148,49 @@ let lastConflictResolution = null;
 export function getLastConflictResolution() {
     return lastConflictResolution;
 }
+/** Read-only comparison used before repairing a dual-backend project. */
+export function inspectStorageConsistency(projectDir) {
+    const sddDir = join(projectDir, ".sdd");
+    const yamlPath = join(sddDir, "graph.yaml");
+    const dbPath = join(sddDir, "graph.db");
+    const sentinel = readSentinel(projectDir);
+    const report = {
+        sentinel,
+        canonical: sentinel ?? (existsSync(yamlPath) && !existsSync(dbPath) ? "yaml" : existsSync(dbPath) && !existsSync(yamlPath) ? "sqlite" : undefined),
+        yaml_present: existsSync(yamlPath),
+        sqlite_present: existsSync(dbPath),
+        consistent: true,
+        reason: "Only one canonical backend is present.",
+    };
+    if (!report.yaml_present || !report.sqlite_present)
+        return report;
+    try {
+        const { YamlGraphRepository } = require("./yaml.js");
+        const yamlGraph = new YamlGraphRepository(projectDir).loadGraph();
+        report.yaml = { updated_at: yamlGraph.metadata.updated_at, nodes: yamlGraph.nodes.length, relationships: yamlGraph.relationships.length };
+    }
+    catch (error) {
+        report.consistent = false;
+        report.reason = `YAML could not be read: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    try {
+        const { SqliteGraphRepository } = require("./sqlite.js");
+        const sqliteGraph = new SqliteGraphRepository(projectDir).loadGraph();
+        report.sqlite = { updated_at: sqliteGraph.metadata.updated_at, nodes: sqliteGraph.nodes.length, relationships: sqliteGraph.relationships.length };
+    }
+    catch (error) {
+        report.consistent = false;
+        report.reason = `SQLite could not be read: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (report.yaml && report.sqlite) {
+        const same = report.yaml.updated_at === report.sqlite.updated_at && report.yaml.nodes === report.sqlite.nodes && report.yaml.relationships === report.sqlite.relationships;
+        report.consistent = same && (!sentinel || sentinel === "yaml" || sentinel === "sqlite");
+        report.reason = same
+            ? `Both backends have the same graph counters and updated_at; ${sentinel ? `${sentinel} is canonical.` : "no canonical sentinel is set."}`
+            : "YAML and SQLite have divergent timestamps or graph counts; no automatic overwrite was performed.";
+    }
+    return report;
+}
 /**
  * Auto-detect the best storage backend and return a repository.
  *
@@ -193,7 +236,7 @@ export function createRepository(projectDir) {
     }
     // ── 2. Both backends exist without sentinel — intelligent resolution ─────
     if (existsSync(dbPath) && existsSync(yamlPath)) {
-        const resolution = resolveConflictingBackends(projectDir, yamlPath, dbPath);
+        const resolution = resolveConflictingBackends(projectDir);
         lastConflictResolution = { winner: resolution.winner, reason: resolution.reason };
         return resolution.repo;
     }

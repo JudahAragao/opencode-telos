@@ -1,6 +1,8 @@
 import { z } from "zod"
 import { createRepository, loadSddConfig } from "../sdd/persistence/repository.js"
-import { AcceptanceService, materializeLegacyAcceptanceCriteria, updateAcceptanceCriterionText } from "../sdd/acceptance/service.js"
+import { AcceptanceService, materializeLegacyAcceptanceCriteria } from "../sdd/acceptance/service.js"
+import { createAcceptanceAuditSink } from "../sdd/acceptance/audit.js"
+import { transitionFinalAcceptance } from "../sdd/acceptance/final.js"
 import { addAuditEntry, checkPermission, getUserRoleWithAuth, type Permission } from "../sdd/permissions/access.js"
 import { analyzeNodeImpact } from "../sdd/impact/service.js"
 import { analyzeGuidance, applyGuidancePatch, createGuidance, proposeGuidancePatch, rejectGuidance } from "../sdd/guidance/service.js"
@@ -44,7 +46,7 @@ export function handleListAcceptance(projectDir: string, requirementId?: string)
   try {
     const repo = createRepository(projectDir)
     if (!repo.isInitialized()) return { status: 503, body: { error: "SDD not initialized" } }
-    const service = new AcceptanceService(repo.loadGraph(), loadSddConfig(projectDir).acceptance.legacy_fallback)
+    const service = new AcceptanceService(repo.loadGraph(), loadSddConfig(projectDir).acceptance.legacy_fallback, createAcceptanceAuditSink(projectDir))
     return { status: 200, body: requirementId ? { requirement_id: requirementId, criteria: service.list(requirementId), summary: service.summary(requirementId) } : { criteria: service.list() } }
   } catch (e) { return error(e) }
 }
@@ -56,22 +58,20 @@ export function handleAcceptanceMutation(projectDir: string, criterionId: string
     const repo = createRepository(projectDir)
     if (!repo.isInitialized()) return { status: 503, body: { error: "SDD not initialized" } }
     const graph = repo.loadGraph()
-    const service = new AcceptanceService(graph, loadSddConfig(projectDir).acceptance.legacy_fallback)
+    const service = new AcceptanceService(graph, loadSddConfig(projectDir).acceptance.legacy_fallback, createAcceptanceAuditSink(projectDir))
     const currentActor = actor(parsed.data.actor)
     const requiredPermission: Permission = action === "accept" ? "accept_requirement" : action === "reject" ? "reject_requirement" : action === "waive" ? "waive_requirement" : action === "reopen" ? "reopen_requirement" : "create_requirement"
     const denied = permissionError(projectDir, currentActor, requiredPermission, criterionId)
     if (denied) return denied
     if (action === "update_text") {
       if (!parsed.data.text) return { status: 400, body: { error: "text is required" } }
-      const criterion = updateAcceptanceCriterionText(graph, criterionId, parsed.data.text, { actor: currentActor, observation: parsed.data.observation })
+      const result = service.updateText(criterionId, parsed.data.text, { actor: currentActor, observation: parsed.data.observation })
       repo.saveGraph(graph)
-      addAuditEntry(projectDir, currentActor, "acceptance.update_text", criterionId, "allowed", parsed.data.observation)
-      return { status: 200, body: { criterion } }
+      return { status: 200, body: { criterion: result.criterion } }
     }
     const input = { actor: currentActor, observation: parsed.data.observation, evidence: parsed.data.evidence, expected_version: parsed.data.expected_version, expected_hash: parsed.data.expected_hash }
     const result = action === "accept" ? service.accept(criterionId, input) : action === "reject" ? service.reject(criterionId, input) : action === "waive" ? service.waive(criterionId, input) : service.reopen(criterionId, input)
     repo.saveGraph(graph)
-    addAuditEntry(projectDir, currentActor, `acceptance.${result.audit.action}`, criterionId, "allowed", JSON.stringify(result.audit))
     return { status: 200, body: result }
   } catch (e) { return error(e) }
 }
@@ -83,25 +83,52 @@ export function handleAcceptAll(projectDir: string, requirementId: string, raw: 
     const repo = createRepository(projectDir)
     if (!repo.isInitialized()) return { status: 503, body: { error: "SDD not initialized" } }
     const graph = repo.loadGraph()
-    const service = new AcceptanceService(graph, loadSddConfig(projectDir).acceptance.legacy_fallback)
+    const service = new AcceptanceService(graph, loadSddConfig(projectDir).acceptance.legacy_fallback, createAcceptanceAuditSink(projectDir))
     const currentActor = actor(parsed.data.actor)
     const denied = permissionError(projectDir, currentActor, "accept_requirement", requirementId)
     if (denied) return denied
     const result = service.acceptAll(requirementId, { actor: currentActor, observation: parsed.data.observation, evidence: parsed.data.evidence })
     repo.saveGraph(graph)
-    for (const event of result.audit) addAuditEntry(projectDir, currentActor, "acceptance.accept", event.criterion_id, "allowed", JSON.stringify(event))
     return { status: result.failed.length > 0 ? 409 : 200, body: result }
   } catch (e) { return error(e) }
 }
 
-export function handleAcceptanceMigration(projectDir: string): AcceptanceApiResult {
+export function handleAcceptanceMigration(projectDir: string, raw: unknown = {}): AcceptanceApiResult {
+  const parsed = z.object({ actor: z.string().min(1).max(200).optional() }).safeParse(raw ?? {})
+  if (!parsed.success) return { status: 400, body: { error: "Invalid migration payload", issues: parsed.error.issues } }
   try {
     const repo = createRepository(projectDir)
     if (!repo.isInitialized()) return { status: 503, body: { error: "SDD not initialized" } }
     const graph = repo.loadGraph()
-    const result = materializeLegacyAcceptanceCriteria(graph)
+    const currentActor = actor(parsed.data.actor)
+    const denied = permissionError(projectDir, currentActor, "create_requirement", "knowledge-graph")
+    if (denied) return denied
+    const result = materializeLegacyAcceptanceCriteria(graph, { removeLegacy: true })
     repo.saveGraph(graph)
-    addAuditEntry(projectDir, actor(undefined), "acceptance.migrate", "knowledge-graph", "allowed", JSON.stringify(result))
+    addAuditEntry(projectDir, currentActor, "acceptance.migrate", "knowledge-graph", "allowed", JSON.stringify(result))
+    return { status: 200, body: result }
+  } catch (e) { return error(e) }
+}
+
+export function handleFinalAcceptance(projectDir: string, changeId: string, status: "ACCEPTED" | "REJECTED", raw: unknown): AcceptanceApiResult {
+  const parsed = mutationSchema.safeParse(raw ?? {})
+  if (!parsed.success) return { status: 400, body: { error: "Invalid final acceptance payload", issues: parsed.error.issues } }
+  try {
+    const repo = createRepository(projectDir)
+    if (!repo.isInitialized()) return { status: 503, body: { error: "SDD not initialized" } }
+    const graph = repo.loadGraph()
+    const currentActor = actor(parsed.data.actor)
+    const permission: Permission = status === "ACCEPTED" ? "accept_final" : "reject_final"
+    const denied = permissionError(projectDir, currentActor, permission, changeId)
+    if (denied) return denied
+    const result = transitionFinalAcceptance(graph, changeId, status, {
+      actor: currentActor,
+      observation: parsed.data.observation,
+      evidence: parsed.data.evidence,
+      expected_version: parsed.data.expected_version,
+    })
+    repo.saveGraph(graph)
+    addAuditEntry(projectDir, currentActor, `acceptance.final_${status.toLowerCase()}`, changeId, "allowed", JSON.stringify(result))
     return { status: 200, body: result }
   } catch (e) { return error(e) }
 }

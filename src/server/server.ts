@@ -27,6 +27,7 @@ import {
   handleImpact,
   handleListGuidance,
   handleListAcceptance,
+  handleFinalAcceptance,
 } from "./acceptance-api.js"
 
 type DashboardSqliteAdapter = Partial<Pick<SqliteGraphRepository,
@@ -87,8 +88,21 @@ export class SddDashboardServer {
     try {
       server = Bun.serve({ ...options, port: preferredPort })
     } catch (error) {
-      if (preferredPort === 0) throw error
-      server = Bun.serve({ ...options, port: 0 })
+      // Bun can report EADDRINUSE for port 0 when several test/runtime
+      // instances request an ephemeral listener concurrently. Retry with
+      // explicit high ports so dashboard instances remain isolated.
+      let lastError: unknown = error
+      let started: ReturnType<typeof Bun.serve> | undefined
+      for (let attempt = 0; attempt < 12 && !started; attempt++) {
+        const fallbackPort = 30000 + Math.floor(Math.random() * 20000)
+        try {
+          started = Bun.serve({ ...options, port: fallbackPort })
+        } catch (fallbackError) {
+          lastError = fallbackError
+        }
+      }
+      if (!started) throw lastError
+      server = started
     }
 
     this.server = server
@@ -237,13 +251,21 @@ export class SddDashboardServer {
         return this.jsonResponse(result.body, corsHeaders, result.status)
       }
       if (path === "/api/acceptance/migrate" && req.method === "POST") {
-        const result = handleAcceptanceMigration(this.projectDir)
+        const result = handleAcceptanceMigration(this.projectDir, (await this.readJsonBody(req)) ?? {})
         return this.jsonResponse(result.body, corsHeaders, result.status)
       }
       if (path === "/api/acceptance/accept-all" && req.method === "POST") {
         const requirementId = url.searchParams.get("requirement_id")
         if (!requirementId) return this.jsonResponse({ error: "requirement_id is required" }, corsHeaders, 400)
         const result = handleAcceptAll(this.projectDir, requirementId, (await this.readJsonBody(req)) ?? {})
+        return this.jsonResponse(result.body, corsHeaders, result.status)
+      }
+      if (path.startsWith("/api/acceptance/final/") && req.method === "POST") {
+        const rest = path.slice("/api/acceptance/final/".length).split("/")
+        const changeId = decodeURIComponent(rest[0] || "")
+        const action = rest[1] === "reject" ? "REJECTED" : rest[1] === "accept" ? "ACCEPTED" : undefined
+        if (!changeId || !action) return this.jsonResponse({ error: "Change id and final action are required" }, corsHeaders, 400)
+        const result = handleFinalAcceptance(this.projectDir, changeId, action, (await this.readJsonBody(req)) ?? {})
         return this.jsonResponse(result.body, corsHeaders, result.status)
       }
       if (path.startsWith("/api/acceptance/")) {
@@ -871,6 +893,15 @@ ${KANBAN_MODAL_HTML}
     var allNodes = [];
     var allLinks = [];
     var selectedNodeId = null;
+
+    function escapeHtml(value) {
+      return String(value === undefined || value === null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
     var activeFilter = null;
     var searchQuery = "";
     var fg = null;
@@ -912,7 +943,7 @@ ${KANBAN_MODAL_HTML}
             renderNodeList();
             if (typeof renderKanban === "function") renderKanban();
             var overlayText = nodeCount + " nodes, " + relCount + " links";
-            if (isLargeGraph) overlayText += " (large graph mode)";
+            if (isLargeGraph) overlayText += " (large graph mode: rendering " + Math.min(nodeCount, 500) + " nodes; use search/filter to focus)";
             document.getElementById("graph-overlay").textContent = overlayText;
           }
 
@@ -1056,9 +1087,9 @@ ${KANBAN_MODAL_HTML}
       var displayNodes = nodes.slice(0, listLimit);
       displayNodes.forEach(function(n) {
         var sel = selectedNodeId === n.id ? " selected" : "";
-        html += '<li class="node-item' + sel + '" data-id="' + n.id + '">' +
-          '<div class="node-id">' + n.id + "</div>" +
-          '<div class="node-name">' + n.name + '<span class="node-status status-' + n.status + '">' + n.status + "</span></div>" +
+        html += '<li class="node-item' + sel + '" data-id="' + escapeHtml(n.id) + '">' +
+          '<div class="node-id">' + escapeHtml(n.id) + "</div>" +
+          '<div class="node-name">' + escapeHtml(n.name) + '<span class="node-status status-' + escapeHtml(n.status) + '">' + escapeHtml(n.status) + "</span></div>" +
           "</li>";
       });
       if (isLargeGraph && nodes.length > listLimit) {
@@ -1076,10 +1107,10 @@ ${KANBAN_MODAL_HTML}
       selectedNodeId = id;
       renderNodeList();
       highlightNode(id);
-      fetch("/api/nodes/" + id)
+      fetch("/api/nodes/" + encodeURIComponent(id))
         .then(function(res) { return res.json(); })
       .then(function(node) {
-          return fetch("/api/nodes/" + id + "/relationships")
+          return fetch("/api/nodes/" + encodeURIComponent(id) + "/relationships")
             .then(function(res2) { return res2.json(); })
             .then(function(rels) {
               var acceptancePromise = node.type !== "requirement"
@@ -1101,42 +1132,42 @@ ${KANBAN_MODAL_HTML}
       var incoming = rels.filter(function(r) { return r.to === node.id; });
       var html = "<h2>Node Details</h2>" +
         '<div class="detail-section"><h3>Info</h3>' +
-        '<div class="detail-field"><span class="label">ID:</span> ' + node.id + "</div>" +
-        '<div class="detail-field"><span class="label">Type:</span> <span class="legend-dot" style="background:' + getColor(node.type) + ';display:inline-block;vertical-align:middle;margin-right:4px"></span>' + node.type + "</div>" +
-        '<div class="detail-field"><span class="label">Name:</span> ' + node.name + "</div>" +
-        '<div class="detail-field"><span class="label">Status:</span> <span class="node-status status-' + node.status + '">' + node.status + "</span></div>" +
-        '<div class="detail-field"><span class="label">Version:</span> ' + node.version + "</div>";
-      if (node.description) html += '<div class="detail-field"><span class="label">Description:</span> ' + node.description + "</div>";
+        '<div class="detail-field"><span class="label">ID:</span> ' + escapeHtml(node.id) + "</div>" +
+        '<div class="detail-field"><span class="label">Type:</span> <span class="legend-dot" style="background:' + getColor(node.type) + ';display:inline-block;vertical-align:middle;margin-right:4px"></span>' + escapeHtml(node.type) + "</div>" +
+        '<div class="detail-field"><span class="label">Name:</span> ' + escapeHtml(node.name) + "</div>" +
+        '<div class="detail-field"><span class="label">Status:</span> <span class="node-status status-' + escapeHtml(node.status) + '">' + escapeHtml(node.status) + "</span></div>" +
+        '<div class="detail-field"><span class="label">Version:</span> ' + escapeHtml(node.version) + "</div>";
+      if (node.description) html += '<div class="detail-field"><span class="label">Description:</span> ' + escapeHtml(node.description) + "</div>";
       if (node.metadata && Object.keys(node.metadata).length > 0) {
-        html += '<div class="detail-field"><span class="label">Metadata:</span> <pre style="font-size:11px;color:#8b949e;white-space:pre-wrap;margin-top:4px">' + JSON.stringify(node.metadata, null, 2) + "</pre></div>";
+        html += '<div class="detail-field"><span class="label">Metadata:</span> <pre style="font-size:11px;color:#8b949e;white-space:pre-wrap;margin-top:4px">' + escapeHtml(JSON.stringify(node.metadata, null, 2)) + "</pre></div>";
       }
       html += "</div>";
       if (acceptance && Array.isArray(acceptance.criteria)) {
         html += '<div class="detail-section"><h3>Acceptance Criteria (' + acceptance.criteria.length + ')</h3>';
-        html += '<div class="detail-field">Summary: ' + JSON.stringify(acceptance.summary || {}) + '</div>';
-        html += '<button class="btn primary" data-accept-all="' + node.id + '">Accept all pending</button>';
+        html += '<div class="detail-field">Summary: ' + escapeHtml(JSON.stringify(acceptance.summary || {})) + '</div>';
+        html += '<button class="btn primary" data-accept-all="' + escapeHtml(node.id) + '">Accept all pending</button>';
         acceptance.criteria.forEach(function(criterion) {
-          html += '<div class="detail-field" style="margin-top:8px"><span class="node-status status-' + criterion.status + '">' + criterion.status + '</span> ' + criterion.metadata.text +
-            ' <button class="btn" data-accept="' + criterion.id + '">Accept</button></div>';
+          html += '<div class="detail-field" style="margin-top:8px"><span class="node-status status-' + escapeHtml(criterion.status) + '">' + escapeHtml(criterion.status) + '</span> ' + escapeHtml(criterion.metadata.text) +
+            (criterion.status === "PENDING" ? ' <button class="btn" data-accept="' + escapeHtml(criterion.id) + '">Accept</button>' : '') + '</div>';
         });
         html += '</div>';
       }
       html += '<div class="detail-section"><h3>Human guidance</h3>';
       if (guidanceData && Array.isArray(guidanceData.guidance)) {
         guidanceData.guidance.forEach(function(guidance) {
-          html += '<div class="detail-field"><span class="node-status status-' + guidance.metadata.status + '">' + guidance.metadata.status + '</span> ' + guidance.metadata.instruction + ' <small>' + guidance.id + '</small></div>';
+          html += '<div class="detail-field"><span class="node-status status-' + escapeHtml(guidance.metadata.status) + '">' + escapeHtml(guidance.metadata.status) + '</span> ' + escapeHtml(guidance.metadata.instruction) + ' <small>' + escapeHtml(guidance.id) + '</small></div>';
         });
       }
       html += '<textarea id="node-guidance-input" placeholder="Orientação humana para este nó" style="width:100%;min-height:60px"></textarea>';
-      html += '<button class="btn primary" data-guide-node="' + node.id + '">Registrar orientação</button></div>';
+      html += '<button class="btn primary" data-guide-node="' + escapeHtml(node.id) + '">Registrar orientação</button></div>';
       if (outgoing.length) {
         html += '<div class="detail-section"><h3>Outgoing (' + outgoing.length + ')</h3>';
-        outgoing.forEach(function(r) { html += '<div class="detail-field" style="cursor:pointer" data-goto="' + r.to + '">' + r.type + " &rarr; " + r.to + "</div>"; });
+        outgoing.forEach(function(r) { html += '<div class="detail-field" style="cursor:pointer" data-goto="' + escapeHtml(r.to) + '">' + escapeHtml(r.type) + " &rarr; " + escapeHtml(r.to) + "</div>"; });
         html += "</div>";
       }
       if (incoming.length) {
         html += '<div class="detail-section"><h3>Incoming (' + incoming.length + ')</h3>';
-        incoming.forEach(function(r) { html += '<div class="detail-field" style="cursor:pointer" data-goto="' + r.from + '">' + r.type + " &larr; " + r.from + "</div>"; });
+        incoming.forEach(function(r) { html += '<div class="detail-field" style="cursor:pointer" data-goto="' + escapeHtml(r.from) + '">' + escapeHtml(r.type) + " &larr; " + escapeHtml(r.from) + "</div>"; });
         html += "</div>";
       }
       el.innerHTML = html;
@@ -1228,7 +1259,7 @@ ${KANBAN_MODAL_HTML}
         .nodeColor(function(n) { return getColor(n.type); })
         .nodeOpacity(0.9)
         .nodeResolution(isLargeGraph ? 8 : 24)
-        .nodeLabel(function(n) { return "<b>" + n.name + "</b><br/>" + n.type + " [" + n.status + "]"; })
+        .nodeLabel(function(n) { return "<b>" + escapeHtml(n.name) + "</b><br/>" + escapeHtml(n.type) + " [" + escapeHtml(n.status) + "]"; })
         .onNodeClick(function(node) { selectNode(node.id); })
         .onBackgroundClick(function() {
           clearHighlight();
@@ -1400,7 +1431,11 @@ ${KANBAN_MODAL_HTML}
 </html>`;
 
     return new Response(html, {
-      headers: { "Content-Type": "text/html", ...headers },
+      headers: {
+        "Content-Type": "text/html",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        ...headers,
+      },
     })
   }
 }

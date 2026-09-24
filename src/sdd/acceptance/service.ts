@@ -15,7 +15,7 @@ export interface AcceptanceEvidence {
 }
 
 export interface AcceptanceAuditEvent {
-  action: "accept" | "reject" | "waive" | "reopen" | "invalidate" | "create"
+  action: "accept" | "reject" | "waive" | "reopen" | "invalidate" | "create" | "update_text"
   criterion_id: string
   actor: string
   timestamp: string
@@ -24,6 +24,10 @@ export interface AcceptanceAuditEvent {
   previous_hash?: string
   content_hash: string
   observation?: string
+}
+
+export interface AcceptanceAuditSink {
+  record(event: AcceptanceAuditEvent): void
 }
 
 export interface AcceptanceMutationInput {
@@ -207,14 +211,22 @@ export function updateAcceptanceCriterionText(
 }
 
 export class AcceptanceService {
-  constructor(private readonly graph: KnowledgeGraph, private readonly includeLegacyFallback = true) {}
+  constructor(
+    private readonly graph: KnowledgeGraph,
+    private readonly includeLegacyFallback = true,
+    private readonly auditSink?: AcceptanceAuditSink,
+  ) {}
+
+  private emit(event: AcceptanceAuditEvent): void {
+    this.auditSink?.record(event)
+  }
 
   list(requirementId?: string, includeLegacy = true): AcceptanceCriterionNode[] {
     if (requirementId) return getAcceptanceCriteria(this.graph, requirementId, includeLegacy && this.includeLegacyFallback)
     return this.graph.nodes.filter((node): node is AcceptanceCriterionNode => node.type === "acceptance_criterion")
   }
 
-  summary(requirementId: string, includeLegacy = true): AcceptanceSummary {
+  summary(requirementId: string, includeLegacy = true, allowWaived = true): AcceptanceSummary {
     const criteria = this.list(requirementId, includeLegacy)
     const counts = { total: criteria.length, pending: 0, accepted: 0, rejected: 0, waived: 0 }
     for (const criterion of criteria) {
@@ -223,11 +235,54 @@ export class AcceptanceService {
       else if (criterion.status === "REJECTED") counts.rejected++
       else if (criterion.status === "WAIVED") counts.waived++
     }
-    return { ...counts, all_accepted: counts.total > 0 && counts.pending === 0 && counts.rejected === 0 }
+    return {
+      ...counts,
+      all_accepted: counts.total > 0 && counts.pending === 0 && counts.rejected === 0 && (allowWaived || counts.waived === 0),
+    }
   }
 
-  create(requirementId: string, text: string, legacySource?: string): AcceptanceCriterionNode {
-    return createAcceptanceCriterion(this.graph, requirementId, text, legacySource)
+  create(requirementId: string, text: string, legacySource?: string, actor = "system"): AcceptanceCriterionNode {
+    const before = getAcceptanceCriteria(this.graph, requirementId, false)
+    const criterion = createAcceptanceCriterion(this.graph, requirementId, text, legacySource)
+    if (!before.some((item) => item.id === criterion.id)) {
+      const timestamp = now()
+      this.emit({
+        action: "create",
+        criterion_id: criterion.id,
+        actor,
+        timestamp,
+        status: criterion.status,
+        content_hash: criterion.metadata.content_hash,
+      })
+    }
+    return criterion
+  }
+
+  updateText(
+    criterionId: string,
+    text: string,
+    input: Pick<AcceptanceMutationInput, "actor" | "observation">,
+  ): { criterion: AcceptanceCriterionNode; audit?: AcceptanceAuditEvent } {
+    const current = getNode(this.graph, criterionId)
+    if (!current || current.type !== "acceptance_criterion") {
+      throw new Error(`Acceptance criterion ${criterionId} not found`)
+    }
+    const previous = current as AcceptanceCriterionNode
+    const criterion = updateAcceptanceCriterionText(this.graph, criterionId, text, input)
+    if (criterion.version === previous.version) return { criterion }
+    const audit: AcceptanceAuditEvent = {
+      action: "update_text",
+      criterion_id: criterionId,
+      actor: input.actor,
+      timestamp: now(),
+      previous_status: previous.status,
+      status: criterion.status,
+      previous_hash: previous.metadata.content_hash,
+      content_hash: criterion.metadata.content_hash,
+      observation: input.observation,
+    }
+    this.emit(audit)
+    return { criterion, audit }
   }
 
   transition(
@@ -262,18 +317,20 @@ export class AcceptanceService {
       metadata,
       created_by: input.actor,
     }) as AcceptanceCriterionNode
+    const audit: AcceptanceAuditEvent = {
+      action: status === "ACCEPTED" ? "accept" : status === "REJECTED" ? "reject" : status === "WAIVED" ? "waive" : "reopen",
+      criterion_id: criterionId,
+      actor: input.actor,
+      timestamp,
+      previous_status: criterion.status,
+      status,
+      content_hash: criterion.metadata.content_hash,
+      observation: input.observation,
+    }
+    this.emit(audit)
     return {
       criterion: updated,
-      audit: {
-        action: status === "ACCEPTED" ? "accept" : status === "REJECTED" ? "reject" : status === "WAIVED" ? "waive" : "reopen",
-        criterion_id: criterionId,
-        actor: input.actor,
-        timestamp,
-        previous_status: criterion.status,
-        status,
-        content_hash: criterion.metadata.content_hash,
-        observation: input.observation,
-      },
+      audit,
     }
   }
 
@@ -294,14 +351,18 @@ export class AcceptanceService {
   }
 
   acceptAll(requirementId: string, input: AcceptanceMutationInput): AcceptAllResult {
-    let criteria = this.list(requirementId, false)
+    // Prepare the complete operation on an isolated graph. The caller only
+    // receives the new state after every criterion and version check passes.
+    const working = structuredClone(this.graph) as KnowledgeGraph
+    const worker = new AcceptanceService(working, false)
+    let criteria = worker.list(requirementId, false)
     // Legacy projects may still expose virtual criteria. Materialize them on
     // the first mutating operation so accept-all always updates persisted
     // records and remains a single auditable transaction for YAML/SQLite.
     if (criteria.length === 0) {
       const legacy = this.list(requirementId, true)
-      for (const criterion of legacy) createAcceptanceCriterion(this.graph, requirementId, criterion.metadata.text, criterion.metadata.legacy_source)
-      criteria = this.list(requirementId, false)
+      for (const criterion of legacy) createAcceptanceCriterion(working, requirementId, criterion.metadata.text, criterion.metadata.legacy_source)
+      criteria = worker.list(requirementId, false)
     }
     const result: AcceptAllResult = {
       requirement_id: requirementId,
@@ -332,7 +393,7 @@ export class AcceptanceService {
         continue
       }
       try {
-        const transitioned = this.accept(criterion.id, input)
+        const transitioned = worker.accept(criterion.id, input)
         result.accepted.push(criterion.id)
         result.audit.push(transitioned.audit)
       } catch (error) {
@@ -340,6 +401,11 @@ export class AcceptanceService {
         break
       }
     }
+    if (result.failed.length > 0) return result
+    this.graph.nodes = working.nodes
+    this.graph.relationships = working.relationships
+    this.graph.metadata = working.metadata
+    for (const event of result.audit) this.emit(event)
     return result
   }
 
@@ -400,18 +466,38 @@ export function checkChangeAcceptance(graph: KnowledgeGraph, changeId: string, o
   }
 }
 
-export function materializeLegacyAcceptanceCriteria(graph: KnowledgeGraph): { created: number; linked: number; unresolved: string[] } {
+export interface LegacyAcceptanceMigrationOptions {
+  /** Remove legacy copies only after every value was materialized successfully. */
+  removeLegacy?: boolean
+}
+
+export function materializeLegacyAcceptanceCriteria(
+  graph: KnowledgeGraph,
+  options: LegacyAcceptanceMigrationOptions = {},
+): { created: number; linked: number; unresolved: string[]; removed: number } {
   let created = 0
   let linked = 0
   const unresolved: string[] = []
+  let removed = 0
   for (const requirement of graph.nodes.filter((node) => node.type === "requirement")) {
     const values = (requirement.metadata as Record<string, unknown>).acceptance_criteria
     if (!Array.isArray(values)) continue
+    let materialized = true
     for (const value of values.filter((item): item is string => typeof item === "string" && item.trim().length > 0)) {
-      const before = getAcceptanceCriteria(graph, requirement.id, false).length
-      const criterion = createAcceptanceCriterion(graph, requirement.id, value, "requirement.metadata.acceptance_criteria")
-      if (getAcceptanceCriteria(graph, requirement.id, false).length > before) created++
-      if (criterion) linked++
+      try {
+        const before = getAcceptanceCriteria(graph, requirement.id, false).length
+        const criterion = createAcceptanceCriterion(graph, requirement.id, value, "requirement.metadata.acceptance_criteria")
+        if (getAcceptanceCriteria(graph, requirement.id, false).length > before) created++
+        if (criterion) linked++
+      } catch {
+        materialized = false
+      }
+    }
+    if (options.removeLegacy && materialized) {
+      delete (requirement.metadata as Record<string, unknown>).acceptance_criteria
+      ;(requirement.metadata as Record<string, unknown>).acceptance_migrated_at = now()
+      requirement.updated_at = now()
+      removed++
     }
   }
   for (const task of graph.nodes.filter((node) => node.type === "task")) {
@@ -425,7 +511,15 @@ export function materializeLegacyAcceptanceCriteria(graph: KnowledgeGraph): { cr
       for (const value of values.filter((item): item is string => typeof item === "string" && item.trim().length > 0)) {
         createAcceptanceCriterion(graph, requirementRel.to, value, `task:${task.id}`)
       }
+      if (options.removeLegacy) {
+        const metadata = task.metadata as Record<string, unknown>
+        delete metadata.acceptance
+        delete metadata.legacy_acceptance
+        metadata.acceptance_migrated_at = now()
+        task.updated_at = now()
+        removed++
+      }
     }
   }
-  return { created, linked, unresolved }
+  return { created, linked, unresolved, removed }
 }

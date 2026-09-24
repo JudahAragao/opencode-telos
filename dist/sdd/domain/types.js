@@ -25,6 +25,7 @@ export const DEFAULT_SDD_CONFIG = {
         enabled: true,
         require_before_change_approval: false,
         require_before_change_completion: false,
+        require_final_acceptance_before_completion: false,
         allow_waived: true,
         legacy_fallback: true,
     },

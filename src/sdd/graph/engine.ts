@@ -8,6 +8,7 @@ import type {
 } from "../domain/types.js"
 import { GraphIndices } from "./index.js"
 import { GRAPH_SCHEMA_VERSION } from "../../version.js"
+import { isRelationshipAllowed } from "./schema.js"
 
 export function createGraph(projectId: string): KnowledgeGraph {
   const now = new Date().toISOString()
@@ -35,10 +36,18 @@ export function updateNode(
   graph: KnowledgeGraph,
   nodeId: string,
   updates: Partial<AnyNode>,
+  options: { expected_version?: number } = {},
 ): AnyNode {
   const idx = graph.nodes.findIndex((n) => n.id === nodeId)
   if (idx === -1) throw new Error(`Node ${nodeId} not found`)
   const node = graph.nodes[idx]
+  if (options.expected_version !== undefined && node.version !== options.expected_version) {
+    throw new Error(`Node ${nodeId} version conflict: expected ${options.expected_version}, current ${node.version}`)
+  }
+  const currentRecord = node as unknown as Record<string, unknown>
+  const updateRecord = updates as unknown as Record<string, unknown>
+  const changed = Object.keys(updates).some((key) => JSON.stringify(currentRecord[key]) !== JSON.stringify(updateRecord[key]))
+  if (!changed) return node
   const updated = {
     ...node,
     ...updates,
@@ -93,9 +102,16 @@ export function addRelationship(
   to: string,
   type: RelationshipType,
   metadata: Record<string, unknown> = {},
+  options: { strictSchema?: boolean } = {},
 ): Relationship {
   if (!getNode(graph, from)) throw new Error(`Source node ${from} not found`)
   if (!getNode(graph, to)) throw new Error(`Target node ${to} not found`)
+
+  const source = getNode(graph, from)!
+  const target = getNode(graph, to)!
+  if (options.strictSchema && !isRelationshipAllowed(source.type, type, target.type)) {
+    throw new Error(`Relationship ${source.type} --[${type}]--> ${target.type} is not allowed by the graph schema`)
+  }
 
   // Prevent self-loops
   if (from === to) throw new Error(`Cannot create self-loop relationship on ${from}`)
