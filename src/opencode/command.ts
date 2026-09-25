@@ -29,6 +29,7 @@ import { AcceptanceService, materializeLegacyAcceptanceCriteria } from "../sdd/a
 import { addAuditEntry, checkPermission, getUserRoleWithAuth, type Permission } from "../sdd/permissions/access.js"
 import { createAcceptanceAuditSink } from "../sdd/acceptance/audit.js"
 import { transitionFinalAcceptance } from "../sdd/acceptance/final.js"
+import { getToolNameMode, setToolNameMode, type ToolNameMode } from "./tool-names.js"
 
 /**
  * Command hub interativo para SDD.
@@ -140,6 +141,8 @@ export function runSddCommand(
     text = sddRenew(projectDir, input)
   } else if (sub === "cache_reset" || sub === "cachereset" || sub === "cache reset") {
     text = sddCacheReset(projectDir)
+  } else if (sub === "tool-names" || sub.startsWith("tool-names ") || sub.startsWith("tool_names ")) {
+    text = sddToolNames(projectDir, input)
   } else if (sub === "tasks" || sub.startsWith("tasks ") || sub.startsWith("tasks:")) {
     text = sddTasks(projectDir, input)
   } else if (sub === "acceptance" || sub.startsWith("acceptance ") || sub.startsWith("acceptance:")) {
@@ -223,6 +226,7 @@ function commandNotFound(projectDir: string, _input: SddCommandInput): string {
     "- `sdd viz stop`                  — Stop the dashboard.",
     "- `sdd viz status`                — Show the dashboard URL.",
     "- `sdd cache_reset` / `sdd:cache_reset` — Full cache reset.",
+    "- `sdd tool-names safe|canonical|status` — Choose provider-compatible tool names.",
     "",
     "Toggle, status, viz and cache_reset are executed deterministically by the plugin (no LLM needed).",
     "",
@@ -265,6 +269,35 @@ function sddStatus(projectDir: string): string {
     `Toggle file: ${joinPath(projectDir, ".sdd", "enabled")}`,
     "",
     "Commands: `/sdd on`, `/sdd off`, `/sdd status`, `/sdd renew`, `/sdd tasks`, `/sdd viz`, `/sdd cache_reset`",
+  ].join("\n")
+}
+
+function sddToolNames(projectDir: string, input: SddCommandInput): string {
+  const raw = input.arguments.replace(/^tool[-_]names[:\s]*/i, "").trim().toLowerCase()
+  if (!raw || raw === "status") {
+    const mode = getToolNameMode(projectDir)
+    return [
+      "## Tool Name Compatibility",
+      "",
+      `**Mode:** ${mode}`,
+      "",
+      "`safe` replaces dots with underscores for strict OpenAI-compatible providers.",
+      "`canonical` preserves the normal OpenCode names.",
+      "",
+      "Changes apply after restarting OpenCode.",
+    ].join("\n")
+  }
+
+  const mode: ToolNameMode = raw === "safe" || raw === "on" ? "safe" : raw === "canonical" || raw === "off" ? "canonical" : "canonical"
+  if (!["safe", "canonical"].includes(mode) || !["safe", "on", "canonical", "off"].includes(raw)) {
+    return "Usage: `/sdd tool-names safe`, `/sdd tool-names canonical`, or `/sdd tool-names status`."
+  }
+  const path = setToolNameMode(projectDir, mode)
+  return [
+    `✅ Tool name compatibility set to **${mode}**.`,
+    "",
+    "Restart OpenCode for the new tool catalog to take effect.",
+    `Configuration written to: ${path}`,
   ].join("\n")
 }
 
@@ -349,6 +382,7 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
     "- `sdd viz`      — Start the Knowledge Graph dashboard (deterministic).",
     "- `sdd viz stop` — Stop the dashboard.",
     "- `sdd cache_reset` — Clear caches without killing the session.",
+    "- `sdd tool-names safe|canonical|status` — Choose provider-compatible tool names.",
     "",
     "The panel itself does not modify the graph. It routes to deterministic actions.",
     "",

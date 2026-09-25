@@ -8,7 +8,7 @@ import { checkPermission, getUserRoleWithAuth, addAuditEntry } from "../sdd/perm
 import { createSnapshot } from "../sdd/rollback/manager.js"
 import { getCacheManager } from "../sdd/cache/manager.js"
 import { checkToolAccess, getWorkflowState, markSpecUpdated, workflowScope } from "../sdd/enforcement/workflow-tracker.js"
-import { getToolsForSession } from "./router/tool-registry.js"
+import { ALL_TOOL_NAMES, getToolsForSession } from "./router/tool-registry.js"
 import { invalidateSnapshotCache } from "./router/graph-state-snapshot.js"
 import { hasPendingMigrations } from "../sdd/migrations/index.js"
 import { graphFingerprint, sourceFingerprint } from "../sdd/cache/fingerprint.js"
@@ -20,6 +20,7 @@ import { getTasksAwaitingChangeApproval } from "../sdd/tasks/change-bridge.js"
 import { setDashboardSessionID } from "../server/dashboard-context.js"
 import { finishExecution, findLatestExecutionByCall, startExecution } from "../sdd/execution/ledger.js"
 import { recordTelemetry } from "../sdd/monitoring/telemetry.js"
+import { restoreToolNames, rewriteToolNames, toCanonicalToolName } from "./tool-names.js"
 
 const SDD_FILE_PATTERNS = [
   /\.ts$/,
@@ -174,7 +175,7 @@ export function detectShellFileWrites(command: string): string[] {
   return [...new Set(files)]
 }
 
-export function createSddHooks(projectDir: string): Hooks {
+export function createSddHooks(projectDir: string, safeToolNames = false): Hooks {
   let systemInjected = false
   let injectedGraphFingerprint = ""
   let injectedSourceSignature = ""
@@ -212,9 +213,9 @@ export function createSddHooks(projectDir: string): Hooks {
       // without a graph: the graph is created BY those tools (sdd.initialize /
       // sdd.build_graph). Gating the announcement behind isInitialized() hid
       // os entry points do agente — ciclo fechado.
-      output.system.push(SDD_CORE_SYSTEM_PROMPT)
+      output.system.push(rewriteToolNames(SDD_CORE_SYSTEM_PROMPT, ALL_TOOL_NAMES, safeToolNames))
       try {
-        output.system.push(getToolsForSession(projectDir).formattedMessage)
+        output.system.push(rewriteToolNames(getToolsForSession(projectDir).formattedMessage, ALL_TOOL_NAMES, safeToolNames))
       } catch (error) { sddDebug("hooks", "Failed to build tool registry message") }
 
       if (repo.isInitialized()) {
@@ -320,6 +321,7 @@ export function createSddHooks(projectDir: string): Hooks {
     },
 
     "tool.execute.before": async (input, output) => {
+      const toolName = toCanonicalToolName(input.tool, ALL_TOOL_NAMES, safeToolNames)
       // Skip enforcement if SDD is disabled
       if (!isSddEnabled(projectDir)) return
 
@@ -329,7 +331,7 @@ export function createSddHooks(projectDir: string): Hooks {
         projectDir,
         sessionId: input.sessionID,
         callId: input.callID,
-        toolName: input.tool,
+        toolName,
       }, {
         id: `CALL-${input.callID}`,
         args: (output.args || {}) as Record<string, unknown>,
@@ -338,17 +340,17 @@ export function createSddHooks(projectDir: string): Hooks {
       activeExecutions.set(input.callID, execution)
 
       // Enforce workflow context for SDD graph mutation tools
-      if (input.tool.startsWith("sdd.")) {
+      if (toolName.startsWith("sdd.")) {
         const scope = workflowScope(projectDir, input.sessionID)
         const action = output.args?.action && output.args?.learn_action
           ? `${output.args.action}:${output.args.learn_action}`
           : output.args?.action
-        const access = checkToolAccess(input.tool, scope, action)
+        const access = checkToolAccess(toolName, scope, action)
         if (!access.allowed) {
           addAuditEntry(
             projectDir,
             process.env.USER || "current",
-            input.tool,
+            toolName,
             "graph",
             "denied",
             access.reason || "Workflow not active",
@@ -693,6 +695,7 @@ export function createSddHooks(projectDir: string): Hooks {
     },
 
     "tool.execute.after": async (input, output) => {
+      const toolName = toCanonicalToolName(input.tool, ALL_TOOL_NAMES, safeToolNames)
       const execution = activeExecutions.get(input.callID) || findLatestExecutionByCall(projectDir, input.callID)
       if (execution) {
         const repository = createRepository(projectDir)
@@ -712,7 +715,7 @@ export function createSddHooks(projectDir: string): Hooks {
         })
         activeExecutions.delete(input.callID)
       }
-      if (!input.tool.startsWith("sdd.")) return
+      if (!toolName.startsWith("sdd.")) return
 
       const timestamp = new Date().toISOString()
       if (output.metadata) {
@@ -736,7 +739,7 @@ export function createSddHooks(projectDir: string): Hooks {
         // Reverse engineering: mutates graph from codebase scan
         "sdd.reverse_engineer", "sdd.workflow_reverse_engineer",
       ]
-      if (mutationTools.includes(input.tool)) {
+      if (mutationTools.includes(toolName)) {
         invalidateSnapshotCache()
         systemInjected = false
       }
@@ -755,7 +758,7 @@ export function createSddHooks(projectDir: string): Hooks {
         "sdd.workflow_full_cycle",
         "sdd.workflow_reverse_engineer",
       ])
-      if (specMutationTools.has(input.tool)) {
+      if (specMutationTools.has(toolName)) {
         markSpecUpdated(workflowScope(projectDir, input.sessionID))
       }
     },
@@ -789,7 +792,9 @@ export function createSddHooks(projectDir: string): Hooks {
     },
 
     "permission.ask": async (input, output) => {
-      const pattern = input.pattern
+      const pattern = typeof input.pattern === "string"
+        ? restoreToolNames(input.pattern, ALL_TOOL_NAMES, safeToolNames)
+        : input.pattern
       if (typeof pattern === "string" && pattern.includes("sdd.")) {
         output.status = "allow"
       } else if (Array.isArray(pattern) && pattern.some((p: string) => p.includes("sdd."))) {

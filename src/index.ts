@@ -5,6 +5,7 @@ import { createSddCommandHooks } from "./opencode/command.js"
 import { resolveProjectDir } from "./sdd/project-dir.js"
 import { registerDashboardAgentClient } from "./server/dashboard-context.js"
 import { sddDebug } from "./sdd/log.js"
+import { projectToolNames, safeToolNamesEnabled } from "./opencode/tool-names.js"
 
 const SddPlugin: Plugin = async (_ctx) => {
   // Plugin init runs before the HTTP server is ready, so we must NOT await any
@@ -29,9 +30,10 @@ const SddPlugin: Plugin = async (_ctx) => {
   const ctxWithProjectDir: any = _ctx
   ctxWithProjectDir.projectDir = projectDir
 
-  const hooks = createSddHooks(projectDir)
+  const safeToolNames = safeToolNamesEnabled(projectDir)
+  const hooks = createSddHooks(projectDir, safeToolNames)
   const commandHooks = createSddCommandHooks(projectDir)
-  const tools = createSddTools()
+  const tools = projectToolNames(createSddTools(), safeToolNames)
 
   return {
     tool: tools,

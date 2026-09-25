@@ -188,6 +188,30 @@ When enabled:
 
 The toggle state is persisted in `.sdd/enabled` inside the project.
 
+### OpenAI-compatible tool-name mode
+
+Some strict OpenAI-compatible providers, including NVIDIA NIM deployments, reject
+tool names containing dots. Telos keeps canonical names such as `sdd.acceptance`
+internally, but can expose provider-safe names such as `sdd_acceptance` at startup.
+This mode is shared with `opencode-ssh` through `.opencode/tool-names.json`.
+
+Use the deterministic command hub:
+
+```text
+/sdd tool-names safe
+/sdd tool-names canonical
+/sdd tool-names status
+```
+
+Restart OpenCode after changing the mode because plugins register their tool
+catalog during startup. `safe` is intended for strict OpenAI-compatible
+providers; `canonical` is the default. The environment variable
+`OPENCODE_SAFE_TOOL_NAMES=1` (or `true`) enables safe mode for the current
+process and takes precedence over the project file.
+
+The plugin hooks continue to use canonical names for permissions, enforcement,
+workflows and dispatch. The shared file is `.opencode/tool-names.json`.
+
 ### Step 1: Describe the project
 
 Open OpenCode in your project folder and describe what you want to create:
