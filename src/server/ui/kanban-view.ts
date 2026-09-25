@@ -67,30 +67,30 @@ export const KANBAN_STYLE = `
 export const KANBAN_MODAL_HTML = `
   <div class="modal-backdrop" id="task-modal">
     <div class="modal">
-      <h3 id="task-modal-title">Nova task</h3>
+      <h3 id="task-modal-title">New task</h3>
       <input type="hidden" id="task-id">
       <div class="field">
-        <label for="task-name">Nome</label>
-        <input id="task-name" type="text" placeholder="Ex: Implementar login com Google">
+        <label for="task-name">Name</label>
+        <input id="task-name" type="text" placeholder="e.g. Implement Google login">
       </div>
       <div class="field">
-        <label for="task-description">Descrição</label>
-        <textarea id="task-description" placeholder="Contexto e detalhes da task"></textarea>
+        <label for="task-description">Description</label>
+        <textarea id="task-description" placeholder="Context and details of the task"></textarea>
       </div>
       <div class="field">
-        <label for="task-goal">Objetivo</label>
-        <input id="task-goal" type="text" placeholder="Resultado esperado">
+        <label for="task-goal">Goal</label>
+        <input id="task-goal" type="text" placeholder="Expected outcome">
       </div>
       <div class="field">
-        <label for="task-acceptance">Critérios de aceite derivados do Requirement</label>
-        <textarea id="task-acceptance" placeholder="Vincule a Task a um Requirement para visualizar os critérios" readonly></textarea>
+        <label for="task-acceptance">Acceptance criteria derived from the Requirement</label>
+        <textarea id="task-acceptance" placeholder="Link the Task to a Requirement to see its criteria" readonly></textarea>
       </div>
       <div class="field">
-        <label for="task-files">Arquivos previstos (separados por vírgula)</label>
+        <label for="task-files">Planned files (comma-separated)</label>
         <input id="task-files" type="text" placeholder="src/auth.ts, src/auth.test.ts">
       </div>
       <div class="field">
-        <label for="task-priority">Prioridade</label>
+        <label for="task-priority">Priority</label>
         <select id="task-priority">
           <option value="medium">Medium</option>
           <option value="critical">Critical</option>
@@ -99,7 +99,7 @@ export const KANBAN_MODAL_HTML = `
         </select>
       </div>
       <div class="field">
-        <label for="task-column">Coluna</label>
+        <label for="task-column">Column</label>
         <select id="task-column">
           <option value="backlog">Backlog</option>
           <option value="ready">Ready</option>
@@ -109,20 +109,20 @@ export const KANBAN_MODAL_HTML = `
         </select>
       </div>
       <div class="field">
-        <label for="task-link">Vincular a (ID de feature/requirement/project — opcional)</label>
+        <label for="task-link">Link to (feature/requirement/project ID — optional)</label>
         <input id="task-link" type="text" placeholder="FEAT-001">
       </div>
       <div class="field" id="task-change-field" style="display:none">
-        <label>Change SDD (autorização de escrita do código)</label>
+        <label>SDD Change (code write authorization)</label>
         <div class="kchange" id="task-change-info">—</div>
       </div>
       <div class="modal-actions">
-        <button class="btn primary" id="task-save">Salvar</button>
-        <button class="btn" id="task-integrate" style="display:none">Integrar com IA</button>
-        <button class="btn" id="task-change" style="display:none">Abrir Change SDD</button>
+        <button class="btn primary" id="task-save">Save</button>
+        <button class="btn" id="task-integrate" style="display:none">Integrate with AI</button>
+        <button class="btn" id="task-change" style="display:none">Open SDD Change</button>
         <div class="spacer"></div>
-        <button class="btn danger" id="task-delete" style="display:none">Excluir</button>
-        <button class="btn" id="task-cancel">Cancelar</button>
+        <button class="btn danger" id="task-delete" style="display:none">Delete</button>
+        <button class="btn" id="task-cancel">Cancel</button>
       </div>
       <div class="modal-status" id="task-modal-status"></div>
     </div>
@@ -312,8 +312,8 @@ export const KANBAN_SCRIPT = `
     var counter = document.getElementById("task-pending");
     if (counter) {
       var parts = [];
-      if (pending > 0) parts.push(pending + " task(s) pendente(s) de integração");
-      if (awaitingChange > 0) parts.push(awaitingChange + " Change(s) aguardando aprovação");
+      if (pending > 0) parts.push(pending + " task(s) pending integration");
+      if (awaitingChange > 0) parts.push(awaitingChange + " Change(s) awaiting approval");
       counter.textContent = parts.join(" · ");
     }
 
@@ -325,7 +325,7 @@ export const KANBAN_SCRIPT = `
       html += '<div class="kcol-head"><span>' + COLUMN_LABEL[col] + '</span><span class="kcol-count">' + items.length + '</span></div>';
       html += '<div class="kcol-body" data-column="' + col + '">';
       if (items.length === 0) {
-        html += '<div class="kempty">sem tasks</div>';
+        html += '<div class="kempty">no tasks</div>';
       }
       items.forEach(function (t) {
         var meta = t.metadata || {};
@@ -343,7 +343,7 @@ export const KANBAN_SCRIPT = `
             escapeHtml(meta.change_id + " · " + (meta.change_status || "DRAFT")) + '</span>';
         }
         if (meta.goal) html += '<span class="kbadge">goal</span>';
-        if (meta.files && meta.files.length) html += '<span class="kbadge">' + meta.files.length + ' arquivo(s)</span>';
+        if (meta.files && meta.files.length) html += '<span class="kbadge">' + meta.files.length + ' file(s)</span>';
         html += '</div></div>';
       });
       html += '</div></div>';
@@ -416,7 +416,7 @@ export const KANBAN_SCRIPT = `
     if (!changeId) {
       field.style.display = "none";
       info.innerHTML = "";
-      button.textContent = "Abrir Change SDD";
+      button.textContent = "Open SDD Change";
       return;
     }
 
@@ -425,7 +425,7 @@ export const KANBAN_SCRIPT = `
     field.style.display = "";
     info.innerHTML = '<span class="kbadge ' + (draft ? "change-draft" : "change-approved") + '">' +
       escapeHtml(changeId + " · " + status) + '</span>';
-    button.textContent = draft ? "Aprovar + gerar código" : "Gerar código";
+    button.textContent = draft ? "Approve + generate code" : "Generate code";
   }
 
   function setStatus(message, kind) {
@@ -439,7 +439,7 @@ export const KANBAN_SCRIPT = `
     modal = el("task-modal");
     if (!modal) return;
     currentTask = task || null;
-    el("task-modal-title").textContent = task ? "Editar task" : "Nova task";
+    el("task-modal-title").textContent = task ? "Edit task" : "New task";
     el("task-id").value = task ? task.id : "";
     el("task-name").value = task ? task.name : "";
     el("task-description").value = task && task.description ? task.description : "";
@@ -447,8 +447,8 @@ export const KANBAN_SCRIPT = `
     el("task-goal").value = meta.goal || "";
     var acceptanceSummary = meta.acceptance_summary || null;
     el("task-acceptance").value = acceptanceSummary
-      ? "Total: " + acceptanceSummary.total + " | Pendentes: " + acceptanceSummary.pending + " | Aceitos: " + acceptanceSummary.accepted + " | Rejeitados: " + acceptanceSummary.rejected
-      : "Nenhum critério derivado. Vincule a Task a um Requirement.";
+      ? "Total: " + acceptanceSummary.total + " | Pending: " + acceptanceSummary.pending + " | Accepted: " + acceptanceSummary.accepted + " | Rejected: " + acceptanceSummary.rejected
+      : "No derived criteria. Link the Task to a Requirement.";
     el("task-files").value = Array.isArray(meta.files) ? meta.files.join(", ") : "";
     el("task-priority").value = meta.priority || "medium";
     el("task-column").value = task ? columnForStatus(task.status) : "backlog";
@@ -474,7 +474,7 @@ export const KANBAN_SCRIPT = `
   function saveTask() {
     var id = el("task-id").value;
     var name = el("task-name").value.trim();
-    if (!name) { setStatus("O nome é obrigatório.", "error"); return; }
+    if (!name) { setStatus("Name is required.", "error"); return; }
 
     var payload = {
       name: name,
@@ -491,29 +491,29 @@ export const KANBAN_SCRIPT = `
       if (link) payload.link_to = link;
     }
 
-    setStatus("Salvando...", null);
+    setStatus("Saving...", null);
     api("POST", url, payload).then(function (res) {
       if (!res.ok) {
-        setStatus((res.data && res.data.error) || ("Erro " + res.status), "error");
+        setStatus((res.data && res.data.error) || ("Error " + res.status), "error");
         return;
       }
-      setStatus("Salvo. Integração: " + ((res.data.integration && res.data.integration.reason) || "ok"), "ok");
+      setStatus("Saved. Integration: " + ((res.data.integration && res.data.integration.reason) || "ok"), "ok");
       if (typeof loadGraph === "function") loadGraph();
       setTimeout(closeTaskModal, 700);
     }).catch(function (e) {
-      setStatus("Falha ao salvar: " + e, "error");
+      setStatus("Failed to save: " + e, "error");
     });
   }
 
   function deleteTask() {
     var id = el("task-id").value;
     if (!id) return;
-    setStatus("Excluindo...", null);
+    setStatus("Deleting...", null);
     api("DELETE", "/api/tasks/" + encodeURIComponent(id)).then(function (res) {
-      if (!res.ok) { setStatus("Erro ao excluir", "error"); return; }
+      if (!res.ok) { setStatus("Delete failed", "error"); return; }
       if (typeof loadGraph === "function") loadGraph();
       closeTaskModal();
-    }).catch(function (e) { setStatus("Falha: " + e, "error"); });
+    }).catch(function (e) { setStatus("Failed: " + e, "error"); });
   }
 
   /**
@@ -528,11 +528,11 @@ export const KANBAN_SCRIPT = `
     var status = meta.change_status || "DRAFT";
     var approve = !!meta.change_id && (status === "DRAFT" || status === "PROPOSED");
 
-    setStatus(approve ? "Aprovando o Change e pedindo a implementação..." : "Abrindo o Change SDD...", null);
+    setStatus(approve ? "Approving the Change and requesting implementation..." : "Opening the SDD Change...", null);
     api("POST", "/api/tasks/" + encodeURIComponent(id) + "/change", approve ? { approve: true } : {})
       .then(function (res) {
         if (!res.ok) {
-          setStatus((res.data && res.data.error) || ("Erro " + res.status), "error");
+          setStatus((res.data && res.data.error) || ("Error " + res.status), "error");
           return;
         }
         var change = (res.data && res.data.change) || {};
@@ -545,18 +545,18 @@ export const KANBAN_SCRIPT = `
         );
         if (typeof loadGraph === "function") loadGraph();
       })
-      .catch(function (e) { setStatus("Falha: " + e, "error"); });
+      .catch(function (e) { setStatus("Failed: " + e, "error"); });
   }
 
   function integrateTask() {
     var id = el("task-id").value;
     if (!id) return;
-    setStatus("Solicitando integração...", null);
+    setStatus("Requesting integration...", null);
     api("POST", "/api/tasks/" + encodeURIComponent(id) + "/integrate", {}).then(function (res) {
       var integration = (res.data && res.data.integration) || {};
-      setStatus(integration.reason || "Integração solicitada.", integration.queued ? "ok" : null);
+      setStatus(integration.reason || "Integration requested.", integration.queued ? "ok" : null);
       if (typeof loadGraph === "function") loadGraph();
-    }).catch(function (e) { setStatus("Falha: " + e, "error"); });
+    }).catch(function (e) { setStatus("Failed: " + e, "error"); });
   }
 
   function switchView(view) {

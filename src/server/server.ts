@@ -855,22 +855,22 @@ ${KANBAN_STYLE}
   </div>
   <div class="kanban-wrap" id="kanban-view" style="display:none">
     <div class="kanban-toolbar" id="kanban-toolbar">
-      <input class="search" id="kanban-search" type="text" placeholder="Buscar tasks...">
-      <span class="tb-label">Vínculo</span>
-      <select id="kanban-filter-link"><option value="all">Todos</option><option value="linked">Vinculadas</option><option value="unlinked">Sem vínculo</option><option value="feature">Feature</option><option value="requirement">Requirement</option><option value="entity">Entity</option><option value="test">Test</option></select>
-      <span class="tb-label">Integração</span>
-      <select id="kanban-filter-integration"><option value="all">Todas</option><option value="pending">Pendente</option><option value="manual">Manual</option><option value="integrated">Integrada</option></select>
-      <span class="tb-label">Prioridade</span>
-      <select id="kanban-filter-priority"><option value="all">Todas</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
-      <span class="tb-label">Coluna</span>
-      <select id="kanban-filter-column"><option value="all">Todas</option><option value="backlog">Backlog</option><option value="ready">Ready</option><option value="in_progress">In Progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select>
+      <input class="search" id="kanban-search" type="text" placeholder="Search tasks...">
+      <span class="tb-label">Link</span>
+      <select id="kanban-filter-link"><option value="all">All</option><option value="linked">Linked</option><option value="unlinked">Unlinked</option><option value="feature">Feature</option><option value="requirement">Requirement</option><option value="entity">Entity</option><option value="test">Test</option></select>
+      <span class="tb-label">Integration</span>
+      <select id="kanban-filter-integration"><option value="all">All</option><option value="pending">Pending</option><option value="manual">Manual</option><option value="integrated">Integrated</option></select>
+      <span class="tb-label">Priority</span>
+      <select id="kanban-filter-priority"><option value="all">All</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      <span class="tb-label">Column</span>
+      <select id="kanban-filter-column"><option value="all">All</option><option value="backlog">Backlog</option><option value="ready">Ready</option><option value="in_progress">In Progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select>
       <span class="spacer"></span>
-      <span class="tb-label">Ordenar</span>
-      <select id="kanban-sort"><option value="column">Coluna</option><option value="priority">Prioridade</option><option value="name">Nome</option><option value="updated">Atualizado</option><option value="created">Criado</option><option value="links">Vínculos</option><option value="integration">Integração</option></select>
+      <span class="tb-label">Sort by</span>
+      <select id="kanban-sort"><option value="column">Column</option><option value="priority">Priority</option><option value="name">Name</option><option value="updated">Updated</option><option value="created">Created</option><option value="links">Links</option><option value="integration">Integration</option></select>
       <select id="kanban-order"><option value="asc">↑</option><option value="desc">↓</option></select>
-      <button class="btn" id="kanban-reset-filters">Limpar</button>
+      <button class="btn" id="kanban-reset-filters">Clear</button>
     </div>
-    <button class="btn primary" id="kanban-add">+ Nova task</button>
+    <button class="btn primary" id="kanban-add">+ New task</button>
     <div class="kanban" id="kanban-board"></div>
   </div>
     </div>
@@ -1158,8 +1158,8 @@ ${KANBAN_MODAL_HTML}
           html += '<div class="detail-field"><span class="node-status status-' + escapeHtml(guidance.metadata.status) + '">' + escapeHtml(guidance.metadata.status) + '</span> ' + escapeHtml(guidance.metadata.instruction) + ' <small>' + escapeHtml(guidance.id) + '</small></div>';
         });
       }
-      html += '<textarea id="node-guidance-input" placeholder="Orientação humana para este nó" style="width:100%;min-height:60px"></textarea>';
-      html += '<button class="btn primary" data-guide-node="' + escapeHtml(node.id) + '">Registrar orientação</button></div>';
+      html += '<textarea id="node-guidance-input" placeholder="Human guidance for this node" style="width:100%;min-height:60px"></textarea>';
+      html += '<button class="btn primary" data-guide-node="' + escapeHtml(node.id) + '">Record guidance</button></div>';
       if (outgoing.length) {
         html += '<div class="detail-section"><h3>Outgoing (' + outgoing.length + ')</h3>';
         outgoing.forEach(function(r) { html += '<div class="detail-field" style="cursor:pointer" data-goto="' + escapeHtml(r.to) + '">' + escapeHtml(r.type) + " &rarr; " + escapeHtml(r.to) + "</div>"; });
