@@ -27,6 +27,11 @@ A **Spec-Driven Development (SDD)** plugin for [OpenCode](https://github.com/ano
 - **Shell hooks**: installs Git hooks for SDD integration
 - **Brownfield scanning**: analyzes existing projects for integration
 - **Brownfield SDD findings**: documentation mode preserves AS-IS defects as persistent findings and remediation tasks; reverse-engineering mode converts them into target requirements with source evidence and readiness gates
+- **Reverse engineering**: `sdd.reverse_engineer` turns an existing codebase into a graph — `purpose=documentation` documents the system as-is (spec nodes auto-approved), `purpose=reverse_engineering` produces a technology-agnostic spec to rebuild with another stack; `depth=structure|full` and `focus_dirs` scope the scan
+- **Release milestones**: `sdd.milestone` manages release scope (`create/list/add/remove/assign/close/report`) and reports traceability gaps per release
+- **Acceptance lifecycle**: criteria are versioned nodes with SHA-256 hash, audit events (CLI, tool, dashboard and MCP share one service) and **final delivery acceptance** (`final_accept`/`final_reject`) on the Change
+- **Node guidance**: any node can receive a human instruction; impact is analyzed, a structured proposal is stored, and applying it is version-checked and audited
+- **Execution ledger**: every workflow run/step is recorded in `.sdd/executions/events.jsonl` with run/step ids, timeouts and cancellation (readable at `GET /api/executions`)
 - **CI/CD Integration**: generates GitHub Actions, GitLab CI, Jenkins, Docker, CircleCI, Azure DevOps, AWS CodePipeline, Travis CI, NPM Publish, Docker Compose, Maven (Java), Python (pip), Go (GoReleaser) with SDD validation
 - **Multi-developer Sync**: Git-based synchronization with conflict detection and resolution
 - **Rollback**: 3 rollback layers (git → snapshot → backup)
@@ -139,6 +144,10 @@ depending on the LLM to perform the action):
 | `/sdd acceptance <REQ-ID>` | `acceptance <id>` | Lists the Requirement's canonical human acceptance criteria |
 | `/sdd acceptance accept <AC-ID>` | `acceptance accept <id>` | Accepts one criterion through the central service |
 | `/sdd acceptance accept-all <REQ-ID>` | `acceptance accept-all <id>` | Accepts all pending criteria as one audited operation |
+| `/sdd acceptance create <REQ-ID> <text>` | `acceptance create <id> <text>` | Creates an official criterion for the Requirement |
+| `/sdd acceptance update <AC-ID> <text>` | `acceptance update <id> <text>` | Versions the criterion text and returns it to `PENDING` |
+| `/sdd acceptance migrate` | `acceptance migrate` | Materializes legacy inline criteria as nodes |
+| `/sdd acceptance final-accept <CHG-ID>` | `acceptance final-accept <id>` | Records final delivery acceptance for a Change (`final-reject` rejects it) |
 | `/sdd guide <NODE-ID> <instruction>` | `guide <id> <instruction>` | Records human guidance for any Knowledge Graph node |
 | `/sdd cache_reset` | `cache_reset` | Clears caches without killing the session |
 
@@ -428,6 +437,31 @@ writes source code itself.
 |---|---|
 | `sdd.integrate_tasks` | Kanban bridge: `list` tasks pending integration, `create`/`update`/`remove` tasks, `mark_integrated` (which opens the Change) and `open_change`/`approve_change` to drive the code authorisation |
 
+## Dashboard HTTP API
+
+The dashboard server (started by `/sdd viz` or `sdd.start_dashboard`) exposes a
+read/write JSON API on `127.0.0.1:7331`. Mutating routes reject cross-origin
+requests and non-loopback `Host` headers.
+
+| Method + path | Purpose |
+|---|---|
+| `GET /api/health`, `/api/status`, `/api/project`, `/api/progress` | Server, project and progress summaries |
+| `GET /api/graph`, `/api/graph/summary`, `/api/graph/counts`, `/api/graph/types`, `/api/graph/relationships` | Graph payload and aggregates |
+| `GET /api/nodes`, `GET /api/nodes/:id` | Node listing and detail |
+| `GET /api/changes`, `/api/drift`, `/api/validation` | Change list, drift report, validation report |
+| `GET /api/executions?run_id=&call_id=&limit=` | Execution ledger records |
+| `GET /api/tasks?q=&priority=&sort=&order=` | Kanban tasks (search/filter/sort) |
+| `POST /api/tasks`, `POST/PATCH /api/tasks/:id`, `DELETE /api/tasks/:id` | Create / update / delete a task |
+| `POST /api/tasks/:id/integrate`, `/integrated`, `/change` | AI integration and task → Change bridge |
+| `GET /api/acceptance?requirement_id=` | Acceptance criteria for a Requirement |
+| `POST /api/acceptance/:id/:action` | `accept`, `reject`, `waive`, `reopen`, `update_text` |
+| `POST /api/acceptance/accept-all?requirement_id=` | Accept all pending criteria transactionally |
+| `POST /api/acceptance/migrate` | Materialize legacy inline criteria |
+| `POST /api/acceptance/final/:changeId/:action` | Final delivery acceptance (`accept` / `reject`) |
+| `GET/POST /api/guidance`, `POST /api/guidance/:id/:action` | Guidance create/list + `analyze`, `propose`, `apply`, `reject` |
+| `GET /api/impact/:nodeId?depth=` | Node impact analysis |
+| `GET /api/events` | Server-sent event stream (live dashboard updates) |
+
 ## Available tools
 
 ### Graph initialization and management
@@ -467,11 +501,18 @@ status, actor, timestamp, observation and evidence are stored in the graph.
 Tasks do not copy criteria; their dashboard status is derived from linked
 Requirements. CLI, dashboard, OpenCode tools and MCP use the same service.
 
-Use `sdd.acceptance` for list, accept, reject, waive, reopen, text updates and
-legacy migration. Change approval and completion can optionally require all
-affected criteria to be accepted; configure this through the SDD acceptance
-settings. Changing criterion text increments its version and returns it to
-`PENDING`.
+`sdd.acceptance` is the central service and accepts
+`list`, `summary`, `create`, `accept`, `reject`, `waive`, `reopen`, `accept_all`,
+`update_text`, `migrate`, `final_accept` and `final_reject`. Change approval and
+completion can optionally require all affected criteria to be accepted; configure
+this through the SDD acceptance settings. Changing criterion text increments its
+version, returns it to `PENDING` and invalidates the previous hash. Mutations are
+permission-gated (`create_requirement`, `accept_requirement`,
+`reject_requirement`, `waive_requirement`, `reopen_requirement`, `accept_final`,
+`reject_final`) and every event goes to the acceptance audit sink
+(`.sdd/audit-log.json`). `final_accept`/`final_reject` operate on the **Change**
+(`change_id`), recording `metadata.final_acceptance` with actor, timestamp,
+observation, evidence and an optional `expected_version` optimistic check.
 
 The gradual rollout flags are `acceptance.enabled`,
 `acceptance.require_before_change_approval`,
@@ -482,6 +523,13 @@ Human instructions for any node are recorded as `guidance` nodes. The service
 calculates bidirectional impact, stores a structured proposal, checks the target
 version, and applies the update with audit history. Acceptance criteria receive
 special handling so text changes always refresh their hash/version invariants.
+The same capability is exposed as tools (and through `/sdd guide`):
+
+| Tool | Description |
+|---|---|
+| `sdd.acceptance` | `list`, `summary`, `create`, `accept`, `reject`, `waive`, `reopen`, `accept_all`, `update_text`, `migrate`, `final_accept`, `final_reject` |
+| `sdd.impact` | Bidirectional and semantic impact of changing a node (`node_id`, `depth`) |
+| `sdd.node_guidance` | Guidance lifecycle: `create`, `analyze`, `propose`, `apply`, `reject` — impact + structured proposal + version check + audit |
 
 ### Composite tools
 
@@ -511,6 +559,7 @@ Encapsulated multi-step workflows executed as a single tool call (each step uses
 | `sdd.workflow_hotfix` | emergency hotfix (no enforcement) + retrospective documentation |
 | `sdd.workflow_refactor` | enforce → validate → analyze impact → complete |
 | `sdd.workflow_full_cycle` | full cycle via `sdd.full_cycle` |
+| `sdd.workflow_reverse_engineer` | reverse_engineer → validate → inspect |
 
 ### Discovery and briefing
 
@@ -605,6 +654,7 @@ again would create a new Change and orphan the previous one.
 |---|---|
 | `sdd.drift_signals` | Detects advanced drift signals (mutant duplicates, architecture violations, pattern fragmentation) |
 | `sdd.brownfield_scan` | Analyzes an existing project for integration |
+| `sdd.reverse_engineer` | Reverse-engineers an existing codebase into the graph (`purpose=documentation\|reverse_engineering`, `depth=structure\|full`, `focus_dirs`) |
 
 > Code quality analysis, codebase intelligence, sync, rollback and permissions are composite tools (`sdd.code_quality`, `sdd.sync`, `sdd.snapshot`, `sdd.permissions`).
 
@@ -642,6 +692,19 @@ again would create a new Change and orphan the previous one.
 | `sdd.handle_mcp_tool` | Processes a tool via the MCP protocol |
 | `sdd.telemetry` | Shows local performance, estimated token, and cache telemetry (nothing leaves the machine) |
 | `sdd.record_feedback` | Records a local human correction for an extracted fact/classification |
+
+### MCP server
+
+The plugin can also be consumed over MCP (`sdd.mcp_server_info`,
+`sdd.handle_mcp_tool`). The server announces 19 `sdd_*` tools:
+`sdd_get_quality`, `sdd_get_drift`, `sdd_get_validation`, `sdd_get_handoff`,
+`sdd_get_release`, `sdd_get_acceptance`, the acceptance mutations
+(`sdd_accept_criterion`, `sdd_reject_criterion`, `sdd_waive_criterion`,
+`sdd_reopen_criterion`, `sdd_accept_all`, `sdd_create_criterion`,
+`sdd_update_criterion`, `sdd_migrate_acceptance`, `sdd_accept_final`,
+`sdd_reject_final`) and guidance (`sdd_node_impact`, `sdd_create_guidance`,
+`sdd_apply_guidance`). CLI, dashboard, OpenCode tools and MCP all go through the
+same services, so permissions, versions and audit history are shared.
 
 ### Promises
 
@@ -717,6 +780,22 @@ Technologies that have already been mentioned **are not asked again**.
 | `constraint` | Constraint |
 | `assumption` | Recorded assumption |
 | `constitution` | Project principles (must/should/may) |
+| `bug_fix` | Bug fix workflow record |
+| `hotfix` | Emergency/hotfix record |
+| `refactoring` | Refactoring record |
+| `deprecation` | Deprecation record |
+| `migration` | Data migration record |
+| `experiment` | A/B experiment |
+| `feature_flag` | Feature flag |
+| `tenant` | Tenant (multi-tenancy) |
+| `metric` | Monitored metric |
+| `alert` | Alert rule |
+| `incident` | Incident record |
+| `finding` | Brownfield finding (AS-IS defect or target gap) |
+| `sla` | Service level agreement |
+| `milestone` | Release milestone |
+| `acceptance_criterion` | Canonical human acceptance criterion (versioned, hashed) |
+| `guidance` | Human instruction for a node (proposal + audit) |
 
 ## Relationship types
 
@@ -728,7 +807,9 @@ contradicts, supersedes, replaces, blocked_by, belongs_to,
 owned_by, triggered_by, flows_to, deprecates, migrates_to,
 experimented_by, flagged_by, validates, influences, constrains,
 applies_to, owned_by_tenant, monitored_by, alerted_by,
-incident_in, sla_for, defines
+incident_in, detected_in, tracked_by, resolves, evidenced_by,
+sla_for, defines, specifies, operates_on, traces_to,
+has_acceptance_criterion, guides
 ```
 
 ## Enforcement flow
@@ -773,6 +854,13 @@ sdd.complete_change → completes only when every gate passes
 **What is NOT blocked:** config files (`package.json`, `tsconfig.json`), `.env`, `.sdd/` files, files outside the project.
 
 **What happens when blocked:** the agent receives an error message describing exactly what it needs to do (enforce → approve → retry).
+
+**Shell bypasses are covered too:** terminal commands that would create or edit a
+source file (`> file.ts`, `tee`, `sed -i`, `touch`, `cp`, `mv`, `dd of=`,
+`truncate`, heredocs/`open(...)`, `node -e fs.writeFileSync`) are intercepted in
+`tool.execute.before` with a broader extension set — `.mjs`, `.mts`, `.c`, `.cpp`,
+`.h`, `.hpp`, `.cs`, `.swift`, `.kt` in addition to the ones above — so
+`run_terminal_command` cannot slip past the same gate.
 
 ## Completing a Change (verification gate)
 
@@ -1002,6 +1090,33 @@ sdd.enterprise(action: "disaster_recovery")
 sdd.enterprise(action: "dashboard", type: "overview")
 ```
 
+## Configuration and environment
+
+SDD settings live in **`.sdd/config.json`** (missing keys fall back to defaults):
+
+```json
+{
+  "acceptance": {
+    "enabled": true,
+    "require_before_change_approval": false,
+    "require_before_change_completion": false,
+    "allow_waived": true,
+    "legacy_fallback": true
+  },
+  "dashboard": { "port": 7331 },
+  "workflow": { "ttl_ms": 1800000 }
+}
+```
+
+Environment variables:
+
+| Variable | Effect |
+|---|---|
+| `SDD_DASHBOARD_PORT` | Dashboard port (default `7331`, falls back to a free port) |
+| `SDD_WORKFLOW_TTL_MS` | Workflow window in ms (default 30 min) |
+| `SDD_DEBUG` | `1`/`true` enables the plugin debug log |
+| `GITHUB_TOKEN` / `GITLAB_TOKEN` | Remote permission detection for roles |
+
 ## Project structure
 
 ```
@@ -1024,7 +1139,8 @@ src/
 │  │   ├── briefing.ts                     # Briefing analysis
 │  │   ├── briefing-analyzer.ts            # Tech stack detection
 │  │   ├── adaptive.ts                     # Adaptive discovery
-│  │   └── graph-builder.ts                # Graph construction
+│  │   ├── graph-builder.ts                # Graph construction
+│  │   └── relationship-inferencer.ts      # Missing edge inference + inverse normalization
 │  ├── changes/manager.ts               # Change management + approval gates
 │  ├── validation/                      # Structural/semantic validation
 │  │   ├── validator.ts                    # Main validator
@@ -1049,13 +1165,16 @@ src/
 │  │   ├── anti-patterns.ts / ast-clones.ts / contradictions.ts / config-drift.ts / learner.ts
 │  ├── coverage/tracker.ts              # Test coverage
 │  ├── workflow/exporter.ts             # Workflow export
-│  ├── brownfield/scanner.ts            # Existing project analysis
+│  ├── brownfield/                      # Existing project analysis
+│  │   ├── scanner.ts                      # Brownfield scan
+│  │   ├── reverse-engineer.ts             # documentation / reverse_engineering modes
+│  │   └── findings.ts                     # Findings lifecycle (scan → resolve)
 │  ├── cicd/generators.ts               # CI/CD generation (GitHub, GitLab, Jenkins, Docker)
 │  ├── sync/git-sync.ts                 # Git sync + conflicts
 │  ├── rollback/manager.ts              # 3-layer rollback (git → snapshot → backup)
 │  ├── permissions/access.ts            # Access control + audit
 │  ├── migrations/                      # SDD migrations
-│  │   ├── fixes.ts / index.ts / migration-runner.ts
+│  │   ├── fixes.ts / index.ts / migration-runner.ts / relationship-backfill.ts
 │  ├── code-quality/                    # Code quality
 │  │   ├── complexity.ts / metrics.ts / smells.ts / dependencies.ts
 │  │   ├── symbol-parser.ts / usage-tracker.ts / import-analyzer.ts / conventions.ts / utils.ts
@@ -1075,6 +1194,17 @@ src/
 │  ├── disaster/recovery.ts             # Disaster recovery plan
 │  ├── tasks/board.ts                   # Kanban board domain over `task` nodes
 │  ├── tasks/change-bridge.ts           # Task → SDD Change bridge (code authorisation)
+│  ├── acceptance/                      # Central acceptance service
+│  │   ├── service.ts                     #   list/summary/create/accept/…/final acceptance
+│  │   ├── audit.ts                       #   audit sink → .sdd/audit-log.json
+│  │   └── final.ts                       #   final delivery acceptance on a Change
+│  ├── guidance/service.ts              # Guidance: impact, proposal, versioned apply
+│  ├── impact/service.ts                # Bidirectional / semantic impact analysis
+│  ├── execution/                       # Execution ledger (traceability)
+│  │   ├── ledger.ts                      #   .sdd/executions/events.jsonl records
+│  │   ├── lock.ts                        #   project-wide execution lock
+│  │   └── types.ts                       #   context / record / status
+│  ├── release/milestone.ts             # Release milestones + traceability report
 │  ├── transactions/manager.ts          # Logical transactions
 │  ├── project-dir.ts                   # Project directory resolution (rejects "/")
 │  └── log.ts                           # Plugin debug log
@@ -1083,6 +1213,8 @@ src/
 │  ├── hooks.ts                         # OpenCode hooks (including cache restore with try/catch)
 │  ├── command.ts                       # "sdd" command hub (command.execute.before)
 │  ├── system-prompt.ts                 # SDD instructions + question tool integration
+│  ├── tool-handlers.ts                 # Business logic shared by the composite tools
+│  ├── runtime/dispatcher.ts             # Single dispatch path (execution lock + ledger ids)
 │  ├── shell-hooks.ts                   # Git hooks for SDD
 │  ├── router/                          # Semantic tool routing
 │  │   ├── index.ts / categories.ts / intent-classifier.ts / state-gate.ts
@@ -1099,6 +1231,7 @@ src/
 │      └── registry.ts / tree-sitter.ts / typescript.ts
 └ server/
    ├── server.ts                        # Web dashboard (API + UI)
+   ├── acceptance-api.ts                # Acceptance/migration/final-acceptance HTTP handlers
    ├── tasks-api.ts                     # Kanban task API (create/update/move/delete/change)
    ├── dashboard-context.ts             # Dashboard ↔ agent bridge (integration + code prompts)
    ├── ui/
@@ -1112,13 +1245,24 @@ When initialized, the plugin creates:
 
 ```
 .sdd/
-├ graph.yaml              # The complete Knowledge Graph
+├ graph.yaml              # Knowledge Graph (YAML backend)
+├ graph.db                # Knowledge Graph (SQLite backend, + -wal/-shm)
+├ storage-backend         # Active backend: "yaml" | "sqlite"
 ├ enabled                 # Toggle state (JSON: {enabled, changed_at})
-├ nodes/                  # Individual nodes (future)
-├ relationships/          # Relationships (future)
-├ changes/                # Change history
+├ config.json             # SDD config (acceptance gates, dashboard, workflow TTL)
+├ executions/events.jsonl # Execution ledger (run/step ids, status, durations)
+├ verification/           # Verification reports bound to each Change
+├ audit-log.json          # Permission + acceptance audit entries
+├ permissions.json        # Local roles and permission config
+├ drift-whitelist.json    # Drift whitelist
+├ migration-history.json  # Applied SDD migrations
+├ telemetry.jsonl         # Local telemetry events
+├ sessions/latest.json    # Session handoff package
 ├ snapshots/              # State snapshots
-└ transactions/           # Logical transactions
+├ backups/                # Backup layer (3rd rollback layer)
+├ changes/                # Change history
+├ transactions/           # Logical transactions
+└ rollback-history.json / sync-state.json / cache files / quality-history.json
 ```
 
 ## Development
