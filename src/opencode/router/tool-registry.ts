@@ -2,16 +2,16 @@
  * Tool Registry — Registry central de tools SDD.
  *
  * Anuncia o CATÁLOGO COMPLETO de tools registradas ao agente e destaca as mais
- * relevantes para o estado atual do grafo e para a intenção detectada.
+ * relevant to the current graph state and to the detected intent.
  *
- * Histórico: antes este módulo escondia tools por categoria/estado e reduzia o
- * anúncio a ~3 nomes, o que fazia entry points essenciais (sdd.enforce,
- * sdd.discover, sdd.start_dashboard) nunca chegarem ao modelo. Nenhuma tool é
- * omitida agora — a política de enforcement é quem decide o que pode ser
- * chamado, não o anúncio.
+ * History: this module used to hide tools by category/state and shrink the
+ * announcement to ~3 names, which meant essential entry points (sdd.enforce,
+ * sdd.discover, sdd.start_dashboard) never reached the model. No tool is
+ * omitted now — the enforcement policy decides what can be called, not the
+ * announcement.
  *
  * Consumido por: hooks.ts (experimental.chat.system.transform)
- * Dependências: state-gate.ts, intent-classifier.ts, categories.ts, tool-taxonomy.ts
+ * Dependencies: state-gate.ts, intent-classifier.ts, categories.ts, tool-taxonomy.ts
  */
 
 import {
@@ -24,22 +24,22 @@ import { TOOL_TAXONOMY, STANDALONE_TOOLS, type CompositeTool } from "./tool-taxo
 import { getToolCategories } from "./categories.js"
 
 export interface ToolRegistryResult {
-  /** Catálogo completo, ordenado por relevância */
+  /** Full catalog, ordered by relevance */
   tools: string[]
-  /** Resultado da classificação de intenção (zeroed quando não há input) */
+  /** Intent classification result (zeroed when there is no input) */
   intent: IntentResult
-  /** Tools recomendadas para o estado atual do grafo (destaque, nunca filtro) */
+  /** Tools recommended for the current graph state (highlight, never a filter) */
   recommended: Set<string>
-  /** Mensagem formatada para injeção no system prompt */
+  /** Formatted message for system prompt injection */
   formattedMessage: string
 }
 
 /**
- * Catálogo completo de tools registradas: as standalone (cujo nome vem de
- * STANDALONE_CATEGORIES) mais as compositas da taxonomia.
+ * Full catalog of registered tools: the standalone ones (whose name comes from
+ * STANDALONE_CATEGORIES) plus the composites from the taxonomy.
  *
- * tests/tool-catalog.test.ts garante que esta lista é idêntica às chaves de
- * createSddTools(), então uma tool nova não pode mais ficar invisível.
+ * tests/tool-catalog.test.ts guarantees this list matches the keys of
+ * createSddTools(), so a new tool can no longer stay invisible.
  */
 export const ALL_TOOL_NAMES: readonly string[] = [
   ...STANDALONE_TOOLS,
@@ -51,7 +51,7 @@ const COMPOSITE_NAMES = new Set(TOOL_TAXONOMY.map((t) => t.name))
 /** Nomes de tools por linha na listagem compacta do prompt. */
 const NAMES_PER_LINE = 5
 
-/** Prioridade de exibição: intenção (0) → recomendada (1) → restante (2). */
+/** Display priority: intent (0) → recommended (1) → rest (2). */
 function relevanceRank(
   name: string,
   intent: IntentResult | null,
@@ -63,24 +63,24 @@ function relevanceRank(
 }
 
 /**
- * Obtém o conjunto final de tools para o LLM.
+ * Gets the final set of tools for the LLM.
  *
- * @param directory - Diretório do projeto
- * @param userInput - Texto do input do usuário. Quando ausente/vazio (ex: a
- *   injeção no system prompt não recebe a mensagem do usuário), nenhuma
- *   intenção é inferida e as recomendadas do estado lideram a ordenação.
- * @returns ToolRegistryResult com o catálogo completo e a mensagem formatada
+ * @param directory - Project directory
+ * @param userInput - The user's input text. When absent/empty (e.g. the
+ *   system prompt injection does not carry the user's message), no intent is
+ *   inferred and the state-recommended tools lead the ordering.
+ * @returns ToolRegistryResult with the full catalog and the formatted message
  */
 export function getToolsForSession(directory: string, userInput?: string): ToolRegistryResult {
   // 1. State gate: quais tools merecem destaque neste estado do grafo?
   const recommended = getRecommendedTools(directory)
 
-  // 2. Intent classifier: qual a intenção do usuário? (só com input real —
+  // 2. Intent classifier: what is the user's intent? (only with real input —
   // inferir de string vazia devolvia sempre a primeira categoria, "mutation")
   const input = userInput?.trim() ?? ""
   const intent = input.length > 0 ? classifyIntent(input) : null
 
-  // 3. Ordenar por relevância mantendo o catálogo INTEIRO (nada é omitido)
+  // 3. Sort by relevance while keeping the ENTIRE catalog (nothing omitted)
   const tools = [...ALL_TOOL_NAMES].sort((a, b) => {
     const diff = relevanceRank(a, intent, recommended) - relevanceRank(b, intent, recommended)
     return diff !== 0 ? diff : a.localeCompare(b)
@@ -95,7 +95,7 @@ export function getToolsForSession(directory: string, userInput?: string): ToolR
 }
 
 /**
- * Lista compacta de nomes, agrupados em linhas, com destaque das recomendadas.
+ * Compact list of names, grouped in lines, highlighting the recommended ones.
  */
 function formatNameList(names: readonly string[], recommended: Set<string>): string {
   const sorted = [...names].sort()
@@ -112,7 +112,7 @@ function formatNameList(names: readonly string[], recommended: Set<string>): str
 /**
  * Formata a mensagem do tool registry para o system prompt.
  *
- * @param intent - null quando não houve input para classificar.
+ * @param intent - null when there was no input to classify.
  */
 function formatToolRegistryMessage(
   tools: readonly string[],
@@ -123,7 +123,7 @@ function formatToolRegistryMessage(
 
   if (intent) {
     const confidencePct = Math.round(intent.confidence * 100)
-    lines.push(`## Intent Detectado: ${intent.category} (${confidencePct}% confiança)`)
+    lines.push(`## Detected Intent: ${intent.category} (${confidencePct}% confidence)`)
     if (intent.topCategories.length > 1) {
       const alternatives = intent.topCategories
         .slice(1)
@@ -134,9 +134,9 @@ function formatToolRegistryMessage(
     lines.push("")
   }
 
-  lines.push(`### Tools SDD — catálogo completo (${tools.length})`)
+  lines.push(`### SDD Tools — full catalog (${tools.length})`)
   lines.push(
-    "Todas estão disponíveis. `▸` marca as recomendadas para o estado atual do grafo.",
+    "All are available. `▸` marks the ones recommended for the current graph state.",
   )
   lines.push("")
 
@@ -144,7 +144,7 @@ function formatToolRegistryMessage(
   const standalone = tools.filter((name) => !COMPOSITE_NAMES.has(name))
 
   if (composites.length > 0) {
-    lines.push("#### Compositas (use `action=` para o sub-comando)")
+    lines.push("#### Composites (use `action=` for the sub-command)")
     for (const name of composites) {
       const tool: CompositeTool | undefined = TOOL_TAXONOMY.find((tc) => tc.name === name)
       if (!tool) continue
@@ -154,11 +154,11 @@ function formatToolRegistryMessage(
     lines.push("")
   }
 
-  lines.push(`#### Individuais (${standalone.length})`)
+  lines.push(`#### Standalone (${standalone.length})`)
   lines.push(formatNameList(standalone, recommended))
   lines.push("")
 
-  // Contrato de enforcement (mantém o prompt coerente com checkToolAccess)
+  // Enforcement contract (keeps the prompt coherent with checkToolAccess)
   lines.push(ENFORCEMENT_ORDER_INSTRUCTION)
   lines.push("")
   lines.push(ESCAPE_HATCH_INSTRUCTION)
@@ -167,7 +167,7 @@ function formatToolRegistryMessage(
 }
 
 /**
- * Obtém descrição de uma tool (standalone ou composite).
+ * Gets the description of a tool (standalone or composite).
  */
 export function getToolDescription(toolName: string): string {
   const composite = TOOL_TAXONOMY.find((t) => t.name === toolName)

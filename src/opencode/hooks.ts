@@ -208,9 +208,9 @@ export function createSddHooks(projectDir: string): Hooks {
 
       const repo = createRepository(projectDir)
 
-      // A política central e o catálogo de tools DEVEM chegar ao modelo mesmo
-      // sem grafo: o grafo é criado POR essas tools (sdd.initialize /
-      // sdd.build_graph). Gatear o anúncio atrás de isInitialized() escondia
+      // The central policy and the tool catalog MUST reach the model even
+      // without a graph: the graph is created BY those tools (sdd.initialize /
+      // sdd.build_graph). Gating the announcement behind isInitialized() hid
       // os entry points do agente — ciclo fechado.
       output.system.push(SDD_CORE_SYSTEM_PROMPT)
       try {
@@ -274,11 +274,11 @@ export function createSddHooks(projectDir: string): Hooks {
           const awaitingApproval = getTasksAwaitingChangeApproval(graph)
           if (awaitingApproval.length > 0) {
             output.system.push([
-              `## SDD Task Board: ${awaitingApproval.length} task(s) com Change aguardando aprovação`,
+              `## SDD Task Board: ${awaitingApproval.length} task(s) with a Change awaiting approval`,
               ...awaitingApproval
                 .slice(0, 5)
                 .map(({ task, change }) => `- ${task.id}: ${task.name} → ${change.id} (${change.metadata.approval_level})`),
-              'Aprove com `sdd.integrate_tasks` (action="approve_change", task_id="...") e implemente o código correspondente.',
+              'Approve it with `sdd.integrate_tasks` (action="approve_change", task_id="...") and then implement the matching code.',
             ].join("\n"))
           }
 

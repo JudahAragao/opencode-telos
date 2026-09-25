@@ -1,11 +1,11 @@
 /**
  * Workflow Executor — Executa workflow chains step by step.
  *
- * Cada step é executado sequencialmente.
+ * Each step is executed sequentially.
  * Se um step required falha, a chain para e faz rollback.
  *
  * Consumido por: tools-workflow.ts
- * Dependências: chains.ts
+ * Dependencies: chains.ts
  */
 
 import type { WorkflowChain, WorkflowStepResult } from "./chains.js"
@@ -40,7 +40,7 @@ export interface ChainExecutionResult {
 }
 
 /**
- * Tipo da função que executa uma tool SDD.
+ * Type of the function that executes an SDD tool.
  * Recebe (toolName, args) e retorna a string de resultado.
  */
 export type ToolExecutor = (
@@ -58,9 +58,9 @@ export interface WorkflowExecutorHooks {
  * Executa uma workflow chain.
  *
  * @param chain - A chain a executar
- * @param initialParams - Parâmetros iniciais da chain
- * @param executeTool - Função que executa uma tool SDD
- * @returns Resultado da execução
+ * @param initialParams - Initial chain parameters
+ * @param executeTool - Function that executes an SDD tool
+ * @returns Execution result
  */
 export async function executeChain(
   chain: WorkflowChain,
@@ -192,7 +192,7 @@ export async function executeChain(
       prevResult = result
       if (successful) completedSteps++
 
-      // Se o resultado indica falha (contém "BLOCKED" ou "Error")
+      // If the result indicates failure (contains "BLOCKED" or "Error")
       if (!successful) {
         if (step.required) {
           await rollbackIfNeeded(i)
@@ -252,7 +252,7 @@ export async function executeChain(
 }
 
 /**
- * Formata o resultado de uma execução de chain para exibição.
+ * Formats a chain execution result for display.
  */
 export function formatChainResult(result: ChainExecutionResult): string {
   const lines: string[] = []
@@ -268,7 +268,7 @@ export function formatChainResult(result: ChainExecutionResult): string {
     lines.push(`### ${icon} Step ${step.stepIndex + 1}: ${step.description}`)
     lines.push(`Tool: \`${step.tool}\``)
     if (!step.success) {
-      lines.push(`Erro: ${step.result}`)
+      lines.push(        `Error: ${step.result}`)
     }
     lines.push("")
   }
@@ -287,8 +287,8 @@ export function formatChainResult(result: ChainExecutionResult): string {
 
 /**
  * Rollback: desfaz os steps completados.
- * Nota: Na prática, o rollback é feito via snapshots do SDD.
- * Esta função apenas informa o que precisa ser desfeito.
+ * Note: in practice, rollback is done through SDD snapshots.
+ * This function only reports what needs to be undone.
  */
 export function getRollbackPlan(result: ChainExecutionResult): string[] {
   const plan: string[] = []

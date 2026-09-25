@@ -48,14 +48,14 @@ export function estimateCost(
     infrastructure.push({
       service: 'Servidor Web',
       cost: customInfra['Servidor Web'] ?? 20,
-      unit: 'mês',
+      unit: 'month',
     })
 
     if (databases.length > 0) {
       infrastructure.push({
         service: 'Banco de Dados',
         cost: customInfra['Banco de Dados'] ?? 25,
-        unit: 'mês',
+        unit: 'month',
       })
     }
 
@@ -63,14 +63,14 @@ export function estimateCost(
       infrastructure.push({
         service: 'Load Balancer',
         cost: customInfra['Load Balancer'] ?? 15,
-        unit: 'mês',
+        unit: 'month',
       })
     }
 
     infrastructure.push({
       service: 'Armazenamento',
       cost: customInfra['Armazenamento'] ?? 5,
-      unit: 'mês',
+      unit: 'month',
     })
   }
 
@@ -127,7 +127,7 @@ export function formatCostEstimate(estimate: CostEstimate): string {
   for (const item of estimate.infrastructure) {
     lines.push(`- **${item.service}:** $${item.cost}/${item.unit}`)
   }
-  lines.push(`- **Total Infraestrutura:** $${estimate.total_infrastructure}/mês`)
+  lines.push(`- **Total infrastructure:** $${estimate.total_infrastructure}/month`)
 
   lines.push('', '### Desenvolvimento (Único)')
   for (const item of estimate.development) {
@@ -140,7 +140,7 @@ export function formatCostEstimate(estimate: CostEstimate): string {
     '### Resumo',
     `- **Custo Mensal:** $${estimate.total_monthly}`,
     `- **Custo Único:** $${estimate.total_development}`,
-    `- **Custo Total Primeiro Ano:** $${estimate.total_development + estimate.total_monthly * 12}`,
+    `- **Total cost, first year:** $${estimate.total_development + estimate.total_monthly * 12}`,
   )
 
   return lines.join('\n')

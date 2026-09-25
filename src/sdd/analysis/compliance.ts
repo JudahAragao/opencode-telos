@@ -38,78 +38,78 @@ export function checkCompliance(
       id: 'GDPR-001',
       description: 'Consentimento para coleta de dados',
       status: 'not_met',
-      gap: 'Não há nós de consentimento no grafo',
+      gap: 'There are no consent nodes in the graph',
     })
     requirements.push({
       id: 'GDPR-002',
       description: 'Direito ao esquecimento',
       status: 'not_met',
-      gap: 'Não há implementação de exclusão de dados',
+      gap: 'No data deletion implementation exists',
     })
     requirements.push({
       id: 'GDPR-003',
       description: 'Portabilidade de dados',
       status: 'not_met',
-      gap: 'Não há exportação de dados implementada',
+      gap: 'No data export is implemented',
     })
-    recommendations.push('Adicionar nós de consentimento')
-    recommendations.push('Implementar mecanismo de exclusão')
-    recommendations.push('Adicionar exportação de dados do usuário')
+    recommendations.push('Add consent nodes')
+    recommendations.push('Implement a deletion mechanism')
+    recommendations.push('Add user data export')
   } else if (standard === 'LGPD') {
     requirements.push({
       id: 'LGPD-001',
       description: 'Consentimento para coleta de dados pessoais',
       status: 'not_met',
-      gap: 'Não há nós de consentimento no grafo',
+      gap: 'There are no consent nodes in the graph',
     })
     requirements.push({
       id: 'LGPD-002',
-      description: 'Finalidade específica para coleta',
+      description: 'Specific purpose for collection',
       status: 'not_met',
-      gap: 'Não há definição de finalidade para cada coleta',
+      gap: 'No purpose is defined for each collection',
     })
     requirements.push({
       id: 'LGPD-003',
-      description: 'Direito de acesso e correção',
+      description: 'Right of access and rectification',
       status: 'not_met',
-      gap: 'Não há mecanismo de acesso e correção de dados',
+      gap: 'No data access and rectification mechanism exists',
     })
     requirements.push({
       id: 'LGPD-004',
-      description: 'Direito de exclusão (anonymização)',
+      description: 'Right to deletion (anonymization)',
       status: 'not_met',
-      gap: 'Não há mecanismo de exclusão ou anonimização',
+      gap: 'No deletion or anonymization mechanism exists',
     })
     requirements.push({
       id: 'LGPD-005',
-      description: 'Relatório de impacto à proteção de dados (RIPD)',
+      description: 'Data protection impact assessment (DPIA)',
       status: 'not_met',
-      gap: 'Não há RIPD documentado',
+      gap: 'No DPIA is documented',
     })
     requirements.push({
       id: 'LGPD-006',
       description: 'Encarregado de dados (DPO)',
       status: 'not_met',
-      gap: 'Não há DPO definido',
+      gap: 'No DPO is defined',
     })
-    recommendations.push('Adicionar nós de consentimento com finalidade específica')
-    recommendations.push('Implementar mecanismo de acesso e correção de dados')
-    recommendations.push('Implementar exclusão ou anonimização de dados pessoais')
-    recommendations.push('Criar Relatório de Impacto à Proteção de Dados (RIPD)')
-    recommendations.push('Definir Encarregado de Dados (DPO)')
+    recommendations.push('Add consent nodes with a specific purpose')
+    recommendations.push('Implement a data access and rectification mechanism')
+    recommendations.push('Implement deletion or anonymization of personal data')
+    recommendations.push('Create a Data Protection Impact Assessment (DPIA)')
+    recommendations.push('Define a Data Protection Officer (DPO)')
     recommendations.push('Documentar bases legais para tratamento de dados')
   } else if (standard === 'HIPAA') {
     requirements.push({
       id: 'HIPAA-001',
-      description: 'Criptografia de dados sensíveis',
+      description: 'Encryption of sensitive data',
       status: 'not_met',
-      gap: 'Não há criptografia implementada',
+      gap: 'No encryption is implemented',
     })
     requirements.push({
       id: 'HIPAA-002',
       description: 'Controle de acesso',
       status: 'partially_met',
-      evidence: 'Sistema de permissões existe',
+      evidence: 'A permission system exists',
     })
     requirements.push({
       id: 'HIPAA-003',
@@ -117,18 +117,18 @@ export function checkCompliance(
       status: 'partially_met',
       evidence: 'Sistema de auditoria existe',
     })
-    recommendations.push('Implementar criptografia em repouso e trânsito')
+    recommendations.push('Implement encryption at rest and in transit')
     recommendations.push('Melhorar controle de acesso')
   } else if (standard === 'SOC2') {
     requirements.push({
       id: 'SOC2-001',
-      description: 'Controle de acesso lógico',
+      description: 'Logical access control',
       status: 'partially_met',
-      evidence: 'Sistema de permissões existe',
+      evidence: 'A permission system exists',
     })
     requirements.push({
       id: 'SOC2-002',
-      description: 'Mudanças autorizadas',
+      description: 'Authorized changes',
       status: 'met',
       evidence: 'Sistema de Change management implementado',
     })
@@ -136,84 +136,84 @@ export function checkCompliance(
       id: 'SOC2-003',
       description: 'Monitoramento de atividades',
       status: 'not_met',
-      gap: 'Não há sistema de monitoramento',
+      gap: 'No monitoring system exists',
     })
     recommendations.push('Implementar sistema de monitoramento')
-    recommendations.push('Adicionar alertas de segurança')
+    recommendations.push('Add security alerts')
   } else if (standard === 'PCI_DSS') {
     requirements.push({
       id: 'PCI-001',
-      description: 'Criptografia de dados de cartão de crédito',
+      description: 'Credit card data encryption',
       status: 'not_met',
-      gap: 'Não há criptografia de dados de pagamento implementada',
+      gap: 'No payment data encryption is implemented',
     })
     requirements.push({
       id: 'PCI-002',
-      description: 'Controle de acesso a dados de cartão',
+      description: 'Access control for card data',
       status: 'not_met',
-      gap: 'Não há controle de acesso específico para dados de pagamento',
+      gap: 'No specific access control for payment data',
     })
     requirements.push({
       id: 'PCI-003',
-      description: 'Monitoramento de acesso a dados de cartão',
+      description: 'Monitoring of card data access',
       status: 'not_met',
-      gap: 'Não há monitoramento de acesso a dados de pagamento',
+      gap: 'No monitoring of payment data access',
     })
     requirements.push({
       id: 'PCI-004',
-      description: 'Testes de segurança regulares',
+      description: 'Regular security testing',
       status: 'not_met',
-      gap: 'Não há testes de segurança automatizados',
+      gap: 'No automated security tests exist',
     })
     recommendations.push('Implementar criptografia AES-256 para dados de pagamento')
-    recommendations.push('Implementar tokenização para dados de cartão')
-    recommendations.push('Adicionar controle de acesso baseado em função (RBAC)')
+    recommendations.push('Implement tokenization for card data')
+    recommendations.push('Add role-based access control (RBAC)')
     recommendations.push('Implementar monitoramento em tempo real')
-    recommendations.push('Adicionar testes de segurança automatizados')
+    recommendations.push('Add automated security tests')
   } else if (standard === 'ISO27001') {
     requirements.push({
       id: 'ISO-001',
-      description: 'Política de segurança da informação',
+      description: 'Information security policy',
       status: 'not_met',
-      gap: 'Não há política de segurança documentada',
+      gap: 'No documented security policy exists',
     })
     requirements.push({
       id: 'ISO-002',
-      description: 'Gestão de riscos',
+      description: 'Risk management',
       status: 'not_met',
-      gap: 'Não há processo de gestão de riscos',
+      gap: 'No risk management process exists',
     })
     requirements.push({
       id: 'ISO-003',
-      description: 'Controles de segurança',
+      description: 'Security controls',
       status: 'partially_met',
-      evidence: 'Sistema de permissões existe',
+      evidence: 'A permission system exists',
     })
     requirements.push({
       id: 'ISO-004',
-      description: 'Gestão de incidentes',
+      description: 'Incident management',
       status: 'not_met',
-      gap: 'Não há processo formal de gestão de incidentes',
+      gap: 'No formal incident management process exists',
     })
     requirements.push({
       id: 'ISO-005',
-      description: 'Continuidade de negócios',
+      description: 'Business continuity',
       status: 'not_met',
-      gap: 'Não há plano de continuidade de negócios',
+      gap: 'No business continuity plan exists',
     })
-    recommendations.push('Documentar política de segurança da informação')
-    recommendations.push('Implementar processo de gestão de riscos')
-    recommendations.push('Estabelecer processo formal de gestão de incidentes')
-    recommendations.push('Criar plano de continuidade de negócios')
+    recommendations.push('Document an information security policy')
+    recommendations.push('Implement a risk management process')
+    recommendations.push('Establish a formal incident management process')
+    recommendations.push('Create a business continuity plan')
     recommendations.push('Realizar auditorias internas regulares')
   } else {
     requirements.push({
       id: 'GENERIC-001',
-      description: 'Autenticação e autorização',
+      description: 'Authentication and authorization',
       status: 'partially_met',
-      evidence: 'Sistema de permissões existe',
+      evidence: 'A permission system exists',
     })
-    recommendations.push('Verificar requisitos específicos do padrão')
+    recommendations.push('Check the standard\'s specific requirements')
   }
 
   // Apply custom standards
@@ -248,7 +248,7 @@ export function checkCompliance(
 
 export function formatComplianceCheck(result: ComplianceCheckResult): string {
   const lines = [
-    `## Verificação de Compliance - ${result.standard}`,
+    `## Compliance Verification - ${result.standard}`,
     '',
     `**Score:** ${result.score}/100`,
     `**Requisitos:** ${result.requirements.length}`,
@@ -262,7 +262,7 @@ export function formatComplianceCheck(result: ComplianceCheckResult): string {
     lines.push(`${statusIcon} **${req.id}**: ${req.description}`)
     
     if (req.evidence) {
-      lines.push(`   - Evidência: ${req.evidence}`)
+      lines.push(`   - Evidence: ${req.evidence}`)
     }
     if (req.gap) {
       lines.push(`   - Lacuna: ${req.gap}`)
@@ -270,7 +270,7 @@ export function formatComplianceCheck(result: ComplianceCheckResult): string {
   }
 
   lines.push('')
-  lines.push('### Recomendações')
+  lines.push('### Recommendations')
   for (const rec of result.recommendations) {
     lines.push(`- ${rec}`)
   }

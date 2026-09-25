@@ -191,11 +191,11 @@ export function analyzeComplexity(
 
 export function formatComplexityReport(report: ComplexityReport): string {
   const lines = [
-    '## Relatório de Complexidade',
+    '## Complexity Report',
     '',
-    `**Total de Funções:** ${report.summary.total_functions}`,
-    `**Complexidade Ciclomática Média:** ${report.summary.average_cyclomatic}`,
-    `**Complexidade Cognitiva Média:** ${report.summary.average_cognitive}`,
+    `**Total functions:** ${report.summary.total_functions}`,
+    `**Average cyclomatic complexity:** ${report.summary.average_cyclomatic}`,
+    `**Average cognitive complexity:** ${report.summary.average_cognitive}`,
     `**Alto Risco:** ${report.summary.high_risk_count}`,
     `**Risco Muito Alto:** ${report.summary.very_high_risk_count}`,
     '',
@@ -204,12 +204,12 @@ export function formatComplexityReport(report: ComplexityReport): string {
   const highRisk = report.functions.filter(f => f.risk === 'high' || f.risk === 'very_high')
 
   if (highRisk.length > 0) {
-    lines.push('### Funções de Alto Risco')
+    lines.push('### High Risk Functions')
     for (const func of highRisk) {
       lines.push(`#### ${func.name} (${func.risk})`)
-      lines.push(`- **Arquivo:** ${func.file}`)
+      lines.push(`- **File:** ${func.file}`)
       lines.push(`- **Linhas:** ${func.line_start}-${func.line_end} (${func.lines} linhas)`)
-      lines.push(`- **Ciclomática:** ${func.cyclomatic}`)
+      lines.push(`- **Cyclomatic:** ${func.cyclomatic}`)
       lines.push(`- **Cognitiva:** ${func.cognitive}`)
       lines.push('')
     }
@@ -217,18 +217,18 @@ export function formatComplexityReport(report: ComplexityReport): string {
 
   const mediumRisk = report.functions.filter(f => f.risk === 'medium')
   if (mediumRisk.length > 0) {
-    lines.push('### Funções de Risco Médio')
+    lines.push('### Medium Risk Functions')
     for (const func of mediumRisk) {
-      lines.push(`- **${func.name}**: ciclomática=${func.cyclomatic}, cognitiva=${func.cognitive}`)
+      lines.push(`- **${func.name}**: cyclomatic=${func.cyclomatic}, cognitive=${func.cognitive}`)
     }
   }
 
   lines.push(
     '',
-    '### Recomendações',
-    '- Funções com complexidade ciclomática > 10 devem ser refatoradas',
-    '- Funções com complexidade cognitiva > 15 são difíceis de entender',
-    '- Considere extrair lógica complexa em funções menores',
+    '### Recommendations',
+    '- Functions with cyclomatic complexity > 10 should be refactored',
+    '- Functions with cognitive complexity > 15 are hard to understand',
+    '- Consider extracting complex logic into smaller functions',
   )
 
   return lines.join('\n')

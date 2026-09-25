@@ -50,14 +50,14 @@ export function analyzeScalability(graph: KnowledgeGraph): ScalabilityAnalysisRe
       location: 'Arquitetura',
       impact: 'high',
       description: 'Sistema com muitas entidades sem banco de dados definido',
-      recommendation: 'Definir estratégia de persistência',
+      recommendation: 'Define a persistence strategy',
     })
   }
 
   const score = Math.max(0, 100 - bottlenecks.length * 20)
 
   recommendations.push('Implementar caching para consultas frequentes')
-  recommendations.push('Considerar índices para campos de busca')
+  recommendations.push('Consider indexes for search fields')
   
   if (bottlenecks.length > 0) {
     recommendations.push('Revisar gargalos identificados')
@@ -68,7 +68,7 @@ export function analyzeScalability(graph: KnowledgeGraph): ScalabilityAnalysisRe
 
 export function formatScalabilityAnalysis(result: ScalabilityAnalysisResult): string {
   const lines = [
-    '## Análise de Escalabilidade',
+    '## Scalability Analysis',
     '',
     `**Score:** ${result.score}/100`,
     `**Gargalos:** ${result.bottlenecks.length}`,
@@ -80,15 +80,15 @@ export function formatScalabilityAnalysis(result: ScalabilityAnalysisResult): st
     for (const bottleneck of result.bottlenecks) {
       lines.push(`#### ${bottleneck.type} (${bottleneck.impact})`)
       lines.push(`- **Local:** ${bottleneck.location}`)
-      lines.push(`- **Descrição:** ${bottleneck.description}`)
-      lines.push(`- **Recomendação:** ${bottleneck.recommendation}`)
+      lines.push(`- **Description:** ${bottleneck.description}`)
+      lines.push(`- **Recommendation:** ${bottleneck.recommendation}`)
       lines.push('')
     }
   } else {
-    lines.push('✅ Nenhum gargalo crítico identificado')
+    lines.push('✅ No critical bottleneck identified')
   }
 
-  lines.push('### Recomendações de Escalabilidade')
+  lines.push('### Scalability Recommendations')
   for (const rec of result.recommendations) {
     lines.push(`- ${rec}`)
   }

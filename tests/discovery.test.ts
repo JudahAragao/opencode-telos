@@ -82,13 +82,13 @@ describe("Discovery Questions", () => {
   test("generates auth question when missing", () => {
     const analysis = analyzeBriefing("Quero um CRUD de tarefas")
     const questions = generateDiscoveryQuestions(analysis)
-    expect(questions.some((q) => q.question.includes("login"))).toBe(true)
+    expect(questions.some((q) => /log in|login/i.test(q.question))).toBe(true)
   })
 
   test("skips auth question when specified", () => {
     const analysis = analyzeBriefing("Sistema com autenticação JWT")
     const questions = generateDiscoveryQuestions(analysis)
-    expect(questions.some((q) => q.question.includes("login"))).toBe(false)
+    expect(questions.some((q) => /log in|login/i.test(q.question))).toBe(false)
   })
 
   test("generates tech question when missing", () => {

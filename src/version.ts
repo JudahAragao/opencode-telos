@@ -1,19 +1,19 @@
 /**
- * Fonte única de verdade para identificadores de versão.
+ * Single source of truth for version identifiers.
  *
- * `PLUGIN_VERSION` espelha o campo `version` do package.json e é mantido em
+ * `PLUGIN_VERSION` mirrors the package.json `version` field and is kept in
  * sincronia por `scripts/sync-version.cjs` (executado automaticamente por
- * `bun run build`, e disponível como `bun run version:sync`). Não edite o valor
- * à mão — edite o package.json e rode o script.
+ * `bun run build`, and available as `bun run version:sync`). Do not edit the value
+ * by hand — edit package.json and run the script.
  */
 
 // BEGIN GENERATED: PLUGIN_VERSION (scripts/sync-version.cjs)
-export const PLUGIN_VERSION = "2.4.2"
+export const PLUGIN_VERSION = "2.5.0"
 // END GENERATED: PLUGIN_VERSION
 
 /**
- * Versão do formato de dados do Knowledge Graph em `.sdd/` (usada em
- * `graph.version` e `metadata.sdd_version`). É independente da versão de
+ * Version of the Knowledge Graph data format in `.sdd/` (used in
+ * `graph.version` and `metadata.sdd_version`). It is independent of the
  * release do plugin e evolui apenas quando o schema do grafo muda.
  */
 export const GRAPH_SCHEMA_VERSION = "1.3.0"

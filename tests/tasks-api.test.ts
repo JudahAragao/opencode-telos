@@ -518,7 +518,7 @@ describe("/sdd tasks command", () => {
     repo.saveGraph(graph)
 
     const result = runSddCommand(dir, "sdd tasks change tasks-test-TASK-001 --approve")
-    expect(result.text).toContain("✅ Change aprovado")
+    expect(result.text).toContain("✅ Change approved")
 
     const reloaded = createRepository(dir).loadGraph()
     expect(reloaded.nodes.find((n) => n.type === "change")?.status).toBe("APPROVED")
@@ -531,7 +531,7 @@ describe("/sdd tasks command", () => {
     repo.saveGraph(graph)
 
     const result = runSddCommand(dir, "sdd tasks integrate")
-    expect(result.text).toContain("pendentes de integração")
+    expect(result.text).toContain("pending integration")
   })
 })
 
@@ -548,7 +548,7 @@ describe("sdd.integrate_tasks tool", () => {
       const ctx = { directory: dir, sessionID: "test-session" }
 
       const listed = (await (tools["sdd.integrate_tasks"] as any).execute({ action: "list" }, ctx)) as string
-      expect(listed).toContain("pendentes de integração")
+      expect(listed).toContain("pending integration")
       expect(listed).toContain("tasks-test-TASK-001")
 
       const marked = (await (tools["sdd.integrate_tasks"] as any).execute(
@@ -584,7 +584,7 @@ describe("sdd.integrate_tasks tool", () => {
         ctx,
       )) as string
       expect(opened).toContain("Change CHG-001")
-      expect(opened).toContain("✅ Change aprovado")
+      expect(opened).toContain("✅ Change approved")
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

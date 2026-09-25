@@ -125,18 +125,18 @@ export function analyzeDependencies(graph: KnowledgeGraph): DependencyReport {
 
 export function formatDependencyReport(report: DependencyReport): string {
   const lines = [
-    '## Análise de Dependências',
+    '## Dependency Analysis',
     '',
-    `**Total de Nós:** ${report.summary.total_nodes}`,
-    `**Total de Dependências:** ${report.summary.total_dependencies}`,
+    `**Total nodes:** ${report.summary.total_nodes}`,
+    `**Total dependencies:** ${report.summary.total_dependencies}`,
     `**Ciclos Encontrados:** ${report.summary.cycles_found}`,
     `**Mais Acoplado:** ${report.summary.most_coupled}`,
-    `**Menos Estável:** ${report.summary.least_stable}`,
+    `**Least stable:** ${report.summary.least_stable}`,
     '',
   ]
 
   if (report.cycles.length > 0) {
-    lines.push('### ⚠️ Ciclos de Dependência Detectados')
+    lines.push('### ⚠️ Dependency Cycles Detected')
     for (let i = 0; i < report.cycles.length; i++) {
       const cycle = report.cycles[i]
       lines.push(`**Ciclo ${i + 1}:**`)
@@ -146,12 +146,12 @@ export function formatDependencyReport(report: DependencyReport): string {
       }).join(' → '))
     }
     lines.push('')
-    lines.push('**Recomendação:** Quebre os ciclos introduzindo interfaces ou invertendo dependências.')
+    lines.push('**Recommendation:** break the cycles by introducing interfaces or inverting dependencies.')
     lines.push('')
   }
 
   lines.push('### Acoplamento')
-  lines.push('#### Nós com Maior Acoplamento (Efferent)')
+  lines.push('#### Nodes with Highest Coupling (Efferent)')
   const sortedByEfferent = Object.entries(report.coupling.efferent)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5)
@@ -159,12 +159,12 @@ export function formatDependencyReport(report: DependencyReport): string {
   for (const [id, count] of sortedByEfferent) {
     const node = report.nodes.find(n => n.id === id)
     if (node && count > 0) {
-      lines.push(`- **${node.name}** (${node.type}): ${count} dependências`)
+      lines.push(`- **${node.name}** (${node.type}): ${count} dependencies`)
     }
   }
 
   lines.push('')
-  lines.push('#### Nós com Maior Reuso (Afferent)')
+  lines.push('#### Nodes with Highest Reuse (Afferent)')
   const sortedByAfferent = Object.entries(report.coupling.afferent)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5)
@@ -185,18 +185,18 @@ export function formatDependencyReport(report: DependencyReport): string {
   for (const [id, value] of sortedByInstability) {
     const node = report.nodes.find(n => n.id === id)
     if (node) {
-      const stability = value < 0.3 ? '🟢 Estável' : value < 0.7 ? '🟡 Moderado' : '🔴 Instável'
+      const stability = value < 0.3 ? '🟢 Stable' : value < 0.7 ? '🟡 Moderate' : '🔴 Unstable'
       lines.push(`- **${node.name}**: ${(value * 100).toFixed(0)}% ${stability}`)
     }
   }
 
   lines.push(
     '',
-    '### Recomendações',
-    '- Evite ciclos de dependência',
-    '- Mantenha a instabilidade baixa para módulos reutilizáveis',
-    '- Use inversão de dependência para desacoplar módulos',
-    '- Princípio Dependency Inversion (SOLID)',
+    '### Recommendations',
+    '- Avoid dependency cycles',
+    '- Keep instability low for reusable modules',
+    '- Use dependency inversion to decouple modules',
+    '- Dependency Inversion Principle (SOLID)',
   )
 
   return lines.join('\n')

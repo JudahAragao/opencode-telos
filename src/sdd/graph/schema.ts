@@ -1,14 +1,14 @@
 /**
- * Schema canônico de relacionamentos do Knowledge Graph.
+ * Canonical schema of Knowledge Graph relationships.
  *
- * Fonte única de verdade para:
- * - quais combinações `{fromType} --[type]--> {toType}` são válidas;
- * - qual é o tipo inverso de cada aresta (para não duplicar o mesmo fato);
- * - quais tipos representam rastreabilidade real (e quais são apenas
+ * Single source of truth for:
+ * - which `{fromType} --[type]--> {toType}` combinations are valid;
+ * - what the inverse type of each edge is (so the same fact is not duplicated);
+ * - which types represent real traceability (and which are merely
  *   estruturais ou fallback fraco).
  *
- * Todo o resto do sistema (integridade, inferência, validação, migração)
- * deve consultar este módulo em vez de manter listas locais divergentes.
+ * Everything else in the system (integrity, inference, validation, migration)
+ * must consult this module instead of keeping diverging local lists.
  */
 
 import type { NodeType, RelationshipType } from "../domain/types.js"
@@ -18,25 +18,25 @@ export type RelationshipKind = "structural" | "semantic"
 export interface RelationshipRule {
   /** Tipo da aresta. */
   type: RelationshipType
-  /** Tipos de nó aceitos na origem. */
+  /** Node types accepted at the source. */
   from: NodeType[]
-  /** Tipos de nó aceitos no destino. */
+  /** Node types accepted at the target. */
   to: NodeType[]
   /**
    * Tipo inverso. Se (from,to,type) e (to,from,inverse) coexistirem, um dos
-   * dois é redundante e deve ser removido pela integridade.
+   * the two is redundant and must be removed by integrity.
    */
   inverse?: RelationshipType
-  /** Estrutural (hierarquia) ou semântica (rastreabilidade). */
+  /** Structural (hierarchy) or semantic (traceability). */
   kind: RelationshipKind
 }
 
 /**
- * Lista runtime de TODOS os tipos de relacionamento válidos.
+ * Runtime list of ALL valid relationship types.
  *
- * O union de `RelationshipType` é apagado em runtime; esta lista é a forma
- * consultável. O bloco de asserção abaixo falha em compilação se um membro do
- * union ficar de fora, então ela não pode divergir silenciosamente.
+ * The `RelationshipType` union is erased at runtime; this list is the queryable
+ * form. The assertion block below fails to compile if a union member is missing,
+ * so it cannot silently diverge.
  */
 export const RELATIONSHIP_TYPES = [
   "contains", "depends_on", "requires", "implements", "implemented_by",
@@ -50,19 +50,19 @@ export const RELATIONSHIP_TYPES = [
   "has_acceptance_criterion", "guides",
 ] as const satisfies readonly RelationshipType[]
 
-/** Guarda de compilação: nenhum tipo do union pode faltar na lista runtime. */
+/** Compilation guard: no union type may be missing from the runtime list. */
 type MissingRelationshipType = Exclude<RelationshipType, (typeof RELATIONSHIP_TYPES)[number]>
 const _assertNoMissingRelationshipType: MissingRelationshipType extends never
   ? true
   : ["RELATIONSHIP_TYPES is missing", MissingRelationshipType] = true
 void _assertNoMissingRelationshipType
 
-/** Conjunto de tipos válidos, para validação O(1). */
+/** Set of valid types, for O(1) validation. */
 export const KNOWN_RELATIONSHIP_TYPES: ReadonlySet<string> = new Set(RELATIONSHIP_TYPES)
 
 /**
- * Sinônimos aceitos na entrada e normalizados para o tipo canônico.
- * A extração por regex e alguns prompts antigos emitiram nomes que não existem
+ * Synonyms accepted on input and normalized to the canonical type.
+ * Regex extraction and some older prompts emitted names that do not exist
  * no union (`constrained_by`); normalizar evita a aresta ser descartada.
  */
 const RELATIONSHIP_SYNONYMS: Record<string, RelationshipType> = {
@@ -87,7 +87,7 @@ const RELATIONSHIP_SYNONYMS: Record<string, RelationshipType> = {
 
 /**
  * Normaliza um tipo de relacionamento vindo de input externo (LLM, regex,
- * migração). Retorna `null` quando o valor não é válido nem um sinônimo.
+ * migration). Returns `null` when the value is neither valid nor a synonym.
  */
 export function normalizeRelationshipType(value: unknown): RelationshipType | null {
   if (typeof value !== "string") return null
@@ -96,17 +96,17 @@ export function normalizeRelationshipType(value: unknown): RelationshipType | nu
   return RELATIONSHIP_SYNONYMS[key] ?? null
 }
 
-/** Verifica se um valor é um tipo de relacionamento válido. */
+/** Checks whether a value is a valid relationship type. */
 export function isKnownRelationshipType(value: unknown): boolean {
   return normalizeRelationshipType(value) !== null
 }
 
-/** Lista legível dos tipos válidos, para prompts e mensagens de erro. */
+/** Readable list of the valid types, for prompts and error messages. */
 export function describeRelationshipTypes(): string {
   return RELATIONSHIP_TYPES.join(", ")
 }
 
-/** Qualquer tipo de nó — usado para regras universais. */
+/** Any node type — used for universal rules. */
 const ANY: NodeType[] = [
   "project", "domain", "feature", "requirement", "business_rule", "actor",
   "entity", "value_object", "flow", "use_case", "architecture_component",
@@ -126,8 +126,8 @@ const SPEC_NODES: NodeType[] = [
 ]
 
 /**
- * Matriz canônica. A ordem importa apenas para a busca de convenção em
- * `getCanonicalRelationshipType` (regras mais específicas primeiro).
+ * Canonical matrix. Order only matters for the convention lookup in
+ * `getCanonicalRelationshipType` (more specific rules first).
  */
 export const RELATIONSHIP_RULES: RelationshipRule[] = [
   // ── Hierarquia estrutural ─────────────────────────────────────────
@@ -146,13 +146,13 @@ export const RELATIONSHIP_RULES: RelationshipRule[] = [
   { type: "belongs_to", from: ["symbol", "test"], to: ["file"], kind: "structural", inverse: "contains" },
   { type: "belongs_to", from: ["change", "task", "feature", "requirement", "use_case", "business_rule", "endpoint", "module"], to: ["milestone"], kind: "structural", inverse: "contains" },
 
-  // ── Especificação: requirement ↔ feature ──────────────────────────
+  // ── Specification: requirement ↔ feature ──────────────────────────
   { type: "specifies", from: ["requirement"], to: ["feature", "use_case", "flow", "business_rule"], kind: "semantic", inverse: "satisfied_by" },
   { type: "satisfied_by", from: ["feature", "use_case", "flow"], to: ["requirement"], kind: "semantic", inverse: "specifies" },
   { type: "has_acceptance_criterion", from: ["requirement"], to: ["acceptance_criterion"], kind: "semantic" },
   { type: "guides", from: ["guidance"], to: ANY, kind: "semantic" },
 
-  // ── Implementação: endpoint/file/symbol ↔ feature/requirement ─────
+  // ── Implementation: endpoint/file/symbol ↔ feature/requirement ────
   { type: "implements", from: ["endpoint", "file", "module", "symbol", "task", "architecture_component", "api"], to: ["feature", "requirement", "use_case", "business_rule", "flow"], kind: "semantic", inverse: "implemented_by" },
   { type: "implemented_by", from: ["feature", "requirement", "use_case", "business_rule", "flow"], to: ["endpoint", "file", "module", "symbol", "task"], kind: "semantic", inverse: "implements" },
 
@@ -161,7 +161,7 @@ export const RELATIONSHIP_RULES: RelationshipRule[] = [
   { type: "exposes", from: ["endpoint", "api"], to: ["entity", "value_object"], kind: "semantic" },
   { type: "persists_to", from: ["entity", "value_object", "module", "file"], to: ["database", "table", "architecture_component"], kind: "semantic" },
 
-  // ── Regras, decisões e uso ────────────────────────────────────────
+  // ── Rules, decisions and usage ────────────────────────────────────
   { type: "constrains", from: ["business_rule", "constraint"], to: ["feature", "requirement", "entity", "use_case", "field"], kind: "semantic" },
   { type: "applies_to", from: ["business_rule", "constraint"], to: ["architecture_component", "module", "domain"], kind: "semantic" },
   { type: "requires", from: ["feature", "requirement", "use_case"], to: ["business_rule", "constraint", "entity", "value_object"], kind: "semantic" },
@@ -169,29 +169,29 @@ export const RELATIONSHIP_RULES: RelationshipRule[] = [
   { type: "influences", from: ["decision"], to: ["feature", "architecture_component", "module", "requirement"], kind: "semantic" },
   { type: "validates", from: ["project", "constitution", "test"], to: ["constitution", "requirement", "feature"], kind: "semantic" },
 
-  // ── Verificação ───────────────────────────────────────────────────
+  // ── Verification ──────────────────────────────────────────────────
   { type: "tested_by", from: ["requirement", "feature", "use_case"], to: ["test"], kind: "semantic", inverse: "tests" },
   { type: "tests", from: ["test"], to: ["requirement", "feature", "use_case"], kind: "semantic", inverse: "tested_by" },
 
-  // ── Código-fonte ──────────────────────────────────────────────────
+  // ── Source code ───────────────────────────────────────────────────
   { type: "calls", from: ["symbol"], to: ["symbol"], kind: "semantic" },
   { type: "depends_on", from: ["feature", "module", "symbol", "file", "architecture_component", "requirement", "task"], to: ["feature", "module", "symbol", "file", "architecture_component", "requirement", "task", "business_rule"], kind: "semantic" },
 
-  // ── Mudanças ──────────────────────────────────────────────────────
+  // ── Changes ───────────────────────────────────────────────────────
   { type: "affects", from: ["change"], to: SPEC_NODES, kind: "semantic" },
   { type: "modifies", from: ["change"], to: ["file", "symbol"], kind: "semantic" },
   { type: "affects", from: ["change"], to: ["task"], kind: "semantic" },
   { type: "creates", from: ["change"], to: ANY, kind: "semantic" },
   { type: "deletes", from: ["change"], to: ANY, kind: "semantic" },
 
-  // ── Descobertas brownfield e resolução ───────────────────────────
+  // ── Brownfield findings and resolution ────────────────────────────
   { type: "detected_in", from: ["finding"], to: ANY, kind: "semantic" },
   { type: "tracked_by", from: ["finding"], to: ["task", "change"], kind: "semantic" },
   { type: "resolves", from: ["change", "task", "requirement", "decision", "constraint"], to: ["finding"], kind: "semantic" },
   { type: "evidenced_by", from: ["finding", "change", "requirement", "decision"], to: ANY, kind: "semantic" },
   { type: "derived_from", from: ["requirement", "decision", "constraint"], to: ["finding"], kind: "semantic" },
 
-  // ── Fallback fraco (não conta como rastreabilidade forte) ─────────
+  // ── Weak fallback (does not count as strong traceability) ─────────
   { type: "traces_to", from: ANY, to: ANY, kind: "semantic" },
 ]
 
@@ -206,17 +206,17 @@ export const INVERSE_OF: Partial<Record<RelationshipType, RelationshipType>> = (
 })()
 
 /**
- * Arestas fracas: criadas como último recurso, nunca contam como prova de
- * rastreabilidade e podem ser substituídas por uma aresta semântica real.
+ * Weak edges: created as a last resort, they never count as traceability proof
+ * and can be replaced by a real semantic edge.
  */
 export const WEAK_RELATIONSHIP_TYPES: ReadonlySet<RelationshipType> = new Set([
   "traces_to",
 ])
 
 /**
- * Arestas estruturais: apenas hierarquia (`contains`/`belongs_to`). Mantêm o
+ * Structural edges: hierarchy only (`contains`/`belongs_to`). They keep the
  * grafo conectado, mas NÃO provam rastreabilidade (por isso o auto-fix de
- * órfãos via `contains` não conta como cobertura).
+ * orphans via `contains` does not count as coverage).
  */
 export const STRUCTURAL_RELATIONSHIP_TYPES: ReadonlySet<RelationshipType> = new Set([
   "contains",
@@ -224,8 +224,8 @@ export const STRUCTURAL_RELATIONSHIP_TYPES: ReadonlySet<RelationshipType> = new 
 ])
 
 /**
- * Arestas que provam rastreabilidade real (ligação semântica entre
- * especificação, implementação, verificação e mudança).
+ * Edges that prove real traceability (semantic link between specification,
+ * implementation, verification and change).
  */
 export const TRACEABILITY_RELATIONSHIP_TYPES: ReadonlySet<RelationshipType> = new Set([
   "specifies",
@@ -256,9 +256,9 @@ export const TRACEABILITY_RELATIONSHIP_TYPES: ReadonlySet<RelationshipType> = ne
 ])
 
 /**
- * Quando duas arestas inversas descrevem o mesmo fato (ex.:
+ * When two inverse edges describe the same fact (e.g.
  * `requirement --specifies--> feature` + `feature --satisfied_by--> requirement`),
- * a integridade mantém o tipo preferido e remove o outro.
+ * integrity keeps the preferred type and removes the other.
  */
 export const PREFERRED_RELATIONSHIP_TYPES: ReadonlySet<RelationshipType> = new Set([
   "specifies",
@@ -270,8 +270,8 @@ export const PREFERRED_RELATIONSHIP_TYPES: ReadonlySet<RelationshipType> = new S
 ])
 
 /**
- * Entre dois tipos inversos, retorna o preferido. Se nenhum for preferido,
- * mantém `a` (ordem estável do grafo).
+ * Between two inverse types, returns the preferred one. If neither is preferred,
+ * keeps `a` (stable graph order).
  */
 export function preferredInverseType(
   a: RelationshipType | string,
@@ -284,7 +284,7 @@ export function preferredInverseType(
   return "a"
 }
 
-/** Índice type → regras, para busca rápida. */
+/** Index type → rules, for fast lookup. */
 const RULES_BY_TYPE = new Map<RelationshipType, RelationshipRule[]>()
 for (const rule of RELATIONSHIP_RULES) {
   const list = RULES_BY_TYPE.get(rule.type)
@@ -293,7 +293,7 @@ for (const rule of RELATIONSHIP_RULES) {
 }
 
 /**
- * Verifica se uma aresta é permitida pela matriz canônica.
+ * Checks whether an edge is allowed by the canonical matrix.
  * Sempre permissivo para tipos desconhecidos (compatibilidade retroativa).
  */
 export function isRelationshipAllowed(
@@ -309,8 +309,8 @@ export function isRelationshipAllowed(
 }
 
 /**
- * Retorna o tipo de aresta canônico para um par de tipos de nó, ou `null`
- * quando não há convenção definida. Usado pela inferência e pela integridade.
+ * Returns the canonical edge type for a pair of node types, or `null` when no
+ * convention is defined. Used by inference and by integrity.
  */
 export function getCanonicalRelationshipType(
   fromType: NodeType | string,
@@ -325,14 +325,14 @@ export function getCanonicalRelationshipType(
   return null
 }
 
-/** Tipo inverso de uma aresta, quando existe. */
+/** Inverse type of an edge, when one exists. */
 export function getInverseRelationshipType(
   type: RelationshipType | string,
 ): RelationshipType | undefined {
   return INVERSE_OF[type as RelationshipType]
 }
 
-/** Aresta fraca (fallback), que não deve contar como rastreabilidade. */
+/** Weak edge (fallback), which must not count as traceability. */
 export function isWeakRelationship(type: RelationshipType | string): boolean {
   return WEAK_RELATIONSHIP_TYPES.has(type as RelationshipType)
 }
@@ -347,14 +347,14 @@ export function isTraceabilityRelationship(type: RelationshipType | string): boo
   return TRACEABILITY_RELATIONSHIP_TYPES.has(type as RelationshipType)
 }
 
-/** Chave estável de uma aresta, ignorando metadados. */
+/** Stable key of an edge, ignoring metadata. */
 export function relationshipKey(from: string, to: string, type: string): string {
   return `${from}||${to}||${type}`
 }
 
 /**
  * Par inverso de chaves: retorna a chave da aresta inversa que tornaria
- * (from,to,type) redundante, ou `null` se o tipo não tiver inverso.
+ * redundant (from,to,type), or `null` if the type has no inverse.
  */
 export function inverseKeyOf(from: string, to: string, type: string): string | null {
   const inverse = getInverseRelationshipType(type)

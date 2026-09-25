@@ -153,9 +153,9 @@ export function enforceSddFirst(
   }
 
   // Step 6b: preflight de escopo (G3). Sem `affected_files` o hook de escrita
-  // recusa TODO Write/Edit ("not covered by an approved SDD Change"), então um
-  // Change assim não pode ser auto-aprovado: ficaria aprovado e mesmo assim
-  // inútil, e o problema só apareceria no meio da implementação.
+  // refuses EVERY Write/Edit ("not covered by an approved SDD Change"), so such
+  // a Change cannot be auto-approved: it would be approved and still useless, and
+  // the problem would only show up mid-implementation.
   const scopePreflight = preflightChangeScope(graph, changeNode.id)
   if (scopePreflight.blockers.length > 0) {
     result.blocking_reasons = [...(result.blocking_reasons || []), ...scopePreflight.blockers]

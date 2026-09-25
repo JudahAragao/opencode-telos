@@ -42,30 +42,30 @@ export function createIncident(
 
 export function getIncidentInstructions(incident: IncidentNode): string {
   const lines = [
-    '## Gestão de Incidente',
+    '## Incident Management',
     '',
-    `**Título:** ${incident.metadata.incident_title}`,
+    `**Title:** ${incident.metadata.incident_title}`,
     `**Severidade:** ${incident.metadata.severity}`,
     `**Status:** ${incident.metadata.status}`,
     `**Impacto:** ${incident.metadata.impact}`,
     '',
     '### Procedimentos por Severidade',
     '',
-    '**SEV1 (Crítico):**',
+    '**SEV1 (Critical):**',
     '- Notificar stakeholders imediatamente',
-    '- Ativar equipe de resposta a incidentes',
-    '- Comunicação a cada 15 minutos',
+    '- Activate the incident response team',
+    '- Communication every 15 minutes',
     '',
     '**SEV2 (Alto):**',
-    '- Notificar equipe responsável',
-    '- Atualização a cada 30 minutos',
+    '- Notify the responsible team',
+    '- Update every 30 minutes',
     '',
-    '**SEV3 (Médio):**',
-    '- Documentar e agendar correção',
-    '- Atualização quando houver progresso',
+    '**SEV3 (Medium):**',
+    '- Document and schedule a fix',
+    '- Update when there is progress',
     '',
     '**SEV4 (Baixo):**',
-    '- Documentar para correção futura',
+    '- Document for a future fix',
     '',
     '### Timeline',
   ]
@@ -76,11 +76,11 @@ export function getIncidentInstructions(incident: IncidentNode): string {
 
   lines.push(
     '',
-    '### Próximos Passos',
+    '### Next Steps',
     '1. Identificar causa raiz',
-    '2. Implementar correção',
-    '3. Verificar resolução',
-    '4. Documentar lições aprendidas',
+    '2. Implement the fix',
+    '3. Verify the resolution',
+    '4. Document the lessons learned',
   )
 
   return lines.join('\n')

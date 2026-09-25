@@ -1,11 +1,11 @@
 /**
- * Intent Classifier — Classifica a intenção do usuário a partir do input.
+ * Intent Classifier — Classifies the user's intent from the input.
  *
- * Combina relevância lexical BM25 com keywords para classificar
- * a intenção em uma das categorias: mutation, query, workflow, analysis, etc.
+ * Combines BM25 lexical relevance with keywords to classify
+ * the intent into one of the categories: mutation, query, workflow, analysis, etc.
  *
  * Consumido por: hooks.ts (experimental.chat.system.transform)
- * Dependências: embeddings.ts, categories.ts
+ * Dependencies: embeddings.ts, categories.ts
  */
 
 import { rankSimilarity } from "./embeddings.js"
@@ -23,8 +23,8 @@ export interface IntentResult {
 }
 
 /**
- * Embeddings pré-computados para descrições de categorias.
- * Cada categoria tem uma descrição representativa.
+ * Pre-computed embeddings for category descriptions.
+ * Each category has a representative description.
  */
 const CATEGORY_DESCRIPTIONS: Record<IntentCategory, string> = {
   mutation: "Create, add, update, or remove nodes and relationships in the knowledge graph",
@@ -79,7 +79,7 @@ function lexicalScore(text: string): Record<IntentCategory, number> {
 }
 
 /**
- * Combina keyword score e relevância lexical com pesos.
+ * Combines keyword score and lexical relevance with weights.
  * Keywords: 0.4, lexical relevance: 0.6
  */
 function combinedScore(text: string): Record<IntentCategory, number> {
@@ -95,9 +95,9 @@ function combinedScore(text: string): Record<IntentCategory, number> {
 }
 
 /**
- * Classifica a intenção do usuário.
+ * Classifies the user's intent.
  *
- * @param text - Input do usuário
+ * @param text - User input
  * @returns IntentResult com categoria, confidence e top-3
  */
 export function classifyIntent(text: string): IntentResult {
@@ -120,10 +120,10 @@ export function classifyIntent(text: string): IntentResult {
 }
 
 /**
- * Obtém as tools relevantes para uma intenção, combinando com o state gate.
+ * Gets the tools relevant to an intent, combined with the state gate.
  *
- * @param intent - Resultado da classificação
- * @param stateTools - Tools visíveis pelo state gate (null = todas)
+ * @param intent - Classification result
+ * @param stateTools - Tools visible to the state gate (null = all)
  * @returns Lista de tools relevantes
  */
 export function getToolsForIntent(
@@ -134,6 +134,6 @@ export function getToolsForIntent(
 
   if (!stateTools) return categoryTools
 
-  // Interseção: tools da categoria ∩ tools visíveis pelo estado
+  // Intersection: category tools ∩ state-visible tools
   return categoryTools.filter(t => stateTools.has(t))
 }

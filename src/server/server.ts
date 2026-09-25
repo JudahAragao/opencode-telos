@@ -42,10 +42,10 @@ export interface DashboardEvent {
   data: unknown
 }
 
-/** Porta preferida do dashboard (estável entre sessões). Override via SDD_DASHBOARD_PORT. */
+/** Preferred dashboard port (stable across sessions). Override via SDD_DASHBOARD_PORT. */
 export const DEFAULT_DASHBOARD_PORT = 7331
 
-/** Porta configurada pelo usuário, se houver. */
+/** User-configured port, if any. */
 export function resolveDashboardPort(): number {
   const raw = process.env.SDD_DASHBOARD_PORT
   if (!raw) return DEFAULT_DASHBOARD_PORT
@@ -68,8 +68,8 @@ export class SddDashboardServer {
    * Sobe o servidor de dashboard.
    *
    * @param preferredPort - porta desejada. Se estiver ocupada, cai para uma
-   *   porta efêmera em vez de falhar; a porta retornada é a autoritativa.
-   * @returns a porta em que o servidor está escutando
+   *   an ephemeral port instead of failing; the returned port is authoritative.
+   * @returns the port the server is listening on
    */
   start(preferredPort: number = 0): number {
     if (!this.repo.isInitialized()) {
@@ -1442,17 +1442,17 @@ ${KANBAN_MODAL_HTML}
 
 // ── Servidor compartilhado ──────────────────────────────────────────
 //
-// O dashboard é um servidor in-process: só faz sentido existir um por projeto.
-// O tool `sdd.start_dashboard` e o comando `/sdd viz` passam por aqui, para não
-// subir dois servidores (com duas portas distintas) na mesma sessão.
+// The dashboard is an in-process server: only one makes sense per project.
+// The `sdd.start_dashboard` tool and the `/sdd viz` command go through here, so
+// we do not start two servers (on two different ports) in the same session.
 
 let sharedDashboard: SddDashboardServer | null = null
 let sharedProjectDir: string | null = null
 
 /**
- * Sobe o dashboard do projeto ou reaproveita o que já estiver rodando.
+ * Starts the project dashboard or reuses the one already running.
  *
- * @returns a porta em que o dashboard está escutando
+ * @returns the port the dashboard is listening on
  */
 export function startSharedDashboard(
   projectDir: string,
@@ -1471,7 +1471,7 @@ export function startSharedDashboard(
   return server.getPort()
 }
 
-/** Encerra o dashboard compartilhado. Retorna false se não havia nada rodando. */
+/** Shuts down the shared dashboard. Returns false if nothing was running. */
 export function stopSharedDashboard(): boolean {
   if (!sharedDashboard?.isRunning()) return false
   sharedDashboard.stop()
@@ -1480,7 +1480,7 @@ export function stopSharedDashboard(): boolean {
   return true
 }
 
-/** URL do dashboard compartilhado, ou null se não estiver rodando. */
+/** URL of the shared dashboard, or null if it is not running. */
 export function getSharedDashboardUrl(): string | null {
   return sharedDashboard?.isRunning() ? sharedDashboard.getUrl() : null
 }

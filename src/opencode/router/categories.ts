@@ -1,44 +1,44 @@
 /**
- * Categories — Mapeamento de tools para categorias de intenção.
+ * Categories — Mapping of tools to intent categories.
  *
- * Cada tool é classificada em uma ou mais categorias.
+ * Each tool is classified into one or more categories.
  * O intent classifier usa isso para filtrar tools por categoria.
  *
- * Este arquivo é a fonte única do catálogo de tools standalone: a lista de
- * nomes em `STANDALONE_TOOLS` (tool-taxonomy.ts) é derivada de
+ * This file is the single source of the standalone tool catalog: the list of
+ * names in `STANDALONE_TOOLS` (tool-taxonomy.ts) is derived from
  * `STANDALONE_CATEGORIES`. Sempre que uma tool nova for registrada em
  * `createSddTools()`, ela precisa de uma entrada aqui — o teste
- * tests/tool-catalog.test.ts falha caso contrário.
+ * tests/tool-catalog.test.ts fails otherwise.
  *
  * Consumido por: intent-classifier.ts, tool-registry.ts, state-gate.ts
- * Dependências: nenhuma (módulo puro, sem imports)
+ * Dependencies: none (pure module, no imports)
  */
 
 /**
- * Categorias de intenção do usuário.
+ * User intent categories.
  */
 export type IntentCategory =
-  | "mutation"      // Criar, modificar, remover nós/relações
+  | "mutation"      // Create, modify, remove nodes/relationships
   | "query"         // Buscar, consultar, inspecionar o grafo
-  | "workflow"      // Gerenciar changes, aprovações, ciclo de vida
-  | "analysis"      // Análise de impacto, drift, validação
-  | "quality"       // Qualidade de código, métricas, smells
+  | "workflow"      // Manage changes, approvals, lifecycle
+  | "analysis"      // Impact, drift and validation analysis
+  | "quality"       // Code quality, metrics, smells
   | "enterprise"    // Workflows empresariais (migration, security, etc.)
-  | "admin"         // Administração: permissões, sync, cache, snapshots
-  | "discovery"     // Descoberta de requisitos, briefing, perguntas
-  | "implementation" // Geração de código, planejamento, implementação
-  | "info"          // Informação: status, histórico, help
+  | "admin"         // Administration: permissions, sync, cache, snapshots
+  | "discovery"     // Requirement discovery, briefing, questions
+  | "implementation" // Code generation, planning, implementation
+  | "info"          // Information: status, history, help
 
 /**
- * Mapeamento de tools standalone CANÔNICAS para categorias de intenção.
+ * Mapping of CANONICAL standalone tools to intent categories.
  *
  * Apenas capacidades sem substituta composta aparecem aqui. Toda tool cuja
- * ação já vive num composite (`TOOL_TAXONOMY[i].actions[].replaces`) é
- * depreciada e NÃO entra neste mapa: `createSddTools()` também a filtra, então
- * existe um único nome por capacidade no catálogo anunciado ao LLM.
+ * action already lives in a composite (`TOOL_TAXONOMY[i].actions[].replaces`) is
+ * deprecated and does NOT enter this map: `createSddTools()` also filters it, so
+ * there is a single name per capability in the catalog announced to the LLM.
  *
- * tests/tool-catalog.test.ts garante que este mapa é idêntico às tools
- * standalone registradas, e que nenhuma entrada é depreciada.
+ * tests/tool-catalog.test.ts guarantees this map is identical to the registered
+ * standalone tools, and that no entry is deprecated.
  */
 export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
   // ── Mutation ────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ export const STANDALONE_CATEGORIES: Record<string, IntentCategory[]> = {
 }
 
 /**
- * Mapeamento de tools composits para categorias de intenção.
+ * Mapping of composite tools to intent categories.
  */
 export const COMPOSITE_CATEGORIES: Record<string, IntentCategory[]> = {
   "sdd.graph_mutation": ["mutation"],
@@ -142,7 +142,7 @@ export const COMPOSITE_CATEGORIES: Record<string, IntentCategory[]> = {
 }
 
 /**
- * Obtém as categorias de intenção para uma tool.
+ * Gets the intent categories for a tool.
  */
 export function getToolCategories(toolName: string): IntentCategory[] {
   if (STANDALONE_CATEGORIES[toolName]) return STANDALONE_CATEGORIES[toolName]
@@ -158,7 +158,7 @@ export function hasToolCategory(toolName: string): boolean {
 }
 
 /**
- * Obtém todas as tools de uma categoria de intenção.
+ * Gets all tools of an intent category.
  */
 export function getToolsByCategory(category: IntentCategory): string[] {
   const tools: string[] = []
@@ -174,7 +174,7 @@ export function getToolsByCategory(category: IntentCategory): string[] {
 }
 
 /**
- * Obtém categorias representadas em um conjunto de tools.
+ * Gets the categories represented in a set of tools.
  */
 export function getCategoriesInToolSet(toolNames: Set<string>): IntentCategory[] {
   const categories = new Set<IntentCategory>()
@@ -187,7 +187,7 @@ export function getCategoriesInToolSet(toolNames: Set<string>): IntentCategory[]
 }
 
 /**
- * Keywords associadas a cada categoria de intenção.
+ * Keywords associated with each intent category.
  * Usado como sinal auxiliar no intent classifier.
  */
 export const CATEGORY_KEYWORDS: Record<IntentCategory, string[]> = {

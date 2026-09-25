@@ -305,27 +305,27 @@ export function convertToSymbolNodes(result: SymbolParseResult): SymbolNode[] {
 
 export function formatSymbolParseResult(result: SymbolParseResult): string {
   const lines = [
-    '## Símbolos Extraídos',
+    '## Extracted Symbols',
     '',
     '### Resumo',
     `- **Total:** ${result.summary.total}`,
-    `- **Funções:** ${result.summary.functions}`,
+    `- **Functions:** ${result.summary.functions}`,
     `- **Classes:** ${result.summary.classes}`,
     `- **Interfaces:** ${result.summary.interfaces}`,
     `- **Tipos:** ${result.summary.types}`,
-    `- **Métodos:** ${result.summary.methods}`,
-    `- **Variáveis:** ${result.summary.variables}`,
+    `- **Methods:** ${result.summary.methods}`,
+    `- **Variables:** ${result.summary.variables}`,
     '',
   ]
 
   if (result.symbols.length > 0) {
-    lines.push('### Símbolos')
+    lines.push('### Symbols')
     for (const symbol of result.symbols) {
       const asyncTag = symbol.is_async ? ' (async)' : ''
       const params = symbol.parameters ? `(${symbol.parameters.join(', ')})` : ''
       const returnType = symbol.return_type ? `: ${symbol.return_type}` : ''
       lines.push(`- **${symbol.name}** (${symbol.symbol_type}${asyncTag})${params}${returnType}`)
-      lines.push(`  - Arquivo: ${symbol.file_path}`)
+      lines.push(`  - File: ${symbol.file_path}`)
       lines.push(`  - Linhas: ${symbol.line_start}-${symbol.line_end}`)
       lines.push(`  - Visibilidade: ${symbol.visibility}`)
     }

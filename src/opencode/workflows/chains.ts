@@ -1,21 +1,21 @@
 /**
- * Workflow Chains — Definições de workflows de múltiplos steps.
+ * Workflow Chains — Definitions of multi-step workflows.
  *
- * Cada chain é uma lista ordenada de steps.
+ * Each chain is an ordered list of steps.
  * O executor (executor.ts) executa cada step sequencialmente.
  *
  * Consumido por: executor.ts, tools-workflow.ts
- * Dependências: nenhuma (módulo puro de definições)
+ * Dependencies: none (pure definitions module)
  */
 
 export interface WorkflowStep {
   /** Nome da tool SDD a chamar */
   tool: string
-  /** Args estáticos ou função que gera args do resultado anterior */
+  /** Static args or a function that builds args from the previous result */
   args: Record<string, unknown> | ((prevResult: string, initialParams: Record<string, unknown>, previousSteps: WorkflowStepResult[]) => Record<string, unknown>)
   /** Se true, falha neste step para a chain inteira */
   required: boolean
-  /** Descrição do step para logging */
+  /** Step description for logging */
   description: string
 }
 
@@ -39,9 +39,9 @@ function changeIdFrom(steps: WorkflowStepResult[], previous: string): string {
 export interface WorkflowChain {
   /** Nome da chain (usado como tool name) */
   name: string
-  /** Descrição para o LLM */
+  /** Description for the LLM */
   description: string
-  /** Parâmetros aceitos pela chain */
+  /** Parameters accepted by the chain */
   params: Array<{ name: string; type: string; description: string; required: boolean }>
   /** Lista de steps */
   steps: WorkflowStep[]
@@ -53,14 +53,14 @@ export const NEW_FEATURE_CHAIN: WorkflowChain = {
   name: "sdd.workflow_new_feature",
   description: "Workflow completo para criar uma nova feature: enforce → build graph → validate → approve → generate code.",
   params: [
-    { name: "briefing", type: "string", description: "Descrição da feature ou briefing do projeto", required: true },
+    { name: "briefing", type: "string", description: "Feature description or project briefing", required: true },
   ],
   steps: [
     {
       tool: "sdd.enforce",
       args: (_prev, initial) => ({ request_description: String(initial.briefing || "") }),
       required: true,
-      description: "Classificar a requisição e criar Change node",
+      description: "Classify the request and create the Change node",
     },
     {
       tool: "sdd.build_graph",
@@ -90,19 +90,19 @@ export const NEW_FEATURE_CHAIN: WorkflowChain = {
       tool: "sdd.generate_code",
       args: {},
       required: true,
-      description: "Gerar a implementação aprovada",
+      description: "Generate the approved implementation",
     },
     {
       tool: "sdd.verify_implementation",
       args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
       required: true,
-      description: "Verificar a implementação da feature",
+      description: "Verify the feature implementation",
     },
     {
       tool: "sdd.complete_change",
       args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
       required: true,
-      description: "Completar a Change após verificação",
+      description: "Complete the Change after verification",
     },
   ],
 }
@@ -111,9 +111,9 @@ export const NEW_FEATURE_CHAIN: WorkflowChain = {
 
 export const BUG_FIX_CHAIN: WorkflowChain = {
   name: "sdd.workflow_bug_fix",
-  description: "Workflow para correção de bug: enforce → validate → approve → complete.",
+  description: "Bug fix workflow: enforce → validate → approve → complete.",
   params: [
-    { name: "bug_description", type: "string", description: "Descrição do bug", required: true },
+    { name: "bug_description", type: "string", description: "Bug description", required: true },
   ],
   steps: [
     {
@@ -132,25 +132,25 @@ export const BUG_FIX_CHAIN: WorkflowChain = {
       tool: "sdd.approve_change",
       args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
       required: true,
-      description: "Aprovar a correção",
+      description: "Approve the fix",
     },
     {
       tool: "sdd.generate_code",
       args: {},
       required: true,
-      description: "Gerar a correção aprovada",
+      description: "Generate the approved fix",
     },
     {
       tool: "sdd.verify_implementation",
       args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
       required: true,
-      description: "Verificar a implementação do bug fix",
+      description: "Verify the bug fix implementation",
     },
     {
       tool: "sdd.complete_change",
       args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
       required: true,
-      description: "Completar a Change após verificação",
+      description: "Complete the Change after verification",
     },
   ],
 }
@@ -159,9 +159,9 @@ export const BUG_FIX_CHAIN: WorkflowChain = {
 
 export const HOTFIX_CHAIN: WorkflowChain = {
   name: "sdd.workflow_hotfix",
-  description: "Workflow de emergência: hotfix sem enforcement → documentar retroativamente.",
+  description: "Emergency workflow: hotfix without enforcement → document retroactively.",
   params: [
-    { name: "emergency_description", type: "string", description: "Descrição da emergência", required: true },
+    { name: "emergency_description", type: "string", description: "Emergency description", required: true },
   ],
   steps: [
     {
@@ -174,7 +174,7 @@ export const HOTFIX_CHAIN: WorkflowChain = {
       tool: "sdd.validate",
       args: {},
       required: false,
-      description: "Validar grafo após hotfix",
+      description: "Validate the graph after the hotfix",
     },
   ],
 }
@@ -216,13 +216,13 @@ export const REFACTORING_CHAIN: WorkflowChain = {
       tool: "sdd.generate_code",
       args: {},
       required: true,
-      description: "Gerar a implementação do refactoring",
+      description: "Generate the refactoring implementation",
     },
     {
       tool: "sdd.verify_implementation",
       args: (prev, _initial, steps) => ({ change_id: changeIdFrom(steps, prev) }),
       required: true,
-      description: "Verificar a implementação do refactoring",
+      description: "Verify the refactoring implementation",
     },
     {
       tool: "sdd.complete_change",
@@ -237,15 +237,15 @@ export const REFACTORING_CHAIN: WorkflowChain = {
 
 export const FULL_CYCLE_CHAIN: WorkflowChain = {
   name: "sdd.workflow_full_cycle",
-  description: "Ciclo SDD completo com geração, verificação, drift e conclusão.",
+  description: "Full SDD cycle with generation, verification, drift and completion.",
   params: [
-    { name: "change_request", type: "string", description: "Descrição da mudança", required: true },
+    { name: "change_request", type: "string", description: "Change description", required: true },
   ],
   steps: [{
     tool: "sdd.full_cycle",
     args: (_prev, initial) => ({ request: String(initial.change_request || "") }),
     required: true,
-    description: "Executar o ciclo completo com todas as validações",
+    description: "Run the full cycle with all validations",
   }],
 }
 
@@ -256,7 +256,7 @@ export const REVERSE_ENGINEERING_CHAIN: WorkflowChain = {
   description: "Workflow de engenharia reversa: scan do codebase → gerar SDD → validar.",
   params: [
     { name: "purpose", type: "string", description: "documentation ou reverse_engineering", required: true },
-    { name: "focus_dirs", type: "string", description: "Diretórios para focar (opcional, separado por vírgula)", required: false },
+    { name: "focus_dirs", type: "string", description: "Directories to focus on (optional, comma-separated)", required: false },
   ],
   steps: [
     {
@@ -295,14 +295,14 @@ export const ALL_CHAINS: WorkflowChain[] = [
 ]
 
 /**
- * Obtém uma chain pelo nome.
+ * Gets a chain by name.
  */
 export function getChainByName(name: string): WorkflowChain | undefined {
   return ALL_CHAINS.find(c => c.name === name)
 }
 
 /**
- * Lista todas as chains disponíveis (nomes + descriptions).
+ * Lists all available chains (names + descriptions).
  */
 export function listChainNames(): Array<{ name: string; description: string }> {
   return ALL_CHAINS.map(c => ({ name: c.name, description: c.description }))

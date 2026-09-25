@@ -64,14 +64,14 @@ export function generateKnowledgeTransfer(
     for (const assumption of antiPatterns.slice(0, maxItems)) {
       const meta = assumption.metadata as any
       if (meta.requires_confirmation) {
-        common_issues.push(`Assumpção não confirmada: ${meta.description}`)
+        common_issues.push(`Unconfirmed assumption: ${meta.description}`)
       }
     }
 
     const findings = graph.nodes.filter(n => n.type === 'finding')
     for (const finding of findings.slice(0, maxItems)) {
       const meta = finding.metadata as any
-      const resolution = meta.resolution?.description ? ` — resolução: ${meta.resolution.description}` : ''
+      const resolution = meta.resolution?.description ? ` — resolution: ${meta.resolution.description}` : ''
       common_issues.push(`[${finding.status}/${meta.severity ?? 'unknown'}] ${meta.title ?? finding.name}: ${meta.observed_behavior ?? finding.description ?? ''}${resolution}`)
     }
   }
@@ -99,22 +99,22 @@ export function generateKnowledgeTransfer(
 
 export function formatKnowledgeTransfer(data: KnowledgeTransferData): string {
   const lines = [
-    '## Transferência de Conhecimento',
+    '## Knowledge Transfer',
     '',
   ]
 
   if (data.architectural_decisions.length > 0) {
-    lines.push('### Decisões Arquiteturais')
+    lines.push('### Architectural Decisions')
     for (const decision of data.architectural_decisions) {
       lines.push(`#### ${decision.title}`)
-      lines.push(`- **Decisão:** ${decision.decision}`)
+      lines.push(`- **Decision:** ${decision.decision}`)
       lines.push(`- **Contexto:** ${decision.context}`)
       lines.push('')
     }
   }
 
   if (data.key_patterns.length > 0) {
-    lines.push('### Padrões Principais')
+    lines.push('### Main Patterns')
     for (const pattern of data.key_patterns) {
       lines.push(`- ${pattern}`)
     }
@@ -128,7 +128,7 @@ export function formatKnowledgeTransfer(data: KnowledgeTransferData): string {
   }
 
   if (data.critical_files.length > 0) {
-    lines.push('', '### Arquivos Críticos')
+    lines.push('', '### Critical Files')
     for (const file of data.critical_files) {
       lines.push(`- ${file}`)
     }
@@ -136,11 +136,11 @@ export function formatKnowledgeTransfer(data: KnowledgeTransferData): string {
 
   lines.push(
     '',
-    '### Próximos Passos',
-    '1. Leia as decisões arquiteturais',
-    '2. Entenda os padrões principais',
-    '3. Verifique os problemas comuns',
-    '4. Explore os arquivos críticos',
+    '### Next Steps',
+    '1. Read the architectural decisions',
+    '2. Understand the main patterns',
+    '3. Check the common issues',
+    '4. Explore the critical files',
   )
 
   return lines.join('\n')

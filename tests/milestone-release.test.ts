@@ -138,7 +138,7 @@ describe("release traceability report", () => {
     const milestone = createMilestone(graph, { name: "Release 1.0", release_version: "1.0" })
     linkNodesToMilestone(graph, milestone.id, ["CHG-1"])
     const text = formatReleaseReport(buildReleaseReport(graph), (id) => graph.nodes.find((n) => n.id === id)?.name ?? id)
-    expect(text).toContain("Rastreabilidade por Release")
+    expect(text).toContain("Per-release Traceability")
     expect(text).toContain("Release 1.0")
     expect(text).toContain("Gaps de rastreabilidade")
   })
@@ -190,7 +190,7 @@ describe("sdd.milestone tool", () => {
     try {
       const tools = createSddTools()
       const listed = (await (tools["sdd.milestone"] as any).execute({ action: "list" }, { directory: dir, sessionID: "s" })) as string
-      expect(listed).toContain("Nenhum milestone")
+      expect(listed).toContain("No milestone")
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

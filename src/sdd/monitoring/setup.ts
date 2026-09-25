@@ -33,7 +33,7 @@ export function setupMonitoring(graph: KnowledgeGraph): MonitoringSetup {
     metrics.push({
       name: metricName,
       type: 'counter',
-      description: `Total de requisições para ${meta.method} ${meta.path}`,
+      description: `Total requests for ${meta.method} ${meta.path}`,
       labels: ['method', 'path', 'status'],
     })
   }
@@ -44,14 +44,14 @@ export function setupMonitoring(graph: KnowledgeGraph): MonitoringSetup {
     metrics.push({
       name: 'database_query_duration_seconds',
       type: 'histogram',
-      description: 'Duração de consultas ao banco de dados',
+      description: 'Database query duration',
       labels: ['operation', 'table'],
     })
 
     metrics.push({
       name: 'database_connections_active',
       type: 'gauge',
-      description: 'Conexões ativas com o banco de dados',
+      description: 'Active database connections',
     })
   }
 
@@ -84,13 +84,13 @@ export function setupMonitoring(graph: KnowledgeGraph): MonitoringSetup {
 
 export function formatMonitoringSetup(setup: MonitoringSetup): string {
   const lines = [
-    '## Configuração de Monitoramento',
+    '## Monitoring Configuration',
     '',
-    `**Métricas:** ${setup.metrics.length}`,
+    `**Metrics:** ${setup.metrics.length}`,
     `**Alertas:** ${setup.alerts.length}`,
     `**Dashboards:** ${setup.dashboards.length}`,
     '',
-    '### Métricas',
+    '### Metrics',
   ]
 
   for (const metric of setup.metrics) {
@@ -131,19 +131,19 @@ export function generateDashboardConfig(
 
   if (dashboardType === 'overview') {
     panels.push({
-      title: 'Requisições por Minuto',
+      title: 'Requests per Minute',
       type: 'graph',
       query: 'rate(http_requests_total[1m])',
       position: { x: 0, y: 0, w: 12, h: 6 },
     })
     panels.push({
-      title: 'Taxa de Erro',
+      title: 'Error Rate',
       type: 'stat',
       query: 'rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])',
       position: { x: 12, y: 0, w: 6, h: 3 },
     })
     panels.push({
-      title: 'Latência P95',
+      title: 'P95 Latency',
       type: 'stat',
       query: 'histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))',
       position: { x: 12, y: 3, w: 6, h: 3 },
@@ -162,13 +162,13 @@ export function generateDashboardConfig(
     }
   } else if (dashboardType === 'database') {
     panels.push({
-      title: 'Conexões Ativas',
+      title: 'Active Connections',
       type: 'gauge',
       query: 'database_connections_active',
       position: { x: 0, y: 0, w: 6, h: 4 },
     })
     panels.push({
-      title: 'Duração de Consultas',
+      title: 'Query Duration',
       type: 'heatmap',
       query: 'rate(database_query_duration_seconds_bucket[5m])',
       position: { x: 6, y: 0, w: 6, h: 4 },
@@ -193,7 +193,7 @@ export function generateDashboardConfig(
       position: { x: 6, y: 0, w: 6, h: 4 },
     })
     panels.push({
-      title: 'Acessos Não Autorizados',
+      title: 'Unauthorized Access',
       type: 'graph',
       query: 'rate(unauthorized_access_attempts_total[5m])',
       position: { x: 0, y: 4, w: 12, h: 4 },
@@ -212,25 +212,25 @@ export function formatDashboardConfig(config: DashboardConfig): string {
   const lines = [
     `## ${config.title}`,
     '',
-    `**Intervalo de Atualização:** ${config.refresh_interval}`,
-    `**Período:** ${config.time_range}`,
-    `**Painéis:** ${config.panels.length}`,
+    `**Refresh interval:** ${config.refresh_interval}`,
+    `**Time range:** ${config.time_range}`,
+    `**Panels:** ${config.panels.length}`,
     '',
-    '### Painéis',
+    '### Panels',
   ]
 
   for (const panel of config.panels) {
     lines.push(`#### ${panel.title} (${panel.type})`)
     lines.push(`- **Query:** \`${panel.query}\``)
-    lines.push(`- **Posição:** x=${panel.position.x}, y=${panel.position.y}, w=${panel.position.w}, h=${panel.position.h}`)
+    lines.push(`- **Position:** x=${panel.position.x}, y=${panel.position.y}, w=${panel.position.w}, h=${panel.position.h}`)
     lines.push('')
   }
 
   lines.push(
-    '### Configuração Grafana',
+    '### Grafana Configuration',
     '1. Importe este dashboard no Grafana',
     '2. Configure a fonte de dados (Prometheus)',
-    '3. Ajuste os intervalos conforme necessário',
+    '3. Adjust the intervals as needed',
   )
 
   return lines.join('\n')

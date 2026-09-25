@@ -57,8 +57,8 @@ function detectLongParameterList(code: string, fileName: string): CodeSmell[] {
           name,
           severity: paramCount > 7 ? 'error' : 'warning',
           location: `${fileName}:${line}`,
-          description: `Função ${name} tem ${paramCount} parâmetros`,
-          recommendation: 'Considere usar um objeto de opções ou agrupar parâmetros relacionados',
+          description: `Function ${name} has ${paramCount} parameters`,
+          recommendation: 'Consider using an options object or grouping related parameters',
         })
       }
     }
@@ -105,8 +105,8 @@ function detectGodClass(code: string, fileName: string): CodeSmell[] {
         name: className,
         severity: methodCount > 15 || propertyCount > 15 ? 'error' : 'warning',
         location: `${fileName}:${line}`,
-        description: `Classe ${className} tem ${methodCount} métodos, ${propertyCount} propriedades e ${LOC} linhas`,
-        recommendation: 'Considere dividir em classes menores com responsabilidades específicas',
+        description: `Class ${className} has ${methodCount} methods, ${propertyCount} properties and ${LOC} lines`,
+        recommendation: 'Consider splitting into smaller classes with specific responsibilities',
       })
     }
   }
@@ -159,8 +159,8 @@ function detectFeatureEnvy(code: string, fileName: string): CodeSmell[] {
         name,
         severity: maxCalls > 8 ? 'error' : 'warning',
         location: `${fileName}:${line}`,
-        description: `Função ${name} chama ${maxObj}.${maxCalls} vezes`,
-        recommendation: `Considere mover esta função para a classe ${maxObj}`,
+        description: `Function ${name} calls ${maxObj}.${maxCalls} times`,
+        recommendation: `Consider moving this function into class ${maxObj}`,
       })
     }
   }
@@ -199,11 +199,11 @@ function detectSwitchStatements(code: string, fileName: string): CodeSmell[] {
     if (caseCount > 3) {
       smells.push({
         type: 'switch_statement',
-        name: `Switch na linha ${line}`,
+        name: `Switch on line ${line}`,
         severity: caseCount > 5 ? 'error' : 'warning',
         location: `${fileName}:${line}`,
-        description: `Switch com ${caseCount} cases`,
-        recommendation: 'Considere usar polimorfismo, strategy pattern ou map de objetos',
+        description: `Switch with ${caseCount} cases`,
+        recommendation: 'Consider polymorphism, a strategy pattern or a map of objects',
       })
     }
   }
@@ -246,8 +246,8 @@ function detectLongMethods(code: string, fileName: string): CodeSmell[] {
         name,
         severity: lines > 100 ? 'error' : 'warning',
         location: `${fileName}:${startLine}`,
-        description: `Função ${name} tem ${lines} linhas`,
-        recommendation: 'Considere extrair lógica em funções menores',
+        description: `Function ${name} has ${lines} lines`,
+        recommendation: 'Consider extracting logic into smaller functions',
       })
     }
   }
@@ -282,11 +282,11 @@ function detectDataClumps(code: string, fileName: string): CodeSmell[] {
       const line = code.substring(0, code.indexOf(funcs[0])).split('\n').length
       smells.push({
         type: 'data_clump',
-        name: `Parâmetros do tipo ${type}`,
+        name: `Parameters of type ${type}`,
         severity: 'warning',
         location: `${fileName}:${line}`,
-        description: `${funcs.length} funções compartilham parâmetros do tipo ${type}`,
-        recommendation: `Considere criar uma classe para agrupar os parâmetros do tipo ${type}`,
+        description: `${funcs.length} functions share parameters of type ${type}`,
+        recommendation: `Consider creating a class to group the parameters of type ${type}`,
       })
     }
   }
@@ -374,14 +374,14 @@ export function detectCodeSmells(
 
 export function formatCodeSmellReport(report: CodeSmellReport): string {
   const lines = [
-    '## Detecção de Code Smells',
+    '## Code Smell Detection',
     '',
     `**Total:** ${report.summary.total_smells}`,
     '',
   ]
 
   if (Object.keys(report.summary.by_severity).length > 0) {
-    lines.push('### Por Severidade')
+    lines.push('### By Severity')
     for (const [severity, count] of Object.entries(report.summary.by_severity)) {
       const icon = severity === 'error' ? '❌' : severity === 'warning' ? '⚠️' : 'ℹ️'
       lines.push(`${icon} **${severity}:** ${count}`)
@@ -390,7 +390,7 @@ export function formatCodeSmellReport(report: CodeSmellReport): string {
   }
 
   if (Object.keys(report.summary.by_type).length > 0) {
-    lines.push('### Por Tipo')
+    lines.push('### By Type')
     for (const [type, count] of Object.entries(report.summary.by_type)) {
       lines.push(`- **${type}:** ${count}`)
     }
@@ -398,17 +398,17 @@ export function formatCodeSmellReport(report: CodeSmellReport): string {
   }
 
   if (report.smells.length > 0) {
-    lines.push('### Problemas Detectados')
+    lines.push('### Detected Problems')
     for (const smell of report.smells) {
       const icon = smell.severity === 'error' ? '❌' : smell.severity === 'warning' ? '⚠️' : 'ℹ️'
       lines.push(`${icon} **${smell.type}** (${smell.name})`)
-      lines.push(`   - **Local:** ${smell.location}`)
-      lines.push(`   - **Descrição:** ${smell.description}`)
-      lines.push(`   - **Recomendação:** ${smell.recommendation}`)
+      lines.push(`   - **Location:** ${smell.location}`)
+      lines.push(`   - **Description:** ${smell.description}`)
+      lines.push(`   - **Recommendation:** ${smell.recommendation}`)
       lines.push('')
     }
   } else {
-    lines.push('✅ Nenhum code smell detectado')
+    lines.push('✅ No code smell detected')
   }
 
   return lines.join('\n')

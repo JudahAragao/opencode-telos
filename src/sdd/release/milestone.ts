@@ -1,12 +1,12 @@
 /**
- * Serviço de Milestones e rastreabilidade por release.
+ * Milestone service and per-release traceability.
  *
- * Um `milestone` é a âncora de entrega: agrupa changes, tasks, features e
- * requirements e permite responder "o que entra no Release X, o que está
- * implementado e o que não tem evidência de teste".
+ * A `milestone` is the delivery anchor: it groups changes, tasks, features and
+ * requirements and answers "what goes into Release X, what is implemented and
+ * what has no test evidence".
  *
- * Toda a lógica aqui é pura (opera sobre `KnowledgeGraph`) para ser reutilizada
- * pela tool `sdd.milestone`, pelo backfill de migração e por testes.
+ * All the logic here is pure (operates on `KnowledgeGraph`) so it can be reused
+ * by the `sdd.milestone` tool, the migration backfill and by tests.
  */
 
 import type {
@@ -28,8 +28,8 @@ export const MILESTONE_MEMBER_TYPES: ReadonlySet<NodeType> = new Set([
 ])
 
 /** Arestas percorridas ao expandir o escopo de um release. Deliberadamente
- * restrito: não segue `persists_to`/`uses`/`calls`, senão o escopo puxaria o
- * grafo de código inteiro. */
+ * restricted: it does not follow `persists_to`/`uses`/`calls`, otherwise the scope
+ * would pull in the entire code graph. */
 const SCOPE_EDGE_TYPES: ReadonlySet<RelationshipType> = new Set([
   "affects", "modifies", "creates", "specifies", "implements", "implemented_by",
   "tested_by", "tests", "contains", "belongs_to",
@@ -99,13 +99,13 @@ export function createMilestone(graph: KnowledgeGraph, input: CreateMilestoneInp
 
   addNode(graph, milestone)
 
-  // Todo milestone nasce ligado ao projeto (senão a integridade o trata como órfão).
+  // Every milestone starts linked to the project (otherwise integrity treats it as an orphan).
   const project = getNode(graph, graph.project_id)
   if (project) {
     try {
       addRelationship(graph, project.id, milestone.id, "contains")
     } catch {
-      // Já conectado.
+      // Already connected.
     }
   }
 
@@ -220,7 +220,7 @@ export function closeMilestone(
   return updated as MilestoneNode
 }
 
-/** Mantém `metadata.change_ids` em sincronia com as arestas (espelho de leitura). */
+/** Keeps `metadata.change_ids` in sync with the edges (read mirror). */
 function syncMilestoneChangeIds(graph: KnowledgeGraph, milestone: MilestoneNode): void {
   const ids = new Set<string>()
   for (const rel of graph.relationships) {
@@ -276,7 +276,7 @@ function directMemberIds(graph: KnowledgeGraph, milestone: MilestoneNode): Set<s
 
 /**
  * Expande os membros diretos seguindo apenas arestas de rastreabilidade
- * (mudança → spec, requisito → feature, código → feature, teste → requisito),
+ * (change → spec, requirement → feature, code → feature, test → requirement),
  * com profundidade limitada.
  */
 function collectReleaseScope(graph: KnowledgeGraph, milestone: MilestoneNode): Set<string> {
@@ -312,7 +312,7 @@ function collectReleaseScope(graph: KnowledgeGraph, milestone: MilestoneNode): S
   return visited
 }
 
-// ── Relatório ────────────────────────────────────────────────────────
+// ── Report ───────────────────────────────────────────────────────────
 
 export interface ReleaseCoverage {
   requirements_total: number
@@ -380,7 +380,7 @@ function buildMilestoneReport(graph: KnowledgeGraph, milestone: MilestoneNode): 
 
   const featureIdSet = new Set(features)
 
-  // Requirement coberto = tem aresta tested_by/tests explícita para um teste.
+  // A covered requirement has an explicit tested_by/tests edge to a test.
   const requirementsUntested = requirements.filter((id) => {
     const explicit = [...linksTo(graph, id, "tested_by", "out"), ...linksTo(graph, id, "tests", "in")]
     return explicit.length === 0
@@ -395,7 +395,7 @@ function buildMilestoneReport(graph: KnowledgeGraph, milestone: MilestoneNode): 
     })
   })
 
-  // Endpoint/arquivo rastreado = aponta `implements` para alguma feature do release.
+  // A tracked endpoint/file points `implements` to some feature of the release.
   const endpointsUnlinked = endpoints.filter(
     (id) => !linksTo(graph, id, "implements", "out").some((to) => featureIdSet.has(to)),
   )
@@ -465,10 +465,10 @@ export function buildReleaseReport(graph: KnowledgeGraph, milestoneId?: string):
 
 export function formatReleaseReport(report: ReleaseReport, nameOf?: (id: string) => string): string {
   const label = (id: string) => nameOf?.(id) ?? id
-  const lines: string[] = ["## Rastreabilidade por Release", ""]
+  const lines: string[] = [    "## Per-release Traceability", ""]
 
   if (report.milestones.length === 0) {
-    lines.push("Nenhum milestone definido.")
+    lines.push("No milestone defined.")
     return lines.join("\n")
   }
 
@@ -478,14 +478,14 @@ export function formatReleaseReport(report: ReleaseReport, nameOf?: (id: string)
     lines.push(`**Status:** ${m.status}${m.target_date ? ` · **Alvo:** ${m.target_date}` : ""}`)
     lines.push(
       `**Escopo:** ${m.counts.changes} change(s), ${m.counts.tasks} task(s), ` +
-        `${m.counts.features} feature(s), ${m.counts.requirements} requisito(s), ` +
-        `${m.counts.endpoints} endpoint(s), ${m.counts.files} arquivo(s), ${m.counts.tests} teste(s)`,
+        `${m.counts.features} feature(s), ${m.counts.requirements} requirement(s), ` +
+        `${m.counts.endpoints} endpoint(s), ${m.counts.files} file(s), ${m.counts.tests} test(s)`,
     )
-    lines.push(`**Progresso (tasks concluídas):** ${m.progress_percent}%`)
+    lines.push(`**Progress (completed tasks):** ${m.progress_percent}%`)
     lines.push("")
     lines.push(
       `**Cobertura:** ${m.coverage.requirements_tested}/${m.coverage.requirements_total} requisitos com teste · ` +
-        `${m.coverage.features_linked}/${m.coverage.features_total} features com implementação`,
+        `${m.coverage.features_linked}/${m.coverage.features_total} features implemented`,
     )
 
     const gaps: string[] = []
@@ -493,13 +493,13 @@ export function formatReleaseReport(report: ReleaseReport, nameOf?: (id: string)
       gaps.push(`- Sem teste (${m.coverage.requirements_untested.length}): ${m.coverage.requirements_untested.slice(0, 8).map(label).join(", ")}`)
     }
     if (m.coverage.features_unlinked.length > 0) {
-      gaps.push(`- Feature sem endpoint/arquivo (${m.coverage.features_unlinked.length}): ${m.coverage.features_unlinked.slice(0, 8).map(label).join(", ")}`)
+      gaps.push(`- Feature without endpoint/file (${m.coverage.features_unlinked.length}): ${m.coverage.features_unlinked.slice(0, 8).map(label).join(", ")}`)
     }
     if (m.coverage.endpoints_unlinked.length > 0) {
       gaps.push(`- Endpoint sem feature (${m.coverage.endpoints_unlinked.length}): ${m.coverage.endpoints_unlinked.slice(0, 8).map(label).join(", ")}`)
     }
     if (m.coverage.files_unlinked.length > 0) {
-      gaps.push(`- Arquivo sem feature (${m.coverage.files_unlinked.length}): ${m.coverage.files_unlinked.slice(0, 8).map(label).join(", ")}`)
+      gaps.push(`- File without feature (${m.coverage.files_unlinked.length}): ${m.coverage.files_unlinked.slice(0, 8).map(label).join(", ")}`)
     }
     if (gaps.length > 0) {
       lines.push("")
@@ -510,7 +510,7 @@ export function formatReleaseReport(report: ReleaseReport, nameOf?: (id: string)
   }
 
   if (report.unassigned.changes.length > 0 || report.unassigned.tasks.length > 0) {
-    lines.push("### Não atribuídos a nenhum release")
+    lines.push("### Not assigned to any release")
     lines.push(`- Changes: ${report.unassigned.changes.length}`)
     lines.push(`- Tasks: ${report.unassigned.tasks.length}`)
     lines.push("")

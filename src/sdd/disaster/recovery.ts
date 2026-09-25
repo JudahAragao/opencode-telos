@@ -13,25 +13,25 @@ export function generateDisasterRecoveryPlan(_graph: KnowledgeGraph): DisasterRe
   const rpo = "1 hora"
   
   const backup_strategy = [
-    'Backup diário do banco de dados',
+    'Daily database backup',
     'Backup incremental a cada hora',
-    'Backup do Knowledge Graph antes de cada mudança',
-    'Armazenamento em localização geográfica diferente',
+    'Knowledge Graph backup before every change',
+    'Storage in a different geographic location',
   ].join('\n')
 
   const failover_procedure = [
-    'Detectar falha principal',
+    'Detect the primary failure',
     'Ativar sistema de backup',
-    'Redirecionar tráfego',
-    'Verificar integridade dos dados',
+    'Redirect traffic',
+    'Verify data integrity',
     'Notificar stakeholders',
   ]
 
   const recovery_steps = [
-    'Avaliar extensão da falha',
+    'Assess the extent of the failure',
     'Restaurar do backup mais recente',
-    'Verificar integridade dos dados',
-    'Retomar operações normais',
+    'Verify data integrity',
+    'Resume normal operations',
     'Documentar incidente',
     'Implementar melhorias',
   ]
@@ -52,7 +52,7 @@ export function formatDisasterRecoveryPlan(plan: DisasterRecoveryPlan): string {
     `**RTO (Recovery Time Objective):** ${plan.rto}`,
     `**RPO (Recovery Point Objective):** ${plan.rpo}`,
     '',
-    '### Estratégia de Backup',
+    '### Backup Strategy',
     plan.backup_strategy.split('\n').map(line => `- ${line}`).join('\n'),
     '',
     '### Procedimento de Failover',
@@ -62,17 +62,17 @@ export function formatDisasterRecoveryPlan(plan: DisasterRecoveryPlan): string {
     lines.push(`${i + 1}. ${plan.failover_procedure[i]}`)
   }
 
-  lines.push('', '### Passos de Recuperação')
+  lines.push('', '### Recovery Steps')
   for (let i = 0; i < plan.recovery_steps.length; i++) {
     lines.push(`${i + 1}. ${plan.recovery_steps[i]}`)
   }
 
   lines.push(
     '',
-    '### Contatos de Emergência',
-    '- **Equipe Principal:** [Adicionar contatos]',
-    '- **Fornecedor:** [Adicionar contato]',
-    '- **Suporte:** [Adicionar contato]',
+    '### Emergency Contacts',
+    '- **Primary team:** [add contacts]',
+    '- **Vendor:** [add contact]',
+    '- **Support:** [add contact]',
   )
 
   return lines.join('\n')

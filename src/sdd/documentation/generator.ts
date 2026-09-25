@@ -27,9 +27,9 @@ function generateFindingsSection(graph: KnowledgeGraph): string {
   const open = findings.filter((node) => !['resolved', 'closed', 'wont_fix'].includes(node.status))
   const resolved = findings.filter((node) => ['resolved', 'closed', 'wont_fix'].includes(node.status))
   const lines = [
-    '## Descobertas, Riscos e Resoluções',
+    '## Findings, Risks and Resolutions',
     '',
-    'Esta seção registra problemas observados no sistema documentado. `APPROVED` significa que o comportamento foi confirmado no AS-IS; não significa que ele esteja correto.',
+    'This section records problems observed in the documented system. `APPROVED` means the behaviour was confirmed in the AS-IS; it does not mean it is correct.',
     '',
     `- Descobertas abertas: ${open.length}`,
     `- Descobertas resolvidas ou aceitas: ${resolved.length}`,
@@ -38,15 +38,15 @@ function generateFindingsSection(graph: KnowledgeGraph): string {
     const meta = node.metadata as Record<string, any>
     lines.push('', `### ${node.id} — ${meta.title ?? node.name}`, `- Status: ${node.status}`, `- Severidade: ${meta.severity ?? 'unknown'}`, `- Categoria: ${meta.category ?? 'unknown'}`, `- Observado: ${meta.observed_behavior ?? node.description ?? ''}`)
     if (meta.expected_behavior) lines.push(`- Esperado: ${meta.expected_behavior}`)
-    if (meta.resolution?.description) lines.push(`- Resolução: ${meta.resolution.description}`)
+    if (meta.resolution?.description) lines.push(`- Resolution: ${meta.resolution.description}`)
   }
-  if (findings.length === 0) lines.push('', 'Nenhuma descoberta foi registrada.')
+  if (findings.length === 0) lines.push('',    'No finding was recorded.')
   return lines.join('\n')
 }
 
 function generateAPIDocumentation(graph: KnowledgeGraph): string {
   const lines = [
-    '# Documentação da API',
+    '# API Documentation',
     '',
     '## Endpoints',
     '',
@@ -81,18 +81,18 @@ function generateAPIDocumentation(graph: KnowledgeGraph): string {
 
 function generateUserGuide(graph: KnowledgeGraph): string {
   const lines = [
-    '# Guia do Usuário',
+    '# User Guide',
     '',
-    '## Visão Geral',
+    '## Overview',
     '',
   ]
 
   const features = graph.nodes.filter(n => n.type === 'feature')
   
   if (features.length > 0) {
-    lines.push('### Features Disponíveis')
+    lines.push('### Available Features')
     for (const feature of features) {
-      lines.push(`- **${feature.name}**: ${feature.description || 'Sem descrição'}`)
+      lines.push(`- **${feature.name}**: ${feature.description || 'No description'}`)
     }
   }
 
@@ -101,7 +101,7 @@ function generateUserGuide(graph: KnowledgeGraph): string {
   if (useCases.length > 0) {
     lines.push('', '### Casos de Uso')
     for (const useCase of useCases) {
-      lines.push(`- **${useCase.name}**: ${useCase.description || 'Sem descrição'}`)
+      lines.push(`- **${useCase.name}**: ${useCase.description || 'No description'}`)
     }
   }
 
@@ -112,14 +112,14 @@ function generateDeveloperGuide(graph: KnowledgeGraph): string {
   const lines = [
     '# Guia do Desenvolvedor',
     '',
-    '## Estrutura do Projeto',
+    '## Project Structure',
     '',
   ]
 
   const modules = graph.nodes.filter(n => n.type === 'module')
   
   if (modules.length > 0) {
-    lines.push('### Módulos')
+    lines.push('### Modules')
     for (const module of modules) {
       const meta = module.metadata as any
       lines.push(`- **${module.name}**: ${meta.path}`)
@@ -139,8 +139,8 @@ function generateDeveloperGuide(graph: KnowledgeGraph): string {
   lines.push(
     '',
     '## Desenvolvimento',
-    '1. Clone o repositório',
-    '2. Instale as dependências',
+    '1. Clone the repository',
+    '2. Install the dependencies',
     '3. Execute os testes',
     '4. Siga o workflow SDD',
   )
@@ -150,11 +150,11 @@ function generateDeveloperGuide(graph: KnowledgeGraph): string {
 
 function generateArchitectureDoc(graph: KnowledgeGraph): string {
   const lines = [
-    '# Documentação de Arquitetura',
+    '# Architecture Documentation',
     '',
-    '## Visão Geral',
-    `**Total de Nós:** ${graph.nodes.length}`,
-    `**Total de Relações:** ${graph.relationships.length}`,
+    '## Overview',
+    `**Total nodes:** ${graph.nodes.length}`,
+    `**Total relationships:** ${graph.relationships.length}`,
     '',
   ]
 
@@ -164,14 +164,14 @@ function generateArchitectureDoc(graph: KnowledgeGraph): string {
     lines.push('### Componentes')
     for (const component of components) {
       const meta = component.metadata as any
-      lines.push(`- **${component.name}** (${meta.layer}): ${meta.technology || 'Não definido'}`)
+      lines.push(`- **${component.name}** (${meta.layer}): ${meta.technology || 'Not defined'}`)
     }
   }
 
   const decisions = graph.nodes.filter(n => n.type === 'decision')
   
   if (decisions.length > 0) {
-    lines.push('', '### Decisões Arquiteturais')
+    lines.push('', '### Architectural Decisions')
     for (const decision of decisions) {
       const meta = decision.metadata as any
       lines.push(`- **${meta.title}**: ${meta.decision}`)

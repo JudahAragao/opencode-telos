@@ -291,10 +291,10 @@ export function analyzeBriefing(
 
   // Detect ambiguities
   const ambiguousPatterns = [
-    { pattern: /compartilh[ando]+/i, desc: "Mecanismo de compartilhamento não especificado (link público, usuário, organização?)" },
-    { pattern: /simples|básico|basic/i, desc: "Nível de complexidade ambíguo - quais funcionalidades estão incluídas/excluídas?" },
-    { pattern: /etc|e assim por diante/i, desc: "Enumeração aberta detectada" },
-    { pattern: /maybe|talvez|perhaps|pode ser/i, desc: "Funcionalidade mencionada com incerteza" },
+    { pattern: /compartilh[ando]+/i, desc: "Sharing mechanism not specified (public link, user, organization?)" },
+    { pattern: /simples|básico|basic/i, desc: "Ambiguous complexity level — which features are included/excluded?" },
+    { pattern: /etc|e assim por diante/i, desc: "Open-ended enumeration detected" },
+    { pattern: /maybe|talvez|perhaps|pode ser/i, desc: "Feature mentioned with uncertainty" },
   ]
 
   for (const { pattern, desc } of ambiguousPatterns) {
@@ -329,21 +329,21 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
   if (!analysis.tech_stack.auth && !analysis.known_facts["auth_mentioned"]) {
     missing.push({
       category: "auth",
-      description: "Mecanismo de autenticação",
+      description: "Authentication mechanism",
       classification: "CRITICAL",
       already_answered: false,
       question_for_user: {
-        question: "Como os usuários farão login no sistema?",
-        header: "Autenticação",
+        question: "How will users log in to the system?",
+        header: "Authentication",
         options: [
           { label: "Email + Senha", description: "Cadastro e login com email e senha" },
           { label: "Google OAuth", description: "Login com conta Google" },
           { label: "GitHub OAuth", description: "Login com conta GitHub" },
-          { label: "JWT", description: "Autenticação via JSON Web Tokens" },
-          { label: "Sessão/ Cookie", description: "Sessão server-side com cookies HTTP-only" },
-          { label: "Clerk", description: "Serviço de autenticação Clerk" },
-          { label: "Auth0", description: "Serviço de autenticação Auth0" },
-          { label: "Sem autenticação", description: "Sistema público, sem login" },
+          { label: "JWT", description: "Authentication via JSON Web Tokens" },
+          { label: "Session/Cookie", description: "Server-side session with HTTP-only cookies" },
+          { label: "Clerk", description: "Clerk authentication service" },
+          { label: "Auth0", description: "Auth0 authentication service" },
+          { label: "No authentication", description: "Public system, no login" },
         ],
       },
     })
@@ -357,17 +357,17 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
       classification: "CRITICAL",
       already_answered: false,
       question_for_user: {
-        question: "Qual tecnologia será usada no frontend?",
+        question: "Which technology will be used on the frontend?",
         header: "Frontend",
         options: [
-          { label: "React", description: "Biblioteca JavaScript mais popular" },
-          { label: "Vue.js", description: "Framework progressivo e flexível" },
+          { label: "React", description: "Most popular JavaScript library" },
+          { label: "Vue.js", description: "Progressive and flexible framework" },
           { label: "Angular", description: "Framework completo da Google" },
           { label: "Svelte", description: "Framework reativo compilado" },
           { label: "Next.js", description: "Framework React full-stack" },
           { label: "Nuxt", description: "Framework Vue full-stack" },
-          { label: "HTML/CSS/JS puro", description: "Sem framework, código vanilla" },
-          { label: "Não aplicável", description: "Backend apenas, sem frontend" },
+          { label: "Plain HTML/CSS/JS", description: "No framework, vanilla code" },
+          { label: "Not applicable", description: "Backend only, no frontend" },
         ],
       },
     })
@@ -381,21 +381,21 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
       classification: "CRITICAL",
       already_answered: false,
       question_for_user: {
-        question: "Qual tecnologia será usada no backend?",
+        question: "Which technology will be used on the backend?",
         header: "Backend",
         options: [
           { label: "Express", description: "Framework web minimalista para Node.js" },
-          { label: "Fastify", description: "Framework web rápido para Node.js" },
+          { label: "Fastify", description: "Fast Node.js web framework" },
           { label: "NestJS", description: "Framework Node.js com arquitetura modular" },
-          { label: "Hono", description: "Framework web leve e rápido" },
+          { label: "Hono", description: "Lightweight and fast web framework" },
           { label: "Django", description: "Framework Python full-featured" },
-          { label: "FastAPI", description: "Framework Python rápido e assíncrono" },
+          { label: "FastAPI", description: "Fast, async Python framework" },
           { label: "Flask", description: "Micro-framework Python" },
           { label: "Rails", description: "Framework Ruby full-stack" },
           { label: "Laravel", description: "Framework PHP elegante" },
           { label: "Spring Boot", description: "Framework Java corporativo" },
-          { label: "Go stdlib", description: "Go padrão com net/http" },
-          { label: "Gin", description: "Framework web rápido para Go" },
+          { label: "Go stdlib", description: "Standard Go with net/http" },
+          { label: "Gin", description: "Fast web framework for Go" },
           { label: "Actix/Axum", description: "Frameworks web para Rust" },
         ],
       },
@@ -410,19 +410,19 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
       classification: "CRITICAL",
       already_answered: false,
       question_for_user: {
-        question: "Qual banco de dados será utilizado?",
+        question: "Which database will be used?",
         header: "Banco de Dados",
         options: [
-          { label: "SQLite", description: "Banco local, sem servidor, ideal para projetos pequenos" },
-          { label: "PostgreSQL", description: "Banco relacional robusto e escalável" },
+          { label: "SQLite", description: "Local, serverless database, ideal for small projects" },
+          { label: "PostgreSQL", description: "Robust and scalable relational database" },
           { label: "MySQL", description: "Banco relacional popular e maduro" },
           { label: "MongoDB", description: "Banco NoSQL baseado em documentos" },
-          { label: "Supabase", description: "BaaS com PostgreSQL + APIs automáticas" },
+          { label: "Supabase", description: "BaaS with PostgreSQL + automatic APIs" },
           { label: "Firebase", description: "BaaS da Google com Firestore/Realtime DB" },
-          { label: "Redis", description: "Banco key-value para cache e sessões" },
-          { label: "Turso", description: "SQLite distribuído na borda" },
+          { label: "Redis", description: "Key-value database for cache and sessions" },
+          { label: "Turso", description: "Edge-distributed SQLite" },
           { label: "DynamoDB", description: "Banco NoSQL da AWS" },
-          { label: "Sem banco", description: "Sistema sem persistência" },
+          { label: "No database", description: "System without persistence" },
         ],
       },
     })
@@ -431,15 +431,15 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
   // Delete behavior - always ask (it's a business decision)
   missing.push({
     category: "delete_behavior",
-    description: "Comportamento de exclusão",
+    description: "Deletion behavior",
     classification: "IMPORTANT",
     already_answered: false,
     question_for_user: {
-      question: "Como devem funcionar as exclusões no sistema?",
-      header: "Exclusão",
+      question: "How should deletions work in the system?",
+      header: "Deletion",
       options: [
-        { label: "Hard delete", description: "Registros são removidos permanentemente" },
-        { label: "Soft delete", description: "Registros são marcados como deletados mas mantidos" },
+        { label: "Hard delete", description: "Records are permanently removed" },
+        { label: "Soft delete", description: "Records are marked as deleted but kept" },
       ],
     },
   })
@@ -448,15 +448,15 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
   if (analysis.inferred_entities.length > 0) {
     missing.push({
       category: "business_rules",
-      description: "Regras de negócio específicas",
+      description: "Specific business rules",
       classification: "OPTIONAL",
       already_answered: false,
       question_for_user: {
-        question: "Existem regras de negócio específicas para as entidades detectadas?",
-        header: "Regras de Negócio",
+        question: "Are there specific business rules for the detected entities?",
+        header: "Business Rules",
         options: [
-          { label: "Não por agora", description: "Prosseguir com regras padrão" },
-          { label: "Sim, vou especificar", description: "Quero definir regras específicas" },
+          { label: "Not for now", description: "Proceed with default rules" },
+          { label: "Sim, vou especificar", description: "I want to define specific rules" },
         ],
       },
     })
@@ -468,16 +468,16 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
     if (/tenant|multi.?tenant|organiza/i.test(text)) {
       missing.push({
         category: "multi_tenancy",
-        description: "Estratégia de multi-tenancy",
+        description: "Multi-tenancy strategy",
         classification: "IMPORTANT",
         already_answered: false,
         question_for_user: {
-          question: "O sistema precisa de multi-tenancy?",
+          question: "Does the system need multi-tenancy?",
           header: "Multi-Tenancy",
           options: [
-            { label: "Não", description: "Sistema single-tenant" },
+            { label: "No", description: "Single-tenant system" },
             { label: "Sim, por schema", description: "Isolamento por schema no banco" },
-            { label: "Sim, por coluna", description: "Isolamento por tenant_id em cada tabela" },
+            { label: "Sim, por coluna", description: "Isolation by tenant_id on every table" },
             { label: "Sim, por banco", description: "Um banco de dados por tenant" },
           ],
         },
@@ -488,19 +488,19 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
   // Deployment - always ask
   missing.push({
     category: "deployment",
-    description: "Estratégia de deploy",
+    description: "Deployment strategy",
     classification: "IMPORTANT",
     already_answered: false,
     question_for_user: {
-      question: "Como o sistema será deployado?",
+      question: "How will the system be deployed?",
       header: "Deploy",
       options: [
-        { label: "Docker", description: "Containerização com Docker" },
+        { label: "Docker", description: "Containerized with Docker" },
         { label: "Vercel/Netlify", description: "Deploy serverless" },
         { label: "VPS tradicional", description: "Servidor dedicado ou VPS" },
-        { label: "Kubernetes", description: "Orquestração com K8s" },
+        { label: "Kubernetes", description: "Orchestrated with K8s" },
         { label: "AWS/GCP/Azure", description: "Cloud provider" },
-        { label: "Ainda não definido", description: "Decidir depois" },
+        { label: "Not defined yet", description: "Decide later" },
       ],
     },
   })
@@ -513,13 +513,13 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
       classification: "OPTIONAL",
       already_answered: false,
       question_for_user: {
-        question: "Como a API será versionada?",
+        question: "How will the API be versioned?",
         header: "API Versioning",
         options: [
-          { label: "URL path (/v1/)", description: "Versão no path da URL" },
-          { label: "Header", description: "Versão no header Accept" },
-          { label: "Query param", description: "Versão como query parameter" },
-          { label: "Sem versionamento", description: "API sem controle de versão" },
+          { label: "URL path (/v1/)", description: "Version in the URL path" },
+          { label: "Header", description: "Version in the Accept header" },
+          { label: "Query param", description: "Version as a query parameter" },
+          { label: "No versioning", description: "API without version control" },
         ],
       },
     })
@@ -529,17 +529,17 @@ function buildMissingInformation(analysis: BriefingAnalysis): void {
   if (!analysis.tech_stack.testing) {
     missing.push({
       category: "testing",
-      description: "Estratégia de testes",
+      description: "Testing strategy",
       classification: "OPTIONAL",
       already_answered: false,
       question_for_user: {
-        question: "Qual estratégia de testes será usada?",
+        question: "Which testing strategy will be used?",
         header: "Testes",
         options: [
-          { label: "Unit tests", description: "Testes unitários com Jest/Vitest" },
-          { label: "Integration tests", description: "Testes de integração + E2E" },
-          { label: "TDD", description: "Desenvolvimento orientado a testes" },
-          { label: "Sem testes por agora", description: "Adicionar testes depois" },
+          { label: "Unit tests", description: "Unit tests with Jest/Vitest" },
+          { label: "Integration tests", description: "Integration tests + E2E" },
+          { label: "TDD", description: "Test-driven development" },
+          { label: "No tests for now", description: "Add tests later" },
         ],
       },
     })
@@ -645,13 +645,13 @@ export function updateGraphFromAnswers(
 
     // Brownfield purpose is a project-level decision and must survive the
     // discovery round instead of being silently ignored.
-    if (lowerQ.includes("objetivo do sdd")) {
+    if (lowerQ.includes("purpose of the sdd") || lowerQ.includes("objetivo do sdd")) {
       const project = getNode(graph, graph.project_id)
       if (project) {
         const normalized = answer.toLowerCase()
-        const purpose = normalized.includes("engenharia reversa")
+        const purpose = normalized.includes("engenharia reversa") || normalized.includes("reverse engineering")
           ? "reverse_engineering"
-          : normalized.includes("documentação") || normalized.includes("documentacao")
+          : normalized.includes("documentação") || normalized.includes("documentacao") || normalized.includes("documentation")
             ? "documentation"
             : "greenfield"
         updateNode(graph, project.id, {
@@ -662,7 +662,7 @@ export function updateGraphFromAnswers(
     }
 
     // Auth type
-    if (lowerQ.includes("login") || lowerQ.includes("autenticação")) {
+    if (lowerQ.includes("login") || lowerQ.includes("log in") || lowerQ.includes("autenticação")) {
       let authType = answer
       upsertAnswerNode({
         id: `${graph.project_id}-AUTH`,
@@ -747,7 +747,7 @@ export function updateGraphFromAnswers(
     }
 
     // Delete behavior
-    if (lowerQ.includes("exclusão") || lowerQ.includes("delete")) {
+    if (lowerQ.includes("exclusão") || lowerQ.includes("deletion") || lowerQ.includes("delete")) {
       const isSoftDelete = /soft|reversível|reversivel/i.test(answer)
       upsertAnswerNode({
         id: `${graph.project_id}-RULE-DELETE`,
@@ -786,7 +786,7 @@ export function formatDiscoverySummary(analysis: BriefingAnalysis): string {
   // Tech stack detected
   const techs = Object.entries(analysis.tech_stack).filter(([, v]) => v !== null && v !== "")
   if (techs.length > 0) {
-    lines.push("### Tech Stack Detectado")
+    lines.push("### Detected Tech Stack")
     for (const [key, value] of techs) {
       if (key === "other") continue
       lines.push(`- **${key}:** ${value}`)
@@ -795,7 +795,7 @@ export function formatDiscoverySummary(analysis: BriefingAnalysis): string {
   }
 
   if (Object.keys(analysis.known_facts).length > 0) {
-    lines.push("### Informações Detectadas")
+    lines.push("### Detected Information")
     for (const [key, value] of Object.entries(analysis.known_facts)) {
       if (key.startsWith("tech_")) continue
       lines.push(`- ${key}: ${value}`)
@@ -804,26 +804,26 @@ export function formatDiscoverySummary(analysis: BriefingAnalysis): string {
   }
 
   if (analysis.inferred_entities.length > 0) {
-    lines.push("### Entidades Detectadas")
+    lines.push("### Detected Entities")
     lines.push(`- ${analysis.inferred_entities.join(", ")}`)
     lines.push("")
   }
 
   if (analysis.file_references.length > 0) {
-    lines.push("### Arquivos Referenciados (@)")
+    lines.push("### Referenced Files (@)")
     for (const ref of analysis.file_references) {
-      lines.push(`- \`${ref.path}\` — contexto: ${ref.context}`)
+      lines.push(`- \`${ref.path}\` — context: ${ref.context}`)
     }
     lines.push("")
   }
 
   if (analysis.domain_detected) {
-    lines.push(`### Domínio Detectado: ${analysis.domain_detected}`)
+    lines.push(`### Detected Domain: ${analysis.domain_detected}`)
     lines.push("")
   }
 
   if (analysis.ambiguities.length > 0) {
-    lines.push("### Ambiguidades Detectadas")
+    lines.push("### Detected Ambiguities")
     for (const a of analysis.ambiguities) {
       lines.push(`- ${a}`)
     }
@@ -869,16 +869,16 @@ export function generatePurposeQuestion(projectDir: string): QuestionForUser | n
   if (!isBrownfieldProject(projectDir)) return null
 
   return {
-    question: "Este projeto já possui código implementado. Qual o objetivo do SDD?",
-    header: "Objetivo do SDD",
+    question: "This project already has implemented code. What is the purpose of the SDD?",
+    header: "Purpose of the SDD",
     options: [
       {
-        label: "Documentação completa",
-        description: "Documentar a estrutura, arquitetura e modelos de dados do sistema existente como está",
+        label: "Complete documentation",
+        description: "Document the structure, architecture and data models of the existing system as it is now",
       },
       {
-        label: "Engenharia reversa",
-        description: "Criar uma especificação agnóstica de tecnologia para reconstruir o sistema em outra stack",
+        label: "Reverse engineering",
+        description: "Create a technology-agnostic spec to rebuild the system with another stack",
       },
     ],
   }

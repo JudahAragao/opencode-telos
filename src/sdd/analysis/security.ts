@@ -53,8 +53,8 @@ export function performSecurityAudit(
           type: 'missing_authentication',
           severity: 'high' as const,
           location: `${meta.method} ${meta.path}`,
-          description: 'Endpoint de modificação sem autenticação',
-          recommendation: 'Adicionar middleware de autenticação',
+          description: 'Modification endpoint without authentication',
+          recommendation: 'Add authentication middleware',
         }
         if (!options?.minSeverity || SEVERITY_ORDER[vuln.severity] <= SEVERITY_ORDER[options.minSeverity]) {
           vulnerabilities.push(vuln)
@@ -82,8 +82,8 @@ export function performSecurityAudit(
         type: 'sensitive_dataexposure',
         severity: 'medium' as const,
         location: `Entity: ${entity.name}`,
-        description: `Campos sensíveis detectados: ${sensitiveFields.map((f: any) => f.name).join(', ')}`,
-        recommendation: 'Criptografar ou mascarar campos sensíveis',
+        description: `Sensitive fields detected: ${sensitiveFields.map((f: any) => f.name).join(', ')}`,
+        recommendation: 'Encrypt or mask sensitive fields',
       }
       if (!options?.minSeverity || SEVERITY_ORDER[vuln.severity] <= SEVERITY_ORDER[options.minSeverity]) {
         vulnerabilities.push(vuln)
@@ -94,11 +94,11 @@ export function performSecurityAudit(
   const score = Math.max(0, 100 - vulnerabilities.length * 15)
 
   if (vulnerabilities.length === 0) {
-    recommendations.push('Nenhuma vulnerabilidade crítica detectada')
+    recommendations.push('No critical vulnerability detected')
   } else {
-    recommendations.push('Corrigir vulnerabilidades antes de produção')
+    recommendations.push('Fix vulnerabilities before production')
     recommendations.push('Implementar HTTPS em todos os endpoints')
-    recommendations.push('Adicionar rate limiting')
+    recommendations.push('Add rate limiting')
   }
 
   return { vulnerabilities, score, recommendations }
@@ -106,7 +106,7 @@ export function performSecurityAudit(
 
 export function formatSecurityAudit(result: SecurityAuditResult): string {
   const lines = [
-    '## Relatório de Auditoria de Segurança',
+    '## Security Audit Report',
     '',
     `**Score:** ${result.score}/100`,
     `**Vulnerabilidades:** ${result.vulnerabilities.length}`,
@@ -118,15 +118,15 @@ export function formatSecurityAudit(result: SecurityAuditResult): string {
     for (const vuln of result.vulnerabilities) {
       lines.push(`#### ${vuln.type} (${vuln.severity})`)
       lines.push(`- **Local:** ${vuln.location}`)
-      lines.push(`- **Descrição:** ${vuln.description}`)
-      lines.push(`- **Recomendação:** ${vuln.recommendation}`)
+      lines.push(`- **Description:** ${vuln.description}`)
+      lines.push(`- **Recommendation:** ${vuln.recommendation}`)
       lines.push('')
     }
   } else {
-    lines.push('✅ Nenhuma vulnerabilidade detectada')
+    lines.push('✅ No vulnerability detected')
   }
 
-  lines.push('### Recomendações Gerais')
+  lines.push('### General Recommendations')
   for (const rec of result.recommendations) {
     lines.push(`- ${rec}`)
   }

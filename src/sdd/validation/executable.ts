@@ -51,12 +51,12 @@ export interface FunctionalEvidenceResult {
 }
 
 /**
- * Avalia a evidência funcional do Change (requisito → teste).
+ * Evaluates the Change's functional evidence (requirement → test).
  *
- * G1: ausência de requisito afetado NÃO é aprovação. Antes isso retornava
+ * G1: absence of an affected requirement is NOT approval. This used to return
  * `verified: true`, o que anulava a trava sempre que o agente omitisse o escopo.
- * Agora exige uma declaração explícita (`no_requirement_impact`) para o caso
- * legítimo de mudança que não altera comportamento especificado.
+ * Now it requires an explicit declaration (`no_requirement_impact`) for the
+ * legitimate case of a change that does not alter specified behaviour.
  */
 export function validateFunctionalEvidence(graph: KnowledgeGraph, changeId: string): FunctionalEvidenceResult {
   const change = graph.nodes.find((node) => node.id === changeId && node.type === "change")
@@ -180,13 +180,13 @@ function declaredVerifications(projectDir: string): DeclaredVerification[] {
 }
 
 /**
- * Diretórios que nunca entram no fingerprint: artefatos, dependências e
- * armazenamento interno do SDD.
+ * Directories that never enter the fingerprint: artifacts, dependencies and
+ * the SDD internal storage.
  *
- * G5: dot-entries NÃO são mais ignorados em bloco. Antes qualquer nome
- * começando com "." era pulado, então mudar `.eslintrc*`, `.prettierrc*`,
- * `.editorconfig` ou `.github/**` depois de verificar mantinha o laudo
- * "atual" — exatamente o drift que a trava existe para impedir.
+ * G5: dot-entries are NO longer skipped wholesale. Previously any name
+ * starting with "." was skipped, so changing `.eslintrc*`, `.prettierrc*`,
+ * `.editorconfig` or `.github/**` after verifying kept the report "current" —
+ * exactly the drift this gate exists to prevent.
  */
 const IGNORED_DIRECTORIES = new Set([
   ".git", ".sdd", "node_modules", "dist", "build", "coverage", ".turbo",
@@ -194,11 +194,11 @@ const IGNORED_DIRECTORIES = new Set([
   "venv", "target", "__pycache__",
 ])
 
-/** Arquivos irrelevantes para o fingerprint. */
+/** Files irrelevant to the fingerprint. */
 const IGNORED_FILE_NAMES = new Set([".DS_Store", "Thumbs.db"])
 
 /**
- * `.env` guarda segredo local, não fonte: só o exemplo versionado é hasheado.
+ * `.env` holds a local secret, not source: only the versioned example is hashed.
  */
 function isIgnoredFile(name: string): boolean {
   if (IGNORED_FILE_NAMES.has(name)) return true
@@ -258,9 +258,9 @@ export function computeProjectFingerprint(projectDir: string): string {
 
 export interface ExecutableValidationOptions {
   /**
-   * G4: permite registrar uma dispensa explícita e auditável quando o projeto
-   * não declara nenhum script de verificação. Sem isso, o fluxo trava em
-   * `verified: false` e a única saída seria `force=true` (não auditável).
+   * G4: allows recording an explicit, auditable waiver when the project
+   * declares no verification script. Without it the flow deadlocks on
+   * `verified: false` and the only way out would be `force=true` (not auditable).
    */
   acknowledgeNoScripts?: boolean
   waiverReason?: string
@@ -308,7 +308,7 @@ export function validateExecutableProject(
   // At least one project-declared verification script must pass; skipped
   // optional scripts do not count as failures.
   const hasExecutableEvidence = declaredChecks.length > 0 && declaredChecks.every((check) => check.status === "passed")
-  // G4: sem script declarado, a dispensa precisa ser explícita e fica gravada
+  // G4: with no declared script the waiver must be explicit and is stored
   // no laudo (verification_waived + waiver_reason) em vez de virar force=true.
   const waived = !hasExecutableEvidence && declaredChecks.length === 0 && options?.acknowledgeNoScripts === true
   return {
@@ -327,8 +327,8 @@ export function validateExecutableProject(
 }
 
 /**
- * Hash dos arquivos declarados como afetados pelo Change (G6/G8).
- * `sha256: null` registra que o arquivo declarado não existia na verificação.
+ * Hashes of the files declared as affected by the Change (G6/G8).
+ * `sha256: null` records that the declared file did not exist at verification.
  */
 export function computeScopedFileHashes(projectDir: string, files: readonly string[]): ScopedFileHash[] {
   return files.map((file) => {
@@ -343,8 +343,8 @@ export function computeScopedFileHashes(projectDir: string, files: readonly stri
 }
 
 /**
- * Confere se os arquivos declarados pelo Change são exatamente os que foram
- * verificados (G8) e se nada mudou neles desde então (G6).
+ * Checks that the files declared by the Change are exactly the ones that were
+ * verified (G8) and that nothing changed in them since (G6).
  */
 export function verifyScopedFiles(
   projectDir: string,

@@ -159,7 +159,7 @@ export interface TaskBoardItem {
   metadata: Record<string, unknown>
   integration_status: IntegrationStatus
   priority: TaskPriority
-  /** Change SDD aberto por esta task, quando existir. */
+  /** SDD Change opened by this task, if any. */
   change_id?: string
   change_status?: NodeStatus
   created_at: string
@@ -554,31 +554,31 @@ export function getPendingIntegrationTasks(graph: KnowledgeGraph): TaskNode[] {
 export function buildIntegrationBrief(graph: KnowledgeGraph): string {
   const pending = getPendingIntegrationTasks(graph)
   if (pending.length === 0) {
-    return "## SDD Tasks — nenhuma task pendente de integração."
+    return "## SDD Tasks — no task pending integration."
   }
 
-  const lines = [`## SDD Tasks — ${pending.length} task(s) pendentes de integração`, ""]
+  const lines = [`## SDD Tasks — ${pending.length} task(s) pending integration`, ""]
   for (const task of pending) {
     const meta = task.metadata as Record<string, unknown>
     lines.push(`### ${task.id}: ${task.name}`)
-    if (task.description) lines.push(`- Descrição: ${task.description}`)
-    if (meta.goal) lines.push(`- Objetivo: ${String(meta.goal)}`)
+    if (task.description) lines.push(`- Description: ${task.description}`)
+    if (meta.goal) lines.push(`- Goal: ${String(meta.goal)}`)
     if (Array.isArray(meta.files) && meta.files.length > 0) {
-      lines.push(`- Arquivos previstos: ${meta.files.join(", ")}`)
+      lines.push(`- Planned files: ${meta.files.join(", ")}`)
     }
     const derived = toTaskBoardItem(graph, task).metadata.acceptance_summary as Record<string, unknown> | undefined
     if (derived) {
-      lines.push(`- Critérios de aceite derivados: ${String(derived.total)} total, ${String(derived.pending)} pendente(s), ${String(derived.accepted)} aceito(s), ${String(derived.rejected)} rejeitado(s)`)
+      lines.push(`- Derived acceptance criteria: ${String(derived.total)} total, ${String(derived.pending)} pending, ${String(derived.accepted)} accepted, ${String(derived.rejected)} rejected`)
     }
     lines.push("")
   }
 
   lines.push(
-    "**Como integrar:** vincule a task ao `feature`/`requirement` correspondente com `sdd.graph_mutation(action=\"add_relationship\")` " +
-      "(tipo `implements`), crie `test` quando houver cobertura (`tested_by`) e registre `decision`/`file` " +
-      "quando fizer sentido. Não altere arquivos de código-fonte nesta etapa — ela é só de especificação. " +
-      'Ao terminar, chame `sdd.integrate_tasks` com `action="mark_integrated"` e o `task_id` — a task integrada ' +
-      'abre o Change SDD automaticamente e é ele que autoriza a escrita do código.',
+    "**How to integrate:** link the task to its `feature`/`requirement` with `sdd.graph_mutation(action=\"add_relationship\")` " +
+      "(type `implements`), create a `test` when there is coverage (`tested_by`) and record `decision`/`file` " +
+      "where it makes sense. Do not touch source files at this stage — it is specification only. " +
+      'When done, call `sdd.integrate_tasks` with `action="mark_integrated"` and the `task_id` — the integrated task ' +
+      'opens the SDD Change automatically, and that Change is what authorizes writing code.',
   )
   return lines.join("\n")
 }
@@ -586,17 +586,17 @@ export function buildIntegrationBrief(graph: KnowledgeGraph): string {
 /** Short, deterministic prompt used to wake the agent when a card is saved. */
 export function buildTaskIntegrationPrompt(taskId: string, name: string): string {
   return [
-    "## SDD: integração de task manual",
+    "## SDD: manual task integration",
     "",
-    `O dashboard criou/alterou a task \`${taskId}\` ("${name}").`,
+    `The dashboard created/changed task \`${taskId}\` ("${name}").`,
     "",
-    "Integre-a ao Knowledge Graph agora:",
-    "1. Chame a tool `sdd.integrate_tasks` com `action=\"list\"` para ver o plano de integração.",
-    "2. Crie as relações e os nós de apoio necessários (`implements` para feature/requirement, `tested_by`, `depends_on`/`blocked_by`, `decision`, `file`).",
-    `3. Ao terminar, chame \`sdd.integrate_tasks\` com \`action="mark_integrated"\` e \`task_id="${taskId}"\`.`,
-    "   Isso abre o Change SDD da task (a autorização de escrita do código).",
-    `4. Se o Change ficar em rascunho, aprove com \`sdd.integrate_tasks\` (\`action="approve_change"\`, \`task_id="${taskId}"\`) e então implemente o código correspondente.`,
+    "Integrate it into the Knowledge Graph now:",
+    "1. Call `sdd.integrate_tasks` with `action=\"list\"` to see the integration plan.",
+    "2. Create the relationships and supporting nodes (`implements` for feature/requirement, `tested_by`, `depends_on`/`blocked_by`, `decision`, `file`).",
+    `3. When done, call \`sdd.integrate_tasks\` with \`action="mark_integrated"\` and \`task_id="${taskId}"\`.`,
+    "   That opens the task's SDD Change (the code write authorization).",
+    `4. If the Change stays in draft, approve it with \`sdd.integrate_tasks\` (\`action="approve_change"\`, \`task_id="${taskId}"\`) and then implement the matching code.`,
     "",
-    "A etapa de integração altera apenas o grafo SDD — só escreva código depois do Change aprovado.",
+    "Integration only changes the SDD graph — write code only after the Change is approved.",
   ].join("\n")
 }

@@ -34,20 +34,20 @@ import { transitionFinalAcceptance } from "../sdd/acceptance/final.js"
  * Command hub interativo para SDD.
  *
  * O plugin registra um handler no hook `command.execute.before`.
- * Quando o OpenCode vê um comando `sdd <subcommand>` (ou `sdd:<subcommand>`),
- * antes de qualquer execução, o hook intercepta e executa a ação correspondente
- * de forma determinística — sem depender do LLM.
+ * When OpenCode sees a `sdd <subcommand>` command (or `sdd:<subcommand>`),
+ * before any execution the hook intercepts it and runs the matching action
+ * deterministically — without depending on the LLM.
  *
- * Essa é a "tela interativa nova" nesse estágio: um único atalho `sdd` que
+ * This is the "new interactive screen" at this stage: a single `sdd` shortcut that
  * roteia para os subcomandos comuns. O atalho `sdd` pode ser invocado como
  * `/sdd`, `/sdd on`, `/sdd status`, `/sdd cache_reset` (ou qualquer forma
  * que o runtime normalize como um command `sdd`).
  *
- * "Exibir na tela inicial" é, na prática, registros de comando. O sistema
- * do OpenCode já reconhece comandos setup (ex: via `~/.config/opencode/command/`),
+ * "Show on the home screen" is, in practice, command records. OpenCode already
+ * recognizes setup commands (e.g. via `~/.config/opencode/command/`),
  * e o plugin pode anexar uma mensagem de ajuda ao detectar um command
- * desconhecido/auxiliar. Aqui deixamos essa mensagem disponível e usamos
- * o roteamento determinístico.
+ * unknown/auxiliary. Here we keep that message available and use
+ * deterministic routing.
  */
 
 export const SDD_COMMAND_NAME = "sdd"
@@ -119,8 +119,8 @@ export function runSddCommand(
   const raw = rawInput.replace(/^[/\s]+/, "").trim().toLowerCase()
   if (!raw.startsWith("sdd")) return { matched: false, text: "" }
 
-  // `sdd viz`, `sdd:viz` e `sdd-viz` são a mesma coisa: o separador depois de
-  // "sdd" é consumido aqui para que nenhuma forma caia no painel por engano.
+  // `sdd viz`, `sdd:viz` and `sdd-viz` are the same thing: the separator after
+  // "sdd" is consumed here so no form falls into the panel by mistake.
   const parts = raw.replace(/^sdd(?:[\s:_-]+|$)/i, "").split(/\s+/).filter(Boolean)
   const subRaw = parts.join(" ").trim().toLowerCase()
   const sub = subRaw.replace(/^[:\-_]/, "").trim()
@@ -270,8 +270,8 @@ function sddStatus(projectDir: string): string {
 
 /**
  * `/sdd renew` — renova a janela do workflow ativo preservando o Change atual
- * (e o laudo de verificação já gravado). É o caminho para tarefas que passam
- * dos 30 min sem precisar repetir `sdd.enforce` e criar um Change órfão.
+ * (and the verification report already stored). It is the path for tasks that go
+ * beyond the 30 min without repeating `sdd.enforce` and creating an orphan Change.
  */
 function sddRenew(projectDir: string, input: SddCommandInput): string {
   const scope = workflowScope(projectDir, input.sessionID)
@@ -359,8 +359,8 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
 /**
  * `/sdd tasks` — board de tasks (Kanban) do dashboard.
  *
- * Determinístico: lê o grafo e formata o board; `tasks board` sobe o dashboard
- * (mesmo caminho de `/sdd viz`) e aponta para a aba Kanban.
+ * Deterministic: reads the graph and formats the board; `tasks board` starts the dashboard
+ * (same route as `/sdd viz`) and points to the Kanban tab.
  */
 function sddAcceptance(projectDir: string, input: SddCommandInput): string {
   const raw = input.arguments.replace(/^acceptance[:\s]*/i, "").trim()
@@ -394,15 +394,15 @@ function sddAcceptance(projectDir: string, input: SddCommandInput): string {
   }
 
   if (action === "list" || action === "summary") {
-    if (!target) return "Informe um Requirement ID: `/sdd acceptance REQ-001`."
+    if (!target) return "Provide a Requirement ID: `/sdd acceptance REQ-001`."
     if (action === "summary") return JSON.stringify(service.summary(target), null, 2)
     const criteria = service.list(target)
-    if (criteria.length === 0) return `Nenhum critério encontrado para ${target}.`
+    if (criteria.length === 0) return `No criterion found for ${target}.`
     return [`## Acceptance — ${target}`, "", ...criteria.map((criterion) => `- ${criterion.id} [${criterion.status}] v${criterion.metadata.criterion_version}: ${criterion.metadata.text}`)].join("\n")
   }
 
   if (["accept", "reject", "waive", "reopen"].includes(action)) {
-    if (!target) return "Informe o ID do critério."
+    if (!target) return "Provide the criterion ID."
     const result = action === "accept"
       ? service.accept(target, { actor })
       : action === "reject"
@@ -415,21 +415,21 @@ function sddAcceptance(projectDir: string, input: SddCommandInput): string {
   }
 
   if (action === "accept-all") {
-    if (!target) return "Informe o Requirement ID."
+    if (!target) return "Provide the Requirement ID."
     const result = service.acceptAll(target, { actor })
     repo.saveGraph(graph)
     return JSON.stringify(result, null, 2)
   }
 
   if (action === "create") {
-    if (!target || parts.length < 3) return "Uso: `/sdd acceptance create REQ-001 texto do critério`."
+    if (!target || parts.length < 3) return "Usage: `/sdd acceptance create REQ-001 criterion text`."
     const criterion = service.create(target, parts.slice(2).join(" "), undefined, actor)
     repo.saveGraph(graph)
     return `Acceptance criterion created: ${criterion.id}`
   }
 
   if (action === "update") {
-    if (!target || parts.length < 3) return "Uso: `/sdd acceptance update AC-001 novo texto`."
+    if (!target || parts.length < 3) return "Usage: `/sdd acceptance update AC-001 new text`."
     const result = service.updateText(target, parts.slice(2).join(" "), { actor })
     repo.saveGraph(graph)
     return `Acceptance criterion ${result.criterion.id} updated to version ${result.criterion.metadata.criterion_version} and returned to PENDING.`
@@ -443,7 +443,7 @@ function sddAcceptance(projectDir: string, input: SddCommandInput): string {
   }
 
   if (action === "final-accept" || action === "final-reject") {
-    if (!target) return "Uso: `/sdd acceptance final-accept CHG-001 [observação]`."
+    if (!target) return "Usage: `/sdd acceptance final-accept CHG-001 [observation]`."
     const result = transitionFinalAcceptance(graph, target, action === "final-accept" ? "ACCEPTED" : "REJECTED", {
       actor,
       observation: parts.slice(2).join(" ") || undefined,
@@ -453,13 +453,13 @@ function sddAcceptance(projectDir: string, input: SddCommandInput): string {
     return `${target} -> final acceptance ${result.status}`
   }
 
-  return "Uso: `/sdd acceptance REQ-001`, `create REQ-001 texto`, `update AC-001 texto`, `accept AC-001`, `reject AC-001`, `waive AC-001`, `reopen AC-001`, `migrate`, `final-accept CHG-001` ou `accept-all REQ-001`."
+  return "Usage: `/sdd acceptance REQ-001`, `create REQ-001 text`, `update AC-001 text`, `accept AC-001`, `reject AC-001`, `waive AC-001`, `reopen AC-001`, `migrate`, `final-accept CHG-001` or `accept-all REQ-001`."
 }
 
 function sddGuide(projectDir: string, input: SddCommandInput): string {
   const raw = input.arguments.replace(/^guide[:\s]*/i, "").trim()
   const match = raw.match(/^(\S+)\s+(.+)$/)
-  if (!match) return "Uso: `/sdd guide NODE-001 orientação humana`."
+  if (!match) return "Usage: `/sdd guide NODE-001 human guidance`."
   const repo = createRepository(projectDir)
   if (!repo.isInitialized()) return "The Knowledge Graph is not initialized. Run `sdd.initialize` first."
   const { createGuidance } = require("../sdd/guidance/service.js") as typeof import("../sdd/guidance/service.js")
@@ -503,7 +503,7 @@ function sddTasks(projectDir: string, input: SddCommandInput): string {
       return [
         "## SDD Tasks — Change",
         "",
-        "Informe a task: `/sdd tasks change TASK-001` (use `--approve` para aprovar um Change de nível REVIEW/APPROVAL).",
+        "Provide the task: `/sdd tasks change TASK-001` (use `--approve` to approve a REVIEW/APPROVAL-level Change).",
         "",
         "Tasks no board:",
         ...listTasks(graph).map((task) => `- ${task.id}: ${task.name}${task.change_id ? ` · ${task.change_id}(${task.change_status})` : ""}`),
@@ -519,15 +519,15 @@ function sddTasks(projectDir: string, input: SddCommandInput): string {
       return [
         "## SDD Tasks — Change",
         "",
-        `Task \`${requested}\` não encontrada no board. Rode \`/sdd tasks\` para listar.`,
+        `Task \`${requested}\` not found on the board. Run \`/sdd tasks\` to list them.`,
       ].join("\n")
     }
 
     const result = openChangeForTask(graph, task.id, { approve })
     repo.saveGraph(graph)
     const footer = result.approved
-      ? "\nPróximo passo: implemente o código coberto pelo Change (o agente também recebe esse pedido pelo dashboard)."
-      : "\nRode `/sdd tasks change " + task.id + " --approve` para aprovar e liberar a escrita de código."
+      ? "\nNext step: implement the code covered by the Change (the agent also receives this request through the dashboard)."
+      : "\nRun `/sdd tasks change " + task.id + " --approve` to approve it and unlock code writing."
     return formatOpenChangeResult(result) + footer
   }
 
@@ -593,8 +593,8 @@ function sddTasks(projectDir: string, input: SddCommandInput): string {
 /**
  * `/sdd viz` — dashboard do Knowledge Graph.
  *
- * Totalmente determinístico: subir o servidor é um efeito colateral e não pode
- * depender do LLM — o template do comando inclusive proíbe tool calls.
+ * Fully deterministic: starting the server is a side effect and cannot
+ * depend on the LLM — the command template even forbids tool calls.
  */
 function sddViz(projectDir: string, input: SddCommandInput): string {
   const action = input.arguments.replace(/^viz[:\s]*/i, "").trim().toLowerCase()
@@ -648,10 +648,10 @@ function sddViz(projectDir: string, input: SddCommandInput): string {
 }
 
 /**
- * Detecta comandos SDD e os executa de forma determinística.
+ * Detects SDD commands and executes them deterministically.
  *
- * Escolhemos `command.execute.before` porque é o hook público do SDK 1.18 que
- * corresponde à chegada de um command do TUI antes de sua execução. O hook
+ * We chose `command.execute.before` because it is the public SDK 1.18 hook that
+ * corresponds to a TUI command arriving before execution. The hook
  * permite interceptar e substituir o comportamento de comandos reconhecidos
  * (neste caso, o command `sdd`), sem depender do chat.message/LLM.
  */
@@ -659,7 +659,7 @@ export function createSddCommandHooks(projectDir: string): Hooks {
   return {
     config: async (cfg) => {
       // Registra o command `sdd` programaticamente. Isso faz `/sdd` aparecer
-      // no preview de comandos do TUI sem o usuário criar arquivos `.md`.
+      // in the TUI command preview without the user creating `.md` files.
       cfg.command = cfg.command ?? {}
       if (!cfg.command.sdd) {
         cfg.command.sdd = {
@@ -680,7 +680,7 @@ export function createSddCommandHooks(projectDir: string): Hooks {
       //   sdd renew           -> renew the active workflow window
       //   sdd cache_reset     -> reset
       // O runtime pode entregar o comando como `command` + `arguments`
-      // separados (ex: command="sdd", arguments="on") ou já concatenados
+      // separated (e.g. command="sdd", arguments="on") or already concatenated
       // (ex: command="/sdd on"). Normalizamos ambas as formas.
       const raw = `${input.command} ${input.arguments ?? ""}`.replace(/^[/\s]+/, "").trim().toLowerCase()
       if (!raw.startsWith("sdd")) return

@@ -13,6 +13,6 @@ export {
 import { getFixes } from "./fixes.js"
 getFixes()
 
-// Rastreabilidade: backfill de grafos existentes (inferência + inversos + milestones)
+// Traceability: backfill for existing graphs (inference + inverses + milestones)
 import { registerRelationshipBackfill } from "./relationship-backfill.js"
 registerRelationshipBackfill()

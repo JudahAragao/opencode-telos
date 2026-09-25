@@ -1,19 +1,19 @@
 /**
- * Relevância lexical local entre o input do usuário e as opções de roteamento.
+ * Local lexical relevance between the user's input and the routing options.
  *
- * O roteamento usa BM25: determinístico, sem rede e preservando termos
- * técnicos, nomes de arquivo e nomes de comando.
+ * Routing uses BM25: deterministic, offline, and preserving technical terms,
+ * file names and command names.
  *
  * Consumido por: intent-classifier.ts
- * Dependências: nenhuma (módulo puro)
+ * Dependencies: none (pure module)
  */
 
 /**
- * Calcula a relevância BM25 entre uma consulta e múltiplas opções.
- * Retorna pares (label, score) ordenados por relevância decrescente.
+ * Computes the BM25 relevance between a query and multiple options.
+ * Returns (label, score) pairs ordered by descending relevance.
  *
- * Os scores são ilimitados — normalize contra o melhor match quando precisar
- * de um valor de confiança comparável entre consultas.
+ * Scores are unbounded — normalize against the best match when you need
+ * a confidence value comparable across queries.
  */
 export function rankSimilarity(
   query: string,

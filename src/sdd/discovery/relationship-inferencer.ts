@@ -1,8 +1,8 @@
 /**
- * Motor de inferência de relacionamentos.
+ * Relationship inference engine.
  *
- * Reconstrói a rastreabilidade do grafo de forma determinística e idempotente,
- * cobrindo as lacunas que a construção por regex/keyword deixava:
+ * Rebuilds the graph traceability deterministically and idempotently, covering
+ * the gaps that regex/keyword construction used to leave:
  *   - requirement  --specifies-->  feature
  *   - endpoint     --implements--> feature
  *   - file/module  --implements--> feature
@@ -11,9 +11,9 @@
  *   - task/change  --belongs_to--> milestone
  *
  * Toda aresta inferida carrega `metadata` com `inferred`, `method`,
- * `confidence` e `evidence`, então pode ser auditada e substituída por uma
- * decisão explícita. O motor é conservador: só materializa a melhor
- * correspondência acima do limiar de confiança e nunca cria ciclo, self-loop
+ * `confidence` and `evidence`, so it can be audited and overridden by an
+ * explicit decision. The engine is conservative: it only materializes the best
+ * match above the confidence threshold and never creates a cycle, self-loop
  * ou par inverso redundante.
  */
 
@@ -46,13 +46,13 @@ export interface InferenceProposal {
 }
 
 export interface InferenceOptions {
-  /** Confiança mínima para materializar uma aresta (default: 0.5). */
+  /** Minimum confidence to materialize an edge (default: 0.5). */
   minConfidence?: number
   /** Criar/ligar milestones a partir de `metadata.milestone` (default: true). */
   includeMilestones?: boolean
   /** Normalizar pares inversos antes de inferir (default: true). */
   normalizeInverses?: boolean
-  /** Máximo de alvos por (nó, tipo) nas heurísticas de nome/caminho (default: 2). */
+  /** Maximum targets per (node, type) in name/path heuristics (default: 2). */
   maxTargetsPerType?: number
 }
 
@@ -76,13 +76,13 @@ const STOPWORDS = new Set([
   "ts", "tsx", "js", "jsx", "mts", "cts", "json", "yaml", "yml", "d",
 ])
 
-// ── Tokenização e score ──────────────────────────────────────────────
+// ── Tokenization and scoring ─────────────────────────────────────────
 
 function tokenize(text: string | undefined): Set<string> {
   const tokens = new Set<string>()
   if (!text) return tokens
   // Divide camelCase/PascalCase (ApiKey → Api Key), mas preserva siglas
-  // coladas a dígitos (2FA continua "2fa", não vira "2 fa").
+  // glued to digits (2FA stays "2fa", it does not become "2 fa").
   const expanded = text
     .replace(/([a-z0-9])([A-Z][a-z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
@@ -97,7 +97,7 @@ function tokenize(text: string | undefined): Set<string> {
   return tokens
 }
 
-/** Cobertura mútua do conjunto menor (0..1). Robusto a caminhos longos. */
+/** Mutual coverage of the smaller set (0..1). Robust to long paths. */
 function overlapScore(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0
   let hits = 0
@@ -115,7 +115,7 @@ function pathTokens(node: AnyNode): Set<string> {
   return tokenize(path)
 }
 
-/** Tokens de busca de nós de código (arquivo/módulo/símbolo). */
+/** Search tokens for code nodes (file/module/symbol). */
 function codeTokens(node: AnyNode): Set<string> {
   const meta = node.metadata as Record<string, unknown>
   const parts = [node.name]
@@ -124,7 +124,7 @@ function codeTokens(node: AnyNode): Set<string> {
   return tokenize(parts.join(" "))
 }
 
-// ── Resolução de referências declaradas ──────────────────────────────
+// ── Resolving declared references ────────────────────────────────────
 
 function resolveReference(graph: KnowledgeGraph, reference: unknown): AnyNode | undefined {
   if (typeof reference !== "string" || reference.length === 0) return undefined
@@ -140,7 +140,7 @@ function readStringArray(value: unknown): string[] {
   return []
 }
 
-// ── Criação/ligação de milestones ────────────────────────────────────
+// ── Milestone creation/linking ───────────────────────────────────────
 
 function slugify(value: string): string {
   return value
@@ -152,7 +152,7 @@ function slugify(value: string): string {
 
 /**
  * Garante que todo `metadata.milestone` (string) declarado em change/task
- * exista como nó `milestone` e esteja ligado por `belongs_to`.
+ * exists as a `milestone` node and is linked by `belongs_to`.
  */
 export function ensureMilestoneNodes(graph: KnowledgeGraph): number {
   let created = 0
@@ -167,7 +167,7 @@ export function ensureMilestoneNodes(graph: KnowledgeGraph): number {
       (node) => node.type === "milestone" && node.name.toLowerCase() === name.toLowerCase(),
     )
     if (existing) {
-      // Carimba a versão de release quando descoberta por metadata.release.
+      // Stamps the release version when discovered through metadata.release.
       if (releaseVersion && !(existing.metadata as Record<string, unknown>).release_version) {
         const updates: Partial<AnyNode> = {}
         updates.metadata = {
@@ -234,11 +234,11 @@ export function ensureMilestoneNodes(graph: KnowledgeGraph): number {
           created_by: "inference-engine",
         })
       } catch {
-        // Já existe ou criaria ciclo — a intenção continua registrada no metadata.
+        // Already exists or would create a cycle — the intent stays recorded in metadata.
       }
     }
 
-    // Espelha o vínculo em metadata.milestone_id para que tools/relatórios
+    // Mirrors the link into metadata.milestone_id so tools/reports
     // encontrem o release sem depender da aresta.
     if (primary && meta.milestone_id !== primary) {
       const updates: Partial<AnyNode> = {}
@@ -259,10 +259,10 @@ function nodeType(id: string, graph: KnowledgeGraph): NodeType | undefined {
   return getNode(graph, id)?.type
 }
 
-// ── Inferência principal ─────────────────────────────────────────────
+// ── Main inference ───────────────────────────────────────────────────
 
 /**
- * Calcula as arestas que faltam no grafo, sem mutá-lo.
+ * Computes the missing edges in the graph, without mutating it.
  */
 export function inferRelationships(
   graph: KnowledgeGraph,
@@ -283,7 +283,7 @@ export function inferRelationships(
 
     const key = relationshipKey(proposal.from, proposal.to, proposal.type)
     if (existing.has(key)) return
-    // Não propõe uma aresta se o par inverso preferido já existe.
+    // Does not propose an edge if the preferred inverse pair already exists.
     const inverse = getInverseRelationshipType(proposal.type)
     if (inverse) {
       const inverseKey = relationshipKey(proposal.to, proposal.from, inverse)
@@ -294,7 +294,7 @@ export function inferRelationships(
     if (!current || proposal.confidence > current.confidence) proposals.set(key, proposal)
   }
 
-  // Memoiza a tokenização por nó: sem isso a heurística seria O(arquivos × features)
+  // Memoizes tokenization per node: without it the heuristic would be O(files × features)
   // recomputando os mesmos tokens repetidamente em grafos grandes.
   const tokenCache = new Map<string, Set<string>>()
   const cachedNameTokens = (target: AnyNode): Set<string> => {
@@ -347,7 +347,7 @@ export function inferRelationships(
     }
   }
 
-  // ── 1. Declarações explícitas em metadata ─────────────────────────
+  // ── 1. Explicit declarations in metadata ───────────────────────────
   for (const node of graph.nodes) {
     const meta = node.metadata as Record<string, unknown>
 
@@ -395,7 +395,7 @@ export function inferRelationships(
       }
     }
 
-    // feature --satisfied_by--> requirement (canônica: specifies no sentido inverso)
+    // feature --satisfied_by--> requirement (canonical: specifies in the reverse sense)
     if (node.type === "feature") {
       for (const ref of [...readStringArray(meta.requirements), ...readStringArray(meta.requirement_ids)]) {
         const target = resolveReference(graph, ref)
@@ -406,7 +406,7 @@ export function inferRelationships(
     }
   }
 
-  // ── 2. Correspondência por tokens (heurística) ────────────────────
+  // ── 2. Token matching (heuristic) ──────────────────────────────────
   for (const requirement of requirements) {
     bestMatches(requirement, nameTokens(requirement), features, "specifies", "name-match", 0.45, 0.34)
   }
@@ -432,11 +432,11 @@ export function inferRelationships(
   return [...proposals.values()]
 }
 
-// ── Aplicação ────────────────────────────────────────────────────────
+// ── Application ──────────────────────────────────────────────────────
 
 /**
- * Materializa as propostas no grafo. Idempotente: reexecutar não duplica
- * arestas e respeita a matriz canônica e o bloqueio de ciclos.
+ * Materializes the proposals in the graph. Idempotent: rerunning does not
+ * duplicate edges and respects the canonical matrix and the cycle block.
  */
 export function applyInferredRelationships(
   graph: KnowledgeGraph,
@@ -460,7 +460,7 @@ export function applyInferredRelationships(
       continue
     }
 
-    // Garante direção canônica quando existe uma convenção para o par.
+    // Ensures the canonical direction when a convention exists for the pair.
     const canonical = getCanonicalRelationshipType(fromType, toType)
     const type = canonical && canonical !== "traces_to" && !existing.has(relationshipKey(proposal.from, proposal.to, canonical))
       ? canonical
@@ -486,11 +486,11 @@ export function applyInferredRelationships(
   return { applied, skipped, byType }
 }
 
-// ── Normalização de inversos ─────────────────────────────────────────
+// ── Inverse normalization ────────────────────────────────────────────
 
 /**
  * Remove pares inversos redundantes, mantendo o tipo preferido
- * (ex.: mantém `specifies` e remove `satisfied_by`).
+ * (e.g. keeps `specifies` and removes `satisfied_by`).
  */
 export function normalizeInverseRelationships(graph: KnowledgeGraph): number {
   const byKey = new Map<string, (typeof graph.relationships)[number]>()
@@ -517,10 +517,10 @@ export function normalizeInverseRelationships(graph: KnowledgeGraph): number {
   return toRemove.size
 }
 
-// ── Orquestração ─────────────────────────────────────────────────────
+// ── Orchestration ────────────────────────────────────────────────────
 
 /**
- * Fluxo completo usado por tools, builders e migrações:
+ * Full flow used by tools, builders and migrations:
  * normaliza inversos, garante milestones e materializa as arestas inferidas.
  */
 export function runRelationshipInference(

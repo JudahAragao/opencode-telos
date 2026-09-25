@@ -255,8 +255,8 @@ function ensureTargetRequirementForFinding(graph: KnowledgeGraph, finding: AnyNo
   } as AnyNode
   addNode(graph, requirement)
   const acceptanceService = new AcceptanceService(graph)
-  acceptanceService.create(requirement.id, "O comportamento alvo não reproduz a limitação observada na origem.", "reverse_engineering")
-  acceptanceService.create(requirement.id, "A decisão possui teste ou evidência verificável.", "reverse_engineering")
+  acceptanceService.create(requirement.id, "The target behaviour does not reproduce the limitation observed in the source.", "reverse_engineering")
+  acceptanceService.create(requirement.id, "The decision has a test or verifiable evidence.", "reverse_engineering")
   try { addRelationship(graph, requirement.id, finding.id, "derived_from", { source: "reverse_engineering" }) } catch {}
   return requirement
 }
@@ -287,7 +287,7 @@ function materializeBrownfieldFindings(
     if (!existingResolution || !["resolved", "closed", "accepted", "wont_fix"].includes(finding.status)) {
       resolveFinding(graph, {
         findingId: finding.id,
-        description: `Convertido em requisito do sistema alvo: ${targetRequirement.id}. O sistema novo deve tratar explicitamente essa descoberta.`,
+        description: `Converted into a target-system requirement: ${targetRequirement.id}. The new system must explicitly handle this finding.`,
         status: "resolved",
         targetNodeIds: [targetRequirement.id],
         evidence: [{ kind: "node", node_id: targetRequirement.id, detector: "reverse_engineering_target" }],
@@ -341,10 +341,10 @@ function attachResponseCache(tools: Record<string, ToolDefinition>): Record<stri
 }
 
 /**
- * Condições obrigatórias para concluir um Change (trava B).
+ * Mandatory conditions to complete a Change (gate B).
  *
- * Devolve a lista de condições que FALHARAM, cada uma com o motivo acionável,
- * em vez de um único "BLOCKED" genérico — o agente precisa saber o que corrigir.
+ * Returns the list of conditions that FAILED, each with an actionable reason,
+ * instead of a single generic "BLOCKED" — the agent must know what to fix.
  */
 function completionGateFailures(projectDir: string, graph: KnowledgeGraph, changeId: string): string[] {
   const failures: string[] = []
@@ -823,7 +823,7 @@ function createAllTools(): Record<string, ToolDefinition> {
           ? args.affected_tests.split(",").map((s) => s.trim()).filter(Boolean)
           : []
 
-        // ── Preflight (G3): sem affected_files o Change é inutilizável ──
+        // ── Preflight (G3): without affected_files the Change is unusable ──
         if (affectedFiles.length === 0 && args.acknowledge_no_files !== true) {
           return [
             `## Change NOT created — scope incomplete`,
@@ -949,8 +949,8 @@ function createAllTools(): Record<string, ToolDefinition> {
 
         if (analysis.file_references.length > 0) {
           lines.push("")
-          lines.push("### Arquivos Referenciados")
-          lines.push("Leia os seguintes arquivos para extrair contexto adicional:")
+          lines.push("### Referenced Files")
+          lines.push("Read the following files to extract additional context:")
           for (const ref of analysis.file_references) {
             lines.push(`- \`${ref.path}\``)
           }
@@ -958,14 +958,14 @@ function createAllTools(): Record<string, ToolDefinition> {
 
         if (questions.length === 0) {
           lines.push("")
-          lines.push("### Briefing suficiente para prosseguir.")
-          lines.push("Não há perguntas pendentes. Você pode prosseguir com a especificação.")
+          lines.push("### Briefing is sufficient to proceed.")
+          lines.push("There are no pending questions. You can proceed with the specification.")
         } else {
           lines.push("")
-          lines.push("### Perguntas para o usuário")
+          lines.push("### Questions for the user")
           lines.push("")
-          lines.push("Para CADA pergunta abaixo, use a ferramenta `question` com os dados exatos fornecidos.")
-          lines.push("NÃO gere as perguntas como texto livre — use sempre a ferramenta `question`.")
+          lines.push("For EACH question below, use the `question` tool with the exact data provided.")
+          lines.push("Do NOT generate the questions as free text — always use the `question` tool.")
           lines.push("")
           for (let i = 0; i < questions.length; i++) {
             const q = questions[i]
@@ -991,9 +991,9 @@ function createAllTools(): Record<string, ToolDefinition> {
         }
 
         lines.push("")
-        lines.push("### Após coletar as respostas")
-        lines.push("Chame `sdd.update_from_answers` com o JSON de respostas e o briefing completo para reconstruir a especificação e gerar as tasks.")
-        lines.push("Inclua também `briefing` com o texto original desta chamada.")
+        lines.push("### After collecting the answers")
+        lines.push("Call `sdd.update_from_answers` with the answers JSON and the full briefing to rebuild the specification and generate the tasks.")
+        lines.push("Also include `briefing` with the original text of this call.")
         lines.push(`\n\`\`\`json\n${JSON.stringify(Object.fromEntries(questions.map(q => [q.question, ""])), null, 2)}\n\`\`\``)
 
         return lines.join("\n")
@@ -1011,7 +1011,7 @@ function createAllTools(): Record<string, ToolDefinition> {
         briefing: tool.schema
           .string()
           .optional()
-          .describe("Briefing original usado no sdd.discover; necessário para reconstruir o grafo e gerar tasks"),
+          .describe("Original briefing used in sdd.discover; required to rebuild the graph and generate tasks"),
       },
       async execute(args, ctx) {
         const repo = getRepo(ctx.directory)
@@ -1421,8 +1421,8 @@ function createAllTools(): Record<string, ToolDefinition> {
         if (!repo.isInitialized()) return "SDD not initialized."
         const graph = repo.loadGraph()
 
-        // ── Preflight (G3): aprovar um Change sem escopo de arquivos trava a
-        // escrita para sempre. Aprovação é o gate, então o bloqueio fica aqui. ──
+        // ── Preflight (G3): approving a Change without file scope locks the
+        // write forever. Approval is the gate, so the block belongs here. ──
         const preflight = preflightChangeScope(graph, args.change_id)
         if (preflight.blockers.length > 0 && args.acknowledge_no_files !== true) {
           try {
@@ -1590,8 +1590,8 @@ function createAllTools(): Record<string, ToolDefinition> {
         result.functional_applicable = functional.applicable
         result.functional_requirements = functional.requirements
         result.no_requirement_impact = change.metadata.no_requirement_impact === true
-        // G6/G8: vincula o laudo aos arquivos declarados pelo Change, para que
-        // a conclusão possa rejeitar arquivos não verificados ou alterados.
+        // G6/G8: binds the report to the files declared by the Change so that
+        // completion can reject unverified or changed files.
         result.scoped_files = computeScopedFileHashes(ctx.directory, change.metadata.affected_files || [])
         saveExecutableValidation(ctx.directory, args.change_id, result)
         const changeMetadata = change.metadata as unknown as Record<string, unknown>
@@ -2591,18 +2591,18 @@ function createAllTools(): Record<string, ToolDefinition> {
 
     "sdd.findings": tool({
       description:
-        "Gerenciar descobertas brownfield persistentes. No modo documentation, mantém problemas no AS-IS e cria tasks de correção; " +
+        "Manage persistent brownfield findings. In documentation mode it keeps AS-IS problems and creates remediation tasks; " +
         "no modo reverse_engineering, converte descobertas em requisitos do sistema alvo.",
       args: {
-        action: tool.schema.enum(["scan", "list", "report", "readiness", "transition", "resolve", "create_task"]).describe("Operação sobre findings"),
+        action: tool.schema.enum(["scan", "list", "report", "readiness", "transition", "resolve", "create_task"]).describe("Operation over findings"),
         finding_id: tool.schema.string().optional().describe("ID do finding"),
         status: tool.schema.enum(["open", "triaged", "accepted", "in_progress", "resolved", "closed", "wont_fix"]).optional().describe("Novo status"),
         purpose: tool.schema.enum(["documentation", "reverse_engineering"]).optional().describe("Fluxo brownfield"),
-        description: tool.schema.string().optional().describe("Descrição da resolução ou transição"),
+        description: tool.schema.string().optional().describe("Resolution or transition description"),
         change_id: tool.schema.string().optional().describe("Change que resolveu o finding"),
         task_id: tool.schema.string().optional().describe("Task que resolveu ou acompanha o finding"),
-        target_node_ids: tool.schema.array(tool.schema.string()).optional().describe("Nós do SDD alvo que resolvem o finding"),
-        evidence: tool.schema.string().optional().describe("Evidência textual da resolução"),
+        target_node_ids: tool.schema.array(tool.schema.string()).optional().describe("Target SDD nodes that resolve the finding"),
+        evidence: tool.schema.string().optional().describe("Textual evidence of the resolution"),
       },
       async execute(args, ctx) {
         const repo = getRepo(ctx.directory)
@@ -2814,11 +2814,11 @@ function createAllTools(): Record<string, ToolDefinition> {
     }),
 
     "sdd.bug_fix": tool({
-      description: "Workflow completo de bug fix com aprovação automática.",
+      description: "Full bug fix workflow with automatic approval.",
       args: {
-        description: tool.schema.string().describe("Descrição do bug"),
-        files: tool.schema.array(tool.schema.string()).describe("Arquivos afetados"),
-        severity: tool.schema.enum(["critical", "high", "medium", "low"]).describe("Severidade do bug"),
+        description: tool.schema.string().describe("Bug description"),
+        files: tool.schema.array(tool.schema.string()).describe("Affected files"),
+        severity: tool.schema.enum(["critical", "high", "medium", "low"]).describe("Bug severity"),
       },
       async execute(args, ctx) {
         if (!getRepo(ctx.directory).isInitialized()) return "SDD not initialized. Run sdd.initialize first."
@@ -2846,9 +2846,9 @@ function createAllTools(): Record<string, ToolDefinition> {
     "sdd.hotfix": tool({
       description: "Documentar hotfix retroativamente (post-hoc).",
       args: {
-        description: tool.schema.string().describe("Descrição do incidente"),
-        files: tool.schema.array(tool.schema.string()).describe("Arquivos modificados"),
-        urgency: tool.schema.enum(["critical", "high", "medium"]).describe("Urgência"),
+        description: tool.schema.string().describe("Incident description"),
+        files: tool.schema.array(tool.schema.string()).describe("Modified files"),
+        urgency: tool.schema.enum(["critical", "high", "medium"]).describe("Urgency"),
       },
       async execute(args, ctx) {
         if (!getRepo(ctx.directory).isInitialized()) return "SDD not initialized. Run sdd.initialize first."
@@ -2878,12 +2878,12 @@ function createAllTools(): Record<string, ToolDefinition> {
     }),
 
     "sdd.refactoring": tool({
-      description: "Workflow de refactoring com verificação de dependências.",
+      description: "Refactoring workflow with dependency verification.",
       args: {
-        target: tool.schema.string().describe("Módulo alvo"),
-        description: tool.schema.string().describe("Descrição do refactoring"),
-        type: tool.schema.enum(["extract", "rename", "move", "simplify", "restructure"]).describe("Tipo de refactoring"),
-        files: tool.schema.array(tool.schema.string()).describe("Arquivos envolvidos"),
+        target: tool.schema.string().describe("Target module"),
+        description: tool.schema.string().describe("Refactoring description"),
+        type: tool.schema.enum(["extract", "rename", "move", "simplify", "restructure"]).describe("Refactoring type"),
+        files: tool.schema.array(tool.schema.string()).describe("Involved files"),
       },
       async execute(args, ctx) {
         if (!getRepo(ctx.directory).isInitialized()) return "SDD not initialized. Run sdd.initialize first."
@@ -2910,11 +2910,11 @@ function createAllTools(): Record<string, ToolDefinition> {
     }),
 
     "sdd.deprecate": tool({
-      description: "Deprecar feature com plano de migração.",
+      description: "Deprecate a feature with a migration plan.",
       args: {
         target: tool.schema.string().describe("Feature a deprecar"),
-        removal_date: tool.schema.string().describe("Data de remoção (YYYY-MM-DD)"),
-        migration_guide: tool.schema.string().optional().describe("Guia de migração"),
+        removal_date: tool.schema.string().describe("Removal date (YYYY-MM-DD)"),
+        migration_guide: tool.schema.string().optional().describe("Migration guide"),
         endpoints: tool.schema.array(tool.schema.string()).describe("Endpoints afetados"),
       },
       async execute(args, ctx) {
@@ -2948,8 +2948,8 @@ function createAllTools(): Record<string, ToolDefinition> {
       args: {},
       async execute(_args, ctx) {
         try {
-          // Servidor compartilhado: `/sdd viz` usa a mesma instância, então não
-          // subimos dois servidores (com duas portas) na mesma sessão.
+          // Shared server: `/sdd viz` uses the same instance, so we do not start
+          // two servers (on two ports) in the same session.
           const port = startSharedDashboard(ctx.directory, resolveDashboardPort())
           const url = getSharedDashboardUrl() ?? `http://127.0.0.1:${port}`
           return [
@@ -3292,15 +3292,15 @@ function createAllTools(): Record<string, ToolDefinition> {
 
     "sdd.infer_relationships": tool({
       description:
-        "Reconstrói a rastreabilidade do Knowledge Graph: infere arestas que a " +
-        "construção por keyword deixou de fora (requirement --specifies--> feature, " +
+        "Rebuilds Knowledge Graph traceability: infers edges the keyword " +
+        "construction left out (requirement --specifies--> feature, " +
         "endpoint/file --implements--> feature, endpoint --operates_on--> entity, " +
         "task --implements--> requirement/feature, task/change --belongs_to--> milestone), " +
-        "normaliza pares inversos redundantes e garante os nós de milestone. " +
-        "Idempotente e não destrutivo: use dry_run=true para revisar antes de aplicar.",
+        "normalizes redundant inverse pairs and creates milestone nodes. " +
+        "Idempotent and non-destructive: use dry_run=true to review before applying.",
       args: {
-        dry_run: tool.schema.boolean().optional().describe("Pré-visualiza as arestas sem gravá-las (default: false)"),
-        min_confidence: tool.schema.number().optional().describe("Confiança mínima 0..1 (default: 0.5)"),
+        dry_run: tool.schema.boolean().optional().describe("Preview the edges without persisting them (default: false)"),
+        min_confidence: tool.schema.number().optional().describe("Minimum confidence 0..1 (default: 0.5)"),
         include_milestones: tool.schema.boolean().optional().describe("Criar/ligar milestones (default: true)"),
       },
       async execute(args, ctx) {
@@ -3317,20 +3317,20 @@ function createAllTools(): Record<string, ToolDefinition> {
         if (args.dry_run) {
           const proposals = inferRelationships(graph, { minConfidence })
           const lines = [
-            "## Inferência de Relacionamentos (Dry Run)",
+            "## Relationship Inference (Dry Run)",
             "",
             `**Arestas propostas:** ${proposals.length}`,
             "",
           ]
           if (proposals.length === 0) {
-            lines.push("Nenhuma aresta nova a inferir — a rastreabilidade já está completa.")
+            lines.push("No new edges to infer — traceability is already complete.")
             return lines.join("\n")
           }
           const byType: Record<string, number> = {}
           for (const proposal of proposals) {
             byType[proposal.type] = (byType[proposal.type] ?? 0) + 1
           }
-          lines.push("### Por tipo")
+          lines.push("### By type")
           for (const [type, count] of Object.entries(byType).sort((a, b) => b[1] - a[1])) {
             lines.push(`- **${type}:** ${count}`)
           }
@@ -3342,7 +3342,7 @@ function createAllTools(): Record<string, ToolDefinition> {
             )
           }
           if (proposals.length > 25) lines.push(`- ... e mais ${proposals.length - 25}`)
-          lines.push("", "Rode sem `dry_run` para aplicar.")
+          lines.push("", "Run without `dry_run` to apply.")
           return lines.join("\n")
         }
 
@@ -3353,7 +3353,7 @@ function createAllTools(): Record<string, ToolDefinition> {
         }
 
         const lines = [
-          "## Inferência de Relacionamentos Concluída",
+          "## Relationship Inference Complete",
           "",
           `**Arestas aplicadas:** ${result.applied}`,
           `**Inversos normalizados:** ${result.normalized}`,
@@ -3362,7 +3362,7 @@ function createAllTools(): Record<string, ToolDefinition> {
         ]
         const types = Object.entries(result.by_type).sort((a, b) => b[1] - a[1])
         if (types.length > 0) {
-          lines.push("", "### Por tipo")
+          lines.push("", "### By type")
           for (const [type, count] of types) lines.push(`- **${type}:** ${count}`)
         }
         return lines.join("\n")
@@ -3371,24 +3371,24 @@ function createAllTools(): Record<string, ToolDefinition> {
 
     "sdd.milestone": tool({
       description:
-        "Gerencia milestones (âncora de release) e gera o relatório de rastreabilidade por release. " +
-        "Ações: create/list/add/remove/assign/close/report. Um milestone agrupa changes, tasks, " +
+        "Manages milestones (release anchors) and produces the per-release traceability report. " +
+        "Actions: create/list/add/remove/assign/close/report. A milestone groups changes, tasks, " +
         "features e requirements; o report mostra o escopo do release, o progresso e os gaps " +
-        "(requisitos sem teste, features sem implementação, endpoints/arquivos sem feature).",
+        "(requirements without tests, features without implementation, endpoints/files without a feature).",
       args: {
         action: tool.schema
           .enum(["create", "list", "add", "remove", "assign", "close", "report"])
           .optional()
-          .describe("Operação (default: list)"),
+          .describe("Operation (default: list)"),
         milestone_id: tool.schema.string().optional().describe("ID do milestone (add/remove/assign/close/report)"),
-        name: tool.schema.string().optional().describe("Nome do milestone (create)"),
-        release_version: tool.schema.string().optional().describe("Versão do release (create)"),
+        name: tool.schema.string().optional().describe("Milestone name (create)"),
+        release_version: tool.schema.string().optional().describe("Release version (create)"),
         target_date: tool.schema.string().optional().describe("Data alvo ISO YYYY-MM-DD (create)"),
         objective: tool.schema.string().optional().describe("Objetivo do milestone (create)"),
-        status: tool.schema.string().optional().describe("Status do nó (create/close)"),
-        node_ids: tool.schema.string().optional().describe("IDs de nós separados por vírgula (add/remove/assign)"),
-        from_id: tool.schema.string().optional().describe("Milestone de origem (assign)"),
-        to_id: tool.schema.string().optional().describe("Milestone de destino (assign)"),
+        status: tool.schema.string().optional().describe("Node status (create/close)"),
+        node_ids: tool.schema.string().optional().describe("Comma-separated node IDs (add/remove/assign)"),
+        from_id: tool.schema.string().optional().describe("Source milestone (assign)"),
+        to_id: tool.schema.string().optional().describe("Target milestone (assign)"),
       },
       async execute(args, ctx) {
         const repo = getRepo(ctx.directory)
@@ -3412,7 +3412,7 @@ function createAllTools(): Record<string, ToolDefinition> {
 
         try {
           if (action === "create") {
-            if (!args.name) return "`name` é obrigatório para create."
+            if (!args.name) return "`name` is required for create."
             const milestone = createMilestone(graph, {
               name: args.name,
               release_version: args.release_version,
@@ -3434,21 +3434,21 @@ function createAllTools(): Record<string, ToolDefinition> {
 
           if (action === "list") {
             const milestones = getMilestoneNodes(graph)
-            if (milestones.length === 0) return "Nenhum milestone definido. Use action=\"create\"."
+            if (milestones.length === 0) return "No milestone defined. Use action=\"create\"."
             const report = buildReleaseReport(graph)
             const lines = [`## Milestones (${milestones.length})\n`]
             for (const item of report.milestones) {
               const version = item.release_version ? ` · ${item.release_version}` : ""
-              lines.push(`- **${item.name}**${version} [${item.status}] — ${item.counts.changes} change(s), ${item.counts.tasks} task(s), ${item.progress_percent}% concluído`)
+              lines.push(`- **${item.name}**${version} [${item.status}] — ${item.counts.changes} change(s), ${item.counts.tasks} task(s), ${item.progress_percent}% complete`)
               lines.push(`  \`${item.id}\``)
             }
             return lines.join("\n")
           }
 
           if (action === "add" || action === "remove") {
-            if (!args.milestone_id) return "`milestone_id` é obrigatório."
+            if (!args.milestone_id) return "`milestone_id` is required."
             const ids = parseIds(args.node_ids)
-            if (ids.length === 0) return "`node_ids` é obrigatório."
+            if (ids.length === 0) return "`node_ids` is required."
             const result = action === "add"
               ? linkNodesToMilestone(graph, args.milestone_id, ids)
               : { linked: 0, skipped: 0, not_found: [], removed: unlinkNodesFromMilestone(graph, args.milestone_id, ids) }
@@ -3458,17 +3458,17 @@ function createAllTools(): Record<string, ToolDefinition> {
               return [
                 `## Milestone add`,
                 `**Vinculados:** ${result.linked}`,
-                `**Já vinculados:** ${result.skipped}`,
-                result.not_found.length > 0 ? `**Não encontrados/não suportados:** ${result.not_found.join(", ")}` : "",
+                `**Already linked:** ${result.skipped}`,
+                result.not_found.length > 0 ? `**Not found/unsupported:** ${result.not_found.join(", ")}` : "",
               ].filter(Boolean).join("\n")
             }
             return `## Milestone remove\n**Desvinculados:** ${(result as any).removed}`
           }
 
           if (action === "assign") {
-            if (!args.from_id || !args.to_id) return "`from_id` e `to_id` são obrigatórios."
+            if (!args.from_id || !args.to_id) return "`from_id` and `to_id` are required."
             const ids = parseIds(args.node_ids)
-            if (ids.length === 0) return "`node_ids` é obrigatório."
+            if (ids.length === 0) return "`node_ids` is required."
             const result = moveNodesToMilestone(graph, args.from_id, args.to_id, ids)
             repo.saveGraph(graph)
             invalidateCacheForMutation(ctx.directory, ["milestone"], ["contains", "belongs_to"])
@@ -3476,7 +3476,7 @@ function createAllTools(): Record<string, ToolDefinition> {
           }
 
           if (action === "close") {
-            if (!args.milestone_id) return "`milestone_id` é obrigatório."
+            if (!args.milestone_id) return "`milestone_id` is required."
             const milestone = closeMilestone(graph, args.milestone_id, (args.status as any) ?? "COMPLETED")
             repo.saveGraph(graph)
             invalidateCacheForMutation(ctx.directory, ["milestone"], [])
@@ -3503,22 +3503,22 @@ function createAllTools(): Record<string, ToolDefinition> {
           .enum(["list", "create", "update", "remove", "mark_integrated", "open_change", "approve_change"])
           .optional()
           .describe(
-            "Operação: list (default) | create | update | remove | mark_integrated | open_change | approve_change",
+            "Operation: list (default) | create | update | remove | mark_integrated | open_change | approve_change",
           ),
         task_id: tool.schema.string().optional().describe("ID da task (update/remove/mark_integrated)"),
-        name: tool.schema.string().optional().describe("Nome da task (create/update)"),
-        description: tool.schema.string().optional().describe("Descrição da task"),
+        name: tool.schema.string().optional().describe("Task name (create/update)"),
+        description: tool.schema.string().optional().describe("Task description"),
         goal: tool.schema.string().optional().describe("Objetivo da task"),
-        files: tool.schema.string().optional().describe("Arquivos previstos, separados por vírgula"),
+        files: tool.schema.string().optional().describe("Planned files, comma-separated"),
         acceptance: tool.schema
           .string()
           .optional()
-          .describe("Critérios de aceite, separados por ponto e vírgula ou quebra de linha"),
+          .describe("Acceptance criteria, separated by semicolons or newlines"),
         column: tool.schema
           .string()
           .optional()
           .describe("Coluna do Kanban: backlog | ready | in_progress | blocked | done"),
-        status: tool.schema.string().optional().describe("Status do nó (opcional)"),
+        status: tool.schema.string().optional().describe("Node status (optional)"),
         link_to: tool.schema
           .string()
           .optional()
@@ -3527,7 +3527,7 @@ function createAllTools(): Record<string, ToolDefinition> {
           .boolean()
           .optional()
           .describe(
-            "open_change/approve_change: declara que o Change não altera comportamento especificado (pula a evidência de requisito)",
+            "open_change/approve_change: declares that the Change does not alter specified behaviour (skips the requirement evidence)",
           ),
       },
       async execute(args, ctx) {
@@ -3544,14 +3544,14 @@ function createAllTools(): Record<string, ToolDefinition> {
 
         const formatTaskList = (): string => {
           const tasks = listTasks(graph)
-          if (tasks.length === 0) return "## SDD Tasks — nenhuma task no board."
+          if (tasks.length === 0) return "## SDD Tasks — no task on the board."
           const lines = [`## SDD Tasks (${tasks.length})`, ""]
           for (const column of TASK_COLUMNS) {
             const items = tasks.filter((t) => t.column === column)
             if (items.length === 0) continue
             lines.push(`### ${TASK_COLUMN_LABELS[column]} (${items.length})`)
             for (const task of items) {
-              const flag = task.integration_status === "pending" ? " ⏳ pendente de integração" : ""
+              const flag = task.integration_status === "pending" ? " ⏳ pending integration" : ""
               const change = task.change_id ? ` · ${task.change_id}(${task.change_status})` : ""
               lines.push(`- ${task.id}: ${task.name}${flag}${change}`)
             }
@@ -3643,7 +3643,7 @@ function createAllTools(): Record<string, ToolDefinition> {
       },
     }),
 
-    // ── Workflow Chains (Item 4: Orquestração) ──────────────────────
+    // ── Workflow Chains (Item 4: Orchestration) ─────────────────────
     ...createWorkflowTools(),
   }
   return attachResponseCache(tools)

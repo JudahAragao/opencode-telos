@@ -1,10 +1,10 @@
 /**
- * Graph Snapshot Store — Persistência do grafo completo entre sessões.
+ * Graph Snapshot Store — Persists the complete graph across sessions.
  *
  * Salva graph + indices serializados em .sdd/graph-cache.json.
- * Na próxima sessão, carrega diretamente em vez de ler YAML/SQLite.
+ * On the next session it loads directly instead of reading YAML/SQLite.
  *
- * Solução G: Snapshot persistente do grafo.
+ * Solution G: persistent graph snapshot.
  */
 
 import { existsSync, readFileSync, mkdirSync } from "fs"

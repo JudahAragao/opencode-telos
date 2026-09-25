@@ -1,11 +1,11 @@
 /**
  * Workflow Tools — Tool definitions para workflow chains.
  *
- * Cada tool chain é uma tool SDD que o LLM pode chamar diretamente.
+ * Each tool chain is an SDD tool the LLM can call directly.
  * Internamente, executa a chain de steps usando o executor.
  *
  * Consumido por: createSddTools() em tools.ts
- * Dependências: chains.ts, executor.ts
+ * Dependencies: chains.ts, executor.ts
  */
 
 import { tool, type ToolDefinition } from "@opencode-ai/plugin"
@@ -85,7 +85,7 @@ function createChainTool(chain: WorkflowChain): ToolDefinition {
 
 /**
  * Cria todas as tools de workflow chains.
- * Retorna um Record compatível com createSddTools().
+ * Returns a Record compatible with createSddTools().
  */
 export function createWorkflowTools(): Record<string, ToolDefinition> {
   const tools: Record<string, ToolDefinition> = {}
@@ -98,7 +98,7 @@ export function createWorkflowTools(): Record<string, ToolDefinition> {
 }
 
 /**
- * Lista todas as workflow tools disponíveis.
+ * Lists all available workflow tools.
  */
 export function listWorkflowTools(): Array<{ name: string; description: string; params: string[] }> {
   return ALL_CHAINS.map(chain => ({

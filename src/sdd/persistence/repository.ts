@@ -291,7 +291,7 @@ export function inspectStorageConsistency(projectDir: string): StorageConsistenc
  * Decision priority:
  * 1. Sentinel file (.sdd/storage-backend) — authoritative explicit choice.
  *    Auto-healed on first call: if graph.db exists without a sentinel, the
- *    sentinel is written as "sqlite" immediately (Opção B).
+ *    sentinel is written as "sqlite" immediately (option B).
  * 2. Both graph.yaml and graph.db exist without sentinel →
  *    resolveConflictingBackends() — intelligent analysis with SQLite preference.
  * 3. Only graph.db exists → SQLite (+ auto-heal sentinel).

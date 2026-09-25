@@ -47,7 +47,7 @@ describe("brownfield findings lifecycle", () => {
     expect(graph.relationships.some((rel) => rel.type === "tracked_by")).toBe(true)
 
     const documentation = generateDocumentation(graph, { type: "architecture" })
-    expect(documentation).toContain("Descobertas, Riscos e Resoluções")
+    expect(documentation).toContain("Findings, Risks and Resolutions")
     expect(documentation).toContain("Descobertas abertas")
   })
 

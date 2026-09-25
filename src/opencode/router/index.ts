@@ -1,7 +1,7 @@
 /**
  * Router Module — Barrel export.
  *
- * Exporta todas as funções públicas do módulo router.
+ * Exports all public functions of the router module.
  * Consumido por: hooks.ts
  */
 
@@ -26,7 +26,7 @@ export type { IntentResult } from "./intent-classifier.js"
 export { getToolsForSession, getToolDescription, listAllTools, ALL_TOOL_NAMES } from "./tool-registry.js"
 export type { ToolRegistryResult } from "./tool-registry.js"
 
-// Relevância lexical (BM25)
+// Lexical relevance (BM25)
 export { rankSimilarity } from "./embeddings.js"
 
 // Categories

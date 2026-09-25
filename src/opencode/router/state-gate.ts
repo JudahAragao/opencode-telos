@@ -1,22 +1,22 @@
 /**
  * State Gate — Prioriza as tools mais relevantes para cada estado do grafo.
  *
- * ATENÇÃO: este módulo NÃO esconde tools. O catálogo completo é sempre
- * anunciado ao agente por tool-registry.ts; aqui só calculamos o subconjunto
- * que merece destaque para o estado atual. A decisão final de o que pode ser
- * chamado é da política de enforcement (checkToolAccess).
+ * NOTE: this module does NOT hide tools. The full catalog is always
+ * announced to the agent by tool-registry.ts; here we only compute the subset
+ * that deserves a highlight for the current state. The final decision of what
+ * can be called belongs to the enforcement policy (checkToolAccess).
  *
  * Esconder tools por categoria foi a causa de entry points essenciais
  * (sdd.start_dashboard, sdd.enforce, ...) nunca chegarem ao prompt.
  *
  * Consumido por: tool-registry.ts
- * Dependências: graph-state-snapshot.ts, tool-taxonomy.ts
+ * Dependencies: graph-state-snapshot.ts, tool-taxonomy.ts
  */
 
 import { getGraphSnapshot, type GraphState } from "./graph-state-snapshot.js"
 import { TOOL_TAXONOMY, type ToolCategory } from "./tool-taxonomy.js"
 
-/** Tools que são sempre visíveis (essenciais) */
+/** Tools that are always visible (essential) */
 const ALWAYS_VISIBLE = new Set([
   "sdd.inspect",
   "sdd.query_graph",
@@ -30,7 +30,7 @@ const ALWAYS_VISIBLE = new Set([
   "sdd.update_from_answers",
 ])
 
-/** Tools de composits que são sempre visíveis */
+/** Composite tools that are always visible */
 const ALWAYS_VISIBLE_COMPOSITES = new Set([
   "sdd.graph_query",
   "sdd.graph_mutation",
@@ -38,8 +38,8 @@ const ALWAYS_VISIBLE_COMPOSITES = new Set([
 ])
 
 /**
- * Mapeamento de estado → tools composits visíveis.
- * Keys são subconjuntos de GraphState.
+ * Mapping of state → visible composite tools.
+ * Keys are subsets of GraphState.
  */
 const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[] }> = {
   error: {
@@ -69,7 +69,7 @@ const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[
     standalone: [
       "sdd.enforce", "sdd.build_graph", "sdd.discover",
       "sdd.pending_changes", "sdd.change_history",
-      // Rastreabilidade e releases: manutenção do grafo já pronto.
+      // Traceability and releases: maintaining an already-built graph.
       "sdd.infer_relationships", "sdd.milestone", "sdd.integrate_tasks",
     ],
   },
@@ -94,7 +94,7 @@ const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[
     standalone: [
       "sdd.generate_code", "sdd.complete_change", "sdd.fail_change",
       "sdd.validate", "sdd.detect_drift",
-      // Fechamento do release após concluir o Change.
+      // Release closure after completing the Change.
       "sdd.milestone", "sdd.integrate_tasks",
     ],
   },
@@ -124,10 +124,10 @@ const CATEGORY_HIDDEN: Record<GraphState, ToolCategory[]> = {
 }
 
 /**
- * Obtém as tools recomendadas (destaques) para o estado atual do grafo.
+ * Gets the recommended (highlighted) tools for the current graph state.
  *
- * @param directory - Diretório do projeto
- * @returns Set de nomes de tools recomendadas. Nunca indica "ocultar".
+ * @param directory - Project directory
+ * @returns Set of recommended tool names. Never means "hide".
  */
 export function getRecommendedTools(directory: string): Set<string> {
   const snapshot = getGraphSnapshot(directory)
@@ -136,7 +136,7 @@ export function getRecommendedTools(directory: string): Set<string> {
 
   const recommended = new Set<string>()
 
-  // Adicionar sempre-visíveis
+  // Add always-visible ones
   for (const t of ALWAYS_VISIBLE) recommended.add(t)
   for (const t of ALWAYS_VISIBLE_COMPOSITES) recommended.add(t)
 
@@ -144,7 +144,7 @@ export function getRecommendedTools(directory: string): Set<string> {
   for (const t of stateConfig.standalone) recommended.add(t)
   for (const t of stateConfig.composite) recommended.add(t)
 
-  // Adicionar composits de categories não-ocultas
+  // Add composites from non-hidden categories
   for (const tool of TOOL_TAXONOMY) {
     if (!hiddenCategories.includes(tool.category)) {
       recommended.add(tool.name)
@@ -154,18 +154,18 @@ export function getRecommendedTools(directory: string): Set<string> {
   return recommended
 }
 
-/** @deprecated Use getRecommendedTools — nenhuma tool é ocultada do agente. */
+/** @deprecated Use getRecommendedTools — no tool is hidden from the agent. */
 export const getVisibleTools = getRecommendedTools
 
 /**
- * Formata a lista de tools visíveis para injeção no system prompt.
+ * Formats the visible tool list for system prompt injection.
  */
 export function formatVisibleTools(visibleTools: Set<string> | null): string {
   if (!visibleTools) {
-    return "[Todas as tools SDD disponíveis]"
+    return "[All SDD tools available]"
   }
 
-  const lines = ["## Tools SDD Disponíveis para Este Estado\n"]
+  const lines = ["## SDD Tools Available for This State\n"]
 
   // Agrupar por tipo
   const standalone: string[] = []
@@ -180,14 +180,14 @@ export function formatVisibleTools(visibleTools: Set<string> | null): string {
   }
 
   if (standalone.length > 0) {
-    lines.push("### Tools Individuais")
+    lines.push("### Standalone tools")
     for (const t of standalone.sort()) {
       lines.push(`- \`${t}\``)
     }
   }
 
   if (composite.length > 0) {
-    lines.push("\n### Tools Compositas (use action= para sub-comando)")
+    lines.push("\n### Composite tools (use action= for the sub-command)")
     for (const t of composite.sort()) {
       const tool = TOOL_TAXONOMY.find(tc => tc.name === t)
       if (tool) {
@@ -201,31 +201,31 @@ export function formatVisibleTools(visibleTools: Set<string> | null): string {
 }
 
 /**
- * Contrato de enforcement anunciado junto com a lista de tools.
+ * Contract of the enforcement announced together with the tool list.
  *
- * Mantém o prompt coerente com a política aplicada por checkToolAccess: as
- * tools de mutação são recusadas enquanto não houver um Change ativo, então a
- * ordem de bootstrap precisa estar explícita para o agente.
+ * Keeps the prompt coherent with the policy applied by checkToolAccess: mutation
+ * tools are refused while there is no active Change, so the bootstrap order must
+ * be explicit for the agent.
  */
 export const ENFORCEMENT_ORDER_INSTRUCTION = `
-### Ordem obrigatória (enforcement ativo)
-Sem um Change ativo, as tools que mutam o grafo são recusadas pelo hook. Sequência:
-1. \`sdd.enforce\` — classifica a requisição e cria o Change
-2. atualizar a spec (\`sdd.build_graph\`, \`sdd.graph_mutation\`, \`sdd.update_from_answers\`)
-3. \`sdd.approve_change\` — aprova o Change
-4. escrever código (\`sdd.generate_code\` ou Write/Edit)
+### Mandatory order (enforcement active)
+Without an active Change, graph mutation tools are refused by the hook. Sequence:
+1. \`sdd.enforce\` — classifies the request and creates the Change
+2. update the spec (\`sdd.build_graph\`, \`sdd.graph_mutation\`, \`sdd.update_from_answers\`)
+3. \`sdd.approve_change\` — approves the Change
+4. write code (\`sdd.generate_code\` or Write/Edit)
 5. \`sdd.verify_implementation\` → \`sdd.complete_change\`
 
-Se a janela expirar no meio da tarefa, use \`sdd.renew_workflow\` (ou \`/sdd renew\`) para estender o MESMO Change e preservar o laudo — \`sdd.enforce\` criaria um Change novo. Aprovar um Change sem \`affected_files\` é recusado porque nenhum Write/Edit seria liberado.
+If the window expires mid-task, use \`sdd.renew_workflow\` (or \`/sdd renew\`) to extend the SAME Change and keep the report — \`sdd.enforce\` would create a new Change. Approving a Change without \`affected_files\` is refused because no Write/Edit would be released.
 `.trim()
 
 /**
- * Como escolher a tool: a lista anunciada é o catálogo completo, então a
- * instrução passa a ser de priorização, não de descoberta.
+ * How to pick a tool: the announced list is the full catalog, so the
+ * instruction becomes about prioritization, not discovery.
  */
 export const ESCAPE_HATCH_INSTRUCTION = `
-### Como escolher a tool
-A lista acima é o catálogo COMPLETO — não existe tool SDD fora dela.
-Comece pelas recomendadas (▸) e, antes de mutar o grafo, confirme o estado
-com \`sdd.inspect\` ou \`sdd.query_graph\`.
+### How to pick a tool
+The list above is the COMPLETE catalog — there is no SDD tool outside it.
+Start with the recommended ones (▸) and, before mutating the graph, confirm the
+state with \`sdd.inspect\` or \`sdd.query_graph\`.
 `.trim()

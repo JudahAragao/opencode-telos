@@ -118,10 +118,10 @@ const DEFAULT_WORKFLOW_TTL_MS = 30 * 60 * 1000
 /**
  * Janela de validade de um workflow ativo.
  *
- * Uma tarefa longa (refactor amplo, migração) estourava o prazo de 30 min no
- * meio da implementação e invalidava o laudo de verificação já gravado; a única
- * saída era repetir `sdd.enforce`, que cria um Change NOVO e deixa o anterior
- * órfão. `sdd.renew_workflow` / `/sdd renew` renova a janela do MESMO Change,
+ * A long task (broad refactor, migration) blew past the 30 min deadline in the
+ * middle of the implementation and invalidated the already-stored verification
+ * report; the only way out was rerunning `sdd.enforce`, which creates a NEW Change
+ * and orphans the previous one. `sdd.renew_workflow` / `/sdd renew` renews the SAME Change's window,
  * preservando o laudo. Override: `SDD_WORKFLOW_TTL_MS`.
  */
 export function workflowTtlMs(): number {
@@ -154,7 +154,7 @@ export function isWorkflowValid(scope = DEFAULT_SCOPE): { valid: boolean; reason
   return { valid: true }
 }
 
-/** Tempo restante da janela do workflow, em ms (0 quando não há workflow ativo). */
+/** Remaining time of the workflow window, in ms (0 when no workflow is active). */
 export function workflowRemainingMs(scope = DEFAULT_SCOPE): number {
   const state = getMutableState(scope)
   if (!state.enforced) return 0
@@ -170,10 +170,10 @@ export interface WorkflowRenewResult {
 }
 
 /**
- * Renova a janela do workflow ativo preservando o MESMO Change — e portanto o
- * laudo de verificação em `.sdd/verification/<changeId>.json`, que continuaria
- * válido porque nada do código mudou. Sem workflow ativo, ou com um changeId
- * diferente do ativo, recusa em vez de criar silenciosamente outro workflow.
+ * Renews the active workflow window while keeping the SAME Change — and therefore the
+ * verification report in `.sdd/verification/<changeId>.json`, which stays valid
+ * because no code changed. With no active workflow, or with a changeId
+ * different from the active one, it refuses instead of silently creating another workflow.
  */
 export function renewWorkflow(changeId?: string, scope = DEFAULT_SCOPE): WorkflowRenewResult {
   const state = getMutableState(scope)
@@ -232,8 +232,8 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
   "sdd.enforce_rules",
   "sdd.discover",
   "sdd.update_from_answers",
-  // Engenharia reversa: faz bootstrap do grafo a partir do código existente.
-  // É ponto de entrada (como sdd.build_graph) e não pode exigir Change ativo.
+  // Reverse engineering: bootstraps the graph from existing code.
+  // It is an entry point (like sdd.build_graph) and cannot require an active Change.
   "sdd.reverse_engineer",
   "sdd.workflow_reverse_engineer",
   "sdd.create_change",
@@ -244,7 +244,7 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
   // active workflow would make it impossible to enable SDD through the tool.
   "sdd.toggle",
   "sdd.toggle_status",
-  // Renovação da janela: preserva o Change ativo em vez de criar um novo.
+  // Window renewal: keeps the active Change instead of creating a new one.
   "sdd.renew_workflow",
   "sdd.constitution",
   // Session
@@ -261,8 +261,8 @@ export const WORKFLOW_EXEMPT_TOOLS = new Set([
   // before its dispatcher can inspect the requested action.
   "sdd.check_migrations",
   "sdd.run_migrations",
-  // Milestones e Kanban: o container é isento para que ações de leitura
-  // (list/report) sempre passem; as mutações são gated logo abaixo em
+  // Milestones and Kanban: the container is exempt so read actions
+  // (list/report) always pass; mutations are gated right below in
   // COMPOSITE_MUTATING_ACTIONS.
   "sdd.milestone",
   "sdd.integrate_tasks",
@@ -314,10 +314,10 @@ export const WORKFLOW_REQUIRED_TOOLS = new Set([
 ])
 
 /**
- * União de todas as tools com política explícita de acesso (isenta ou
- * obrigatória). É a fonte única da cobertura de classificação: uma tool nova
- * só deixa de ser bloqueada por `checkToolAccess` se estiver aqui (ou tiver
- * entradas em COMPOSITE_MUTATING_ACTIONS). O teste-guarda do catálogo exige
+ * Union of all tools with an explicit access policy (exempt or mandatory).
+ * It is the single source of classification coverage: a new tool stops being
+ * blocked by `checkToolAccess` only if it is here (or has entries in
+ * COMPOSITE_MUTATING_ACTIONS). The catalog guard test requires
  * que toda tool registrada esteja coberta.
  */
 export const CLASSIFIED_TOOLS: ReadonlySet<string> = new Set([
@@ -326,8 +326,8 @@ export const CLASSIFIED_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Uma tool está classificada quando tem política de acesso direta ou é um
- * container com ações mutantes declaradas.
+ * A tool is classified when it has a direct access policy or is a container
+ * with declared mutating actions.
  */
 export function isToolClassified(toolName: string): boolean {
   return (
@@ -347,7 +347,7 @@ const COMPOSITE_MUTATING_ACTIONS: Record<string, ReadonlySet<string>> = {
   "sdd.code_quality": new Set(["plan_implementation", "remove_dead_code", "analyze_codebase"]),
   "sdd.enterprise": new Set(["migration", "experiment", "flag", "tenant", "monitoring", "dashboard", "incident", "sla", "docs", "onboarding", "knowledge_transfer", "disaster_recovery"]),
   // Standalone tools with a mixed read/write action set (isenta o container,
-  // mas exige workflow ativo para as ações mutantes).
+  // but requires an active workflow for mutating actions).
   "sdd.milestone": new Set(["create", "add", "remove", "assign", "close"]),
   "sdd.integrate_tasks": new Set(["create", "update", "remove", "mark_integrated", "open_change", "approve_change"]),
 }

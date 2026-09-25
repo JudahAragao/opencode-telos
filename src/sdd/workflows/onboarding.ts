@@ -19,11 +19,11 @@ export function generateOnboardingGuide(
   }
 
   lines.push(
-    '### Visão Geral do Projeto',
-    `**Total de Nós:** ${graph.nodes.length}`,
-    `**Total de Relações:** ${graph.relationships.length}`,
+    '### Project Overview',
+    `**Total nodes:** ${graph.nodes.length}`,
+    `**Total relationships:** ${graph.relationships.length}`,
     '',
-    '### Arquivos-Chave para Entender',
+    '### Key Files to Understand',
   )
 
   const nodesByType: Record<string, number> = {}
@@ -32,14 +32,14 @@ export function generateOnboardingGuide(
   }
 
   for (const [type, count] of Object.entries(nodesByType)) {
-    lines.push(`- **${type}**: ${count} nós`)
+    lines.push(`- **${type}**: ${count} nodes`)
   }
 
   const features = graph.nodes.filter(n => n.type === 'feature')
   if (features.length > 0) {
     lines.push('', '### Features Principais')
     for (const feature of features.slice(0, 5)) {
-      lines.push(`- ${feature.name}: ${feature.description || 'Sem descrição'}`)
+      lines.push(`- ${feature.name}: ${feature.description || 'No description'}`)
     }
   }
 
@@ -54,7 +54,7 @@ export function generateOnboardingGuide(
 
   const decisions = graph.nodes.filter(n => n.type === 'decision')
   if (decisions.length > 0) {
-    lines.push('', '### Decisões Arquiteturais Importantes')
+    lines.push('', '### Important Architectural Decisions')
     for (const decision of decisions.slice(0, 3)) {
       const meta = decision.metadata as any
       lines.push(`- **${meta.title}**: ${meta.decision}`)
@@ -64,18 +64,18 @@ export function generateOnboardingGuide(
   lines.push(
     '',
     '### Primeiros Passos',
-    '1. Leia os nodes de feature para entender o que está sendo construído',
+    '1. Read the feature nodes to understand what is being built',
     '2. Explore os endpoints da API',
-    '3. Entenda as decisões arquiteturais',
-    '4. Verifique se há change requests pendentes',
+    '3. Understand the architectural decisions',
+    '4. Check for pending change requests',
     '',
     '### Comandos Úteis',
-    '- `sdd.inspect` - Ver estado atual do projeto',
+    '- `sdd.inspect` - View the current project state',
     '- `sdd.query_graph` - Consultar o Knowledge Graph',
-    '- `sdd.validate` - Validar a especificação',
+    '- `sdd.validate` - Validate the specification',
     '',
     '### Precisa de Ajuda?',
-    'Use `sdd.discover` para ver perguntas frequentes sobre o projeto.',
+    'Use `sdd.discover` to see common questions about the project.',
   )
 
   return lines.join('\n')

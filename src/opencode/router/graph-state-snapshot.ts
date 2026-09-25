@@ -1,7 +1,7 @@
 /**
- * Graph State Snapshot — Captura o estado do grafo para decisão de visibilidade de tools.
+ * Graph State Snapshot — Captures the graph state for tool visibility decisions.
  *
- * Cache por sessão invalidado por fingerprint criptográfico do armazenamento.
+ * Per-session cache invalidated by a cryptographic fingerprint of the storage.
  *
  * Consumido por: state-gate.ts, hooks.ts
  */
@@ -34,7 +34,7 @@ export interface GraphSnapshot {
   hasWorkflow: boolean
   /** Active storage backend for this project */
   storageType: "yaml" | "sqlite" | "unknown"
-  /** Timestamp de criação do snapshot */
+  /** Snapshot creation timestamp */
   timestamp: number
 }
 
@@ -59,7 +59,7 @@ function sourceSignature(directory: string): string {
 
 /**
  * Captura o estado atual do grafo (com cache).
- * O cache só é reutilizado quando o conteúdo persistido não mudou.
+ * The cache is only reused when the persisted content has not changed.
  */
 export function getGraphSnapshot(directory: string): GraphSnapshot {
   const signature = sourceSignature(directory)
@@ -75,7 +75,7 @@ export function getGraphSnapshot(directory: string): GraphSnapshot {
 }
 
 /**
- * Força refresh do cache (após mutações no grafo).
+ * Forces a cache refresh (after graph mutations).
  */
 export function invalidateSnapshotCache(): void {
   cachedSnapshot = null
@@ -105,7 +105,7 @@ function captureSnapshot(directory: string): GraphSnapshot {
     const pendingChanges = changes.filter(c => ["DRAFT", "PROPOSED"].includes(c.status))
     const approvedChanges = changes.filter(c => c.status === "APPROVED")
 
-    // Detectar emergência (hotfix)
+    // Detect emergency (hotfix)
     const hasEmergency = changes.some(c =>
       c.name.toLowerCase().includes("hotfix") ||
       c.name.toLowerCase().includes("emergency") ||
@@ -161,18 +161,18 @@ function captureSnapshot(directory: string): GraphSnapshot {
 }
 
 /**
- * Descrição legível do estado para debugging.
+ * Human-readable description of the state for debugging.
  */
 export function formatGraphState(snapshot: GraphSnapshot): string {
   const stateLabels: Record<GraphState, string> = {
     error: "⚠️ Erro ao ler o grafo",
-    uninitialized: "❌ Não inicializado",
+    uninitialized: "❌ Not initialized",
     empty: "📭 Grafo vazio",
-    partial: "⚠️ Parcial (sem spec nodes)",
+    partial: "⚠️ Partial (no spec nodes)",
     ready: "✅ Pronto",
     has_change: "📝 Com changes pendentes",
     has_approved_change: "🟢 Com change aprovada",
-    emergency: "🚨 Emergência (hotfix)",
+    emergency: "🚨 Emergency (hotfix)",
   }
 
   const storageLabel =
@@ -183,9 +183,9 @@ export function formatGraphState(snapshot: GraphSnapshot): string {
   return [
     `Estado: ${stateLabels[snapshot.state]}`,
     `Storage: ${storageLabel}`,
-    `Nós: ${snapshot.nodeCount} | Relações: ${snapshot.relationshipCount}`,
-    `Spec nodes: ${snapshot.hasSpecNodes ? "sim" : "não"}`,
-    `Changes: ${snapshot.pendingChangeCount} pendente(s), ${snapshot.approvedChangeCount} aprovada(s)`,
+    `Nodes: ${snapshot.nodeCount} | Relationships: ${snapshot.relationshipCount}`,
+    `Spec nodes: ${snapshot.hasSpecNodes ? "yes" : "no"}`,
+    `Changes: ${snapshot.pendingChangeCount} pending, ${snapshot.approvedChangeCount} approved`,
     `Workflow: ${snapshot.hasWorkflow ? "ativo" : "inativo"}`,
   ].join("\n")
 }

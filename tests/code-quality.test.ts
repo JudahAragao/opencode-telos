@@ -92,7 +92,7 @@ describe("Code Quality Analysis", () => {
       expect(report.functions.length).toBeGreaterThan(0)
       expect(report.summary.total_functions).toBeGreaterThan(0)
       expect(report.summary.average_cyclomatic).toBeGreaterThan(0)
-      expect(formatComplexityReport(report)).toContain("Relatório de Complexidade")
+      expect(formatComplexityReport(report)).toContain("Complexity Report")
     })
 
     it("should detect high risk functions", () => {
@@ -111,7 +111,7 @@ describe("Code Quality Analysis", () => {
       expect(report.functions.length).toBeGreaterThan(0)
       expect(report.file_summary.total_lines).toBeGreaterThan(0)
       expect(report.issues.length).toBeGreaterThan(0)
-      expect(formatMetricsReport(report)).toContain("Métricas de Código")
+      expect(formatMetricsReport(report)).toContain("Code Metrics")
     })
 
     it("should detect long parameter lists", () => {
@@ -128,7 +128,7 @@ describe("Code Quality Analysis", () => {
       
       expect(report.smells.length).toBeGreaterThan(0)
       expect(report.summary.total_smells).toBeGreaterThan(0)
-      expect(formatCodeSmellReport(report)).toContain("Detecção de Code Smells")
+      expect(formatCodeSmellReport(report)).toContain("Code Smell Detection")
     })
 
     it("should detect god class", () => {
@@ -166,7 +166,7 @@ describe("Code Quality Analysis", () => {
       expect(report.nodes.length).toBe(3)
       expect(report.summary.total_nodes).toBe(3)
       expect(report.summary.total_dependencies).toBe(2)
-      expect(formatDependencyReport(report)).toContain("Análise de Dependências")
+      expect(formatDependencyReport(report)).toContain("Dependency Analysis")
     })
 
     it("should detect circular dependencies", () => {

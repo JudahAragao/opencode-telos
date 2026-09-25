@@ -1,7 +1,7 @@
 /**
  * Workflows Module — Barrel export.
  *
- * Exporta todas as funções públicas do módulo de workflows.
+ * Exports all public functions of the workflows module.
  * Consumido por: tools.ts
  */
 

@@ -234,8 +234,8 @@ export function openChangeForTask(
   const extraWarnings: string[] = []
   if (!hasRequirement && affectedNodes.length > 0) {
     extraWarnings.push(
-      "Nenhum `requirement` está vinculado à task, então a evidência funcional do Change não é avaliável. " +
-        "Vincule a task a um requisito (`implements`) ou marque `no_requirement_impact` ao abrir o Change.",
+      "No `requirement` is linked to the task, so the Change's functional evidence cannot be evaluated. " +
+        "Link the task to a requirement (`implements`) or set `no_requirement_impact` when opening the Change.",
     )
   }
 
@@ -268,22 +268,22 @@ function syncTaskWithChange(graph: KnowledgeGraph, task: TaskNode, changeId: str
 export function buildChangeImplementationPrompt(change: ChangeNode, task: TaskNode): string {
   const files = change.metadata.affected_files
   const lines = [
-    "## SDD: implementar o Change aberto pela task",
+    "## SDD: implement the Change opened by the task",
     "",
-    `A task \`${task.id}\` ("${task.name}") abriu o Change \`${change.id}\` — status **${change.status}**, aprovação **${change.metadata.approval_level}**.`,
+    `Task \`${task.id}\` ("${task.name}") opened Change \`${change.id}\` — status **${change.status}**, approval **${change.metadata.approval_level}**.`,
     "",
-    "Implemente o código correspondente seguindo o fluxo SDD:",
-    `1. O Change \`${change.id}\` já é a autorização de escrita — não crie outro Change.`,
-    "2. Altere apenas os arquivos cobertos pelo escopo declarado.",
-    "3. Rode os testes relevantes (`sdd.verify_implementation` quando aplicável).",
-    `4. Finalize com \`sdd.complete_change\` (\`change_id: "${change.id}"\`).`,
+    "Implement the matching code following the SDD flow:",
+    `1. Change \`${change.id}\` is already the write authorization — do not open another Change.`,
+    "2. Only touch files covered by the declared scope.",
+    "3. Run the relevant tests (`sdd.verify_implementation` where applicable).",
+    `4. Finish with \`sdd.complete_change\` (\`change_id: "${change.id}"\`).`,
     "",
     files.length > 0
-      ? `Arquivos cobertos: ${files.join(", ")}`
-      : "⚠️ O Change não declara `affected_files`, então o hook de escrita vai recusar Write/Edit. " +
-        "Atualize o escopo do Change (`sdd.graph_mutation(action=\"update_node\")` com `metadata.affected_files`) antes de editar qualquer arquivo.",
+      ? `Covered files: ${files.join(", ")}`
+      : "⚠️ The Change declares no `affected_files`, so the write hook will reject Write/Edit. " +
+        "Update the Change scope (`sdd.graph_mutation(action=\"update_node\")` with `metadata.affected_files`) before editing any file.",
     "",
-    "Não altere arquivos fora do escopo declarado.",
+    "Do not touch files outside the declared scope.",
   ]
   return lines.join("\n")
 }
@@ -294,19 +294,19 @@ export function formatOpenChangeResult(result: OpenChangeResult): string {
     `## SDD Change ${result.change.id}`,
     "",
     `**Task:** ${result.change.metadata.implementation_tasks.join(", ") || "—"}`,
-    `**Título:** ${result.change.metadata.title}`,
+    `**Title:** ${result.change.metadata.title}`,
     `**Status:** ${result.change.status}`,
-    `**Aprovação:** ${result.approval_level}`,
-    `**Arquivos:** ${result.affected_files.length > 0 ? result.affected_files.join(", ") : "— (nenhum declarado)"}`,
-    `**Nós afetados:** ${result.affected_nodes.length > 0 ? result.affected_nodes.join(", ") : "—"}`,
-    result.created ? "**Criado agora:** sim" : "**Criado agora:** não (Change já existia)",
+    `**Approval:** ${result.approval_level}`,
+    `**Files:** ${result.affected_files.length > 0 ? result.affected_files.join(", ") : "— (none declared)"}`,
+    `**Affected nodes:** ${result.affected_nodes.length > 0 ? result.affected_nodes.join(", ") : "—"}`,
+    result.created ? "**Created just now:** yes" : "**Created just now:** no (Change already existed)",
     "",
   ]
 
   if (result.approved) {
-    lines.push("✅ Change aprovado — o hook de escrita libera os arquivos declarados. Próximo passo: implementar o código.")
+    lines.push("✅ Change approved — the write hook releases the declared files. Next step: implement the code.")
   } else {
-    lines.push("⏳ Change em rascunho — aprovação necessária antes de escrever código.")
+    lines.push("⏳ Change in draft — approval required before writing code.")
   }
 
   if (result.blockers.length > 0) {

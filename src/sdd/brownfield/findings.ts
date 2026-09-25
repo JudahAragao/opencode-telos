@@ -191,19 +191,19 @@ export function createFindingTask(
   const task = createTask(graph, {
     name: options.purpose === "documentation"
       ? `Corrigir descoberta: ${finding.name}`
-      : `Implementar decisão derivada: ${targetName ?? finding.name}`,
+      : `Implement derived decision: ${targetName ?? finding.name}`,
     description: options.purpose === "documentation"
       ? finding.metadata.observed_behavior
       : finding.metadata.target_behavior ?? finding.metadata.observed_behavior,
     goal: options.purpose === "documentation"
-      ? finding.metadata.remediation ?? "Corrigir o problema observado e adicionar verificação."
+      ? finding.metadata.remediation ?? "Fix the observed problem and add verification."
       : finding.metadata.target_behavior ?? "Implementar o comportamento definido no SDD alvo.",
     files: options.purpose === "documentation" ? finding.metadata.source_files : [],
     acceptance: [
       options.purpose === "documentation"
         ? "A causa da descoberta foi corrigida no sistema documentado."
-        : "O comportamento alvo está implementado sem reproduzir o problema do sistema de origem.",
-      "Existe evidência de verificação registrada no SDD.",
+        : "The target behaviour is implemented without reproducing the source system's problem.",
+      "Verification evidence is recorded in the SDD.",
     ],
     priority: metadataPriority,
     status: options.blocked ? "blocked" : "todo",
@@ -324,13 +324,13 @@ export function detectBrownfieldFindings(
     findings.push({
       category: "test_gap",
       severity: "high",
-      title: "Código executável sem testes detectados",
-      observed_behavior: "O projeto possui arquivos de código, mas o scanner não encontrou testes automatizados.",
-      expected_behavior: "Comportamentos relevantes devem possuir testes unitários, de integração ou end-to-end.",
+      title: "Executable code without tests detected",
+      observed_behavior: "The project has code files, but the scanner found no automated tests.",
+      expected_behavior: "Relevant behaviours should have unit, integration or end-to-end tests.",
       purpose,
       confidence: 0.88,
-      remediation: "Adicionar testes para os fluxos críticos e registrar os cenários de aceitação.",
-      target_behavior: "O novo sistema deve nascer com cobertura automatizada para os fluxos críticos.",
+      remediation: "Add tests for the critical flows and record the acceptance scenarios.",
+      target_behavior: "The new system should start with automated coverage for the critical flows.",
       source_files: sourceFiles,
       evidence: [{ kind: "scan", detector: "test-coverage", excerpt: `source_files=${sourceFiles.length}; test_files=0`, confidence: 0.88 }],
     })
@@ -340,13 +340,13 @@ export function detectBrownfieldFindings(
     findings.push({
       category: "documentation",
       severity: "low",
-      title: "Documentação de projeto não detectada",
-      observed_behavior: "O projeto não possui README, CHANGELOG ou diretório de documentação detectável.",
-      expected_behavior: "O comportamento público e as decisões relevantes devem estar documentados.",
+      title: "Project documentation not detected",
+      observed_behavior: "The project has no detectable README, CHANGELOG or documentation directory.",
+      expected_behavior: "Public behaviour and relevant decisions should be documented.",
       purpose,
       confidence: 0.82,
-      remediation: "Criar documentação de uso, arquitetura e operação.",
-      target_behavior: "O novo sistema deve possuir documentação mínima para operação e manutenção.",
+      remediation: "Create usage, architecture and operations documentation.",
+      target_behavior: "The new system should have minimum documentation for operation and maintenance.",
       source_files: [],
       evidence: [{ kind: "scan", detector: "documentation-coverage", excerpt: "documentation_files=0", confidence: 0.82 }],
     })
@@ -360,13 +360,13 @@ export function detectBrownfieldFindings(
     if (todo) findings.push({
       category: "quality",
       severity: /FIXME|HACK/i.test(todo) ? "medium" : "low",
-      title: `Pendência explícita em ${file}`,
-      observed_behavior: `O arquivo contém uma anotação de pendência: ${todo.trim().slice(0, 180)}`,
-      expected_behavior: "Pendências relevantes devem ser resolvidas ou formalizadas no SDD.",
+      title: `Explicit TODO in ${file}`,
+      observed_behavior: `The file contains a TODO annotation: ${todo.trim().slice(0, 180)}`,
+      expected_behavior: "Relevant open items should be resolved or formalized in the SDD.",
       purpose,
       confidence: 0.95,
-      remediation: "Resolver a pendência e adicionar teste ou decisão que justifique a implementação.",
-      target_behavior: "A decisão correspondente deve ser explícita no SDD do novo sistema.",
+      remediation: "Resolve the open item and add a test or decision that justifies the implementation.",
+      target_behavior: "The corresponding decision should be explicit in the new system's SDD.",
       source_files: [file],
       evidence: [{ kind: "file", path: file, detector: "source-patterns", excerpt: todo.trim().slice(0, 180), confidence: 0.95 }],
     })
@@ -374,13 +374,13 @@ export function detectBrownfieldFindings(
     if (/\bdebugger\b|\bconsole\.(?:log|debug|trace)\s*\(/.test(content)) findings.push({
       category: "quality",
       severity: "low",
-      title: `Log de depuração em ${file}`,
-      observed_behavior: "O arquivo contém saída de depuração diretamente no código de produção.",
-      expected_behavior: "Logs devem usar a estratégia observável e configurável do sistema.",
+      title: `Debug log in ${file}`,
+      observed_behavior: "The file contains debug output directly in production code.",
+      expected_behavior: "Logs should use the system's observable and configurable strategy.",
       purpose,
       confidence: 0.78,
-      remediation: "Substituir a saída direta por logging estruturado ou removê-la.",
-      target_behavior: "O novo sistema deve usar logging estruturado e controlado por ambiente.",
+      remediation: "Replace the direct output with structured logging or remove it.",
+      target_behavior: "The new system should use structured logging controlled per environment.",
       source_files: [file],
       evidence: [{ kind: "file", path: file, detector: "source-patterns", confidence: 0.78 }],
     })
@@ -389,12 +389,12 @@ export function detectBrownfieldFindings(
       category: "quality",
       severity: "medium",
       title: `Tipagem fraca em ${file}`,
-      observed_behavior: "O arquivo TypeScript utiliza o tipo any, reduzindo a verificação estática.",
-      expected_behavior: "Contratos públicos devem possuir tipos explícitos ou justificativa registrada.",
+      observed_behavior: "The TypeScript file uses the any type, weakening static checking.",
+      expected_behavior: "Public contracts should have explicit types or a recorded justification.",
       purpose,
       confidence: 0.74,
-      remediation: "Substituir any por tipos explícitos ou registrar a exceção arquitetural.",
-      target_behavior: "O novo sistema deve preservar contratos tipados nos limites públicos.",
+      remediation: "Replace any with explicit types or record the architectural exception.",
+      target_behavior: "The new system should keep typed contracts at public boundaries.",
       source_files: [file],
       evidence: [{ kind: "file", path: file, detector: "source-patterns", confidence: 0.74 }],
     })
@@ -402,13 +402,13 @@ export function detectBrownfieldFindings(
     if (/catch\s*(?:\([^)]*\))?\s*\{\s*\}/.test(content)) findings.push({
       category: "quality",
       severity: "high",
-      title: `Erro descartado silenciosamente em ${file}`,
-      observed_behavior: "Existe um bloco catch vazio que descarta falhas sem tratamento ou telemetria.",
-      expected_behavior: "Falhas devem ser tratadas, propagadas ou registradas com contexto.",
+      title: `Silently discarded error in ${file}`,
+      observed_behavior: "There is an empty catch block that discards failures without handling or telemetry.",
+      expected_behavior: "Failures should be handled, propagated or logged with context.",
       purpose,
       confidence: 0.9,
-      remediation: "Definir tratamento de erro e teste para o cenário de falha.",
-      target_behavior: "O novo sistema deve ter política explícita de tratamento de erros.",
+      remediation: "Define error handling and a test for the failure scenario.",
+      target_behavior: "The new system should have an explicit error handling policy.",
       source_files: [file],
       evidence: [{ kind: "file", path: file, detector: "source-patterns", confidence: 0.9 }],
     })
@@ -416,13 +416,13 @@ export function detectBrownfieldFindings(
     if (/(?:api[_-]?key|secret|password|token)\s*[:=]\s*["'][^"']{8,}["']/i.test(content)) findings.push({
       category: "security",
       severity: "critical",
-      title: `Possível segredo embutido em ${file}`,
-      observed_behavior: "O arquivo contém uma string com aparência de credencial ou segredo.",
-      expected_behavior: "Segredos devem ser fornecidos por armazenamento seguro ou variáveis protegidas.",
+      title: `Possible embedded secret in ${file}`,
+      observed_behavior: "The file contains a string that looks like a credential or secret.",
+      expected_behavior: "Secrets should come from secure storage or protected variables.",
       purpose,
       confidence: 0.86,
-      remediation: "Remover o segredo, rotacioná-lo e usar configuração segura.",
-      target_behavior: "O novo sistema não deve armazenar credenciais em código-fonte.",
+      remediation: "Remove the secret, rotate it and use secure configuration.",
+      target_behavior: "The new system must not store credentials in source code.",
       source_files: [file],
       evidence: [{ kind: "file", path: file, detector: "source-patterns", confidence: 0.86 }],
     })

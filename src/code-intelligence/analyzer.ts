@@ -306,8 +306,8 @@ export function analyzeCodebase(
       try { addRelationship(graph, from.id, to.id, type, { code_intelligence: true, range: relation.range, confidence: relation.confidence, parser: parsed.parser }) } catch (error) { sddDebug("analyzer", `Failed to add relation ${type}: ${from.id}→${to.id}`) }
     }
   }
-  // Rastreabilidade: liga arquivos/módulos recém-indexados às features que
-  // eles implementam (file --implements--> feature) usando o path como pista.
+  // Traceability: links newly indexed files/modules to the features that
+  // they implement (file --implements--> feature) using the path as a hint.
   runRelationshipInference(graph, { includeMilestones: false })
 
   saveAstCache(projectDir, astCache)

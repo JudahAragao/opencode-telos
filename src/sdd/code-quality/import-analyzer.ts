@@ -181,7 +181,7 @@ function detectImportIssues(
       issues.push({
         type: 'barrel_import',
         severity: 'warning',
-        message: `Importação de barrel file: ${imp.source}`,
+        message: `Barrel file import: ${imp.source}`,
         line: imp.line,
       })
     }
@@ -191,7 +191,7 @@ function detectImportIssues(
       issues.push({
         type: 'deep_import',
         severity: 'warning',
-        message: `Importação profunda (nível ${depth}): ${imp.source}`,
+        message: `Deep import (level ${depth}): ${imp.source}`,
         line: imp.line,
       })
     }
@@ -203,7 +203,7 @@ function detectImportIssues(
         issues.push({
           type: 'unused_import',
           severity: 'warning',
-          message: `Import não utilizado: ${name} de ${imp.source}`,
+          message: `Unused import: ${name} from ${imp.source}`,
           line: imp.line,
         })
       }
@@ -217,7 +217,7 @@ function detectImportIssues(
       issues.push({
         type: 'circular',
         severity: 'error',
-        message: `Dependência circular detectada: ${imp.source}`,
+        message: `Circular dependency detected: ${imp.source}`,
         line: imp.line,
       })
     }
@@ -256,7 +256,7 @@ function filterImports(imports: ImportInfo[], options?: ImportAnalysisOptions): 
 
 export function formatImportAnalysis(analysis: ImportAnalysis): string {
   const lines = [
-    `## Análise de Imports - ${analysis.file_path}`,
+    `## Import Analysis - ${analysis.file_path}`,
     '',
     '### Resumo',
     `- **Imports:** ${analysis.summary.total_imports}`,
@@ -267,7 +267,7 @@ export function formatImportAnalysis(analysis: ImportAnalysis): string {
   ]
 
   if (analysis.issues.length > 0) {
-    lines.push('### ⚠️ Problemas Detectados')
+    lines.push('### ⚠️ Detected Problems')
     for (const issue of analysis.issues) {
       const icon = issue.severity === 'error' ? '❌' : '⚠️'
       lines.push(`${icon} **${issue.type}:** ${issue.message}${issue.line ? ` (linha ${issue.line})` : ''}`)

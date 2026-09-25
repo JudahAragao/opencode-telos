@@ -399,14 +399,14 @@ export interface ChangeNode extends Node {
     affected_tests: string[]
     implementation_tasks: string[]
     /**
-     * Declaração explícita de que o Change não altera comportamento
-     * especificado (nenhum nó `requirement` afetado). Sem isso, a evidência
-     * funcional não pode ser avaliada e a conclusão fica bloqueada (G1).
+     * Explicit declaration that the Change does not alter specified behaviour
+     * (no `requirement` node affected). Without it the functional evidence cannot
+     * be evaluated and completion is blocked (G1).
      */
     no_requirement_impact?: boolean
     /**
-     * Registro auditável de que o Change foi aprovado sem `affected_files`
-     * declarados (o hook de escrita não vai liberar nenhum arquivo nesse caso).
+     * Auditable record that the Change was approved without declared
+     * `affected_files` (the write hook will not release any file in that case).
      */
     files_scope_acknowledged?: boolean
     final_acceptance?: {
@@ -671,16 +671,16 @@ export interface SLANode extends Node {
 }
 
 /**
- * Agrupador de mudanças/tasks sob um objetivo entregável.
- * Não substitui `change`: um milestone agrupa changes, um change descreve uma
- * alteração concreta de comportamento.
+ * Groups changes/tasks under a deliverable objective.
+ * It does not replace `change`: a milestone groups changes, a change describes a
+ * concrete behaviour alteration.
  */
 export interface MilestoneNode extends Node {
   type: "milestone"
   metadata: {
     milestone_name: string
     target_date?: string
-    /** Descrição opcional do objetivo de entrega. */
+    /** Optional description of the delivery objective. */
     objective?: string
     /** IDs de changes/tasks pertencentes ao milestone. */
     change_ids?: string[]

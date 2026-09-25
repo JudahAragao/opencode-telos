@@ -314,7 +314,7 @@ function buildTaskNodes(
 
 /**
  * Prefixos usados pelos extratores (`entity-Nome`, `feature-Nome`, …) mapeados
- * para o tipo curto que `safeId` usa, permitindo resolver a referência para o
+ * to the short form `safeId` uses, allowing the reference to be resolved into
  * ID real do grafo.
  */
 const PREFIX_TO_SAFE_TYPE: Record<string, string> = {
@@ -327,8 +327,8 @@ const PREFIX_TO_SAFE_TYPE: Record<string, string> = {
 }
 
 /**
- * Resolve a referência de uma aresta declarada (ID real, ID prefixado do
- * extrator, ou nome do nó) para um nó existente no grafo.
+ * Resolves a declared edge reference (real ID, extractor-prefixed ID, or node
+ * name) to an existing node in the graph.
  */
 function resolveRelationshipEndpoint(
   graph: KnowledgeGraph,
@@ -355,9 +355,9 @@ function resolveRelationshipEndpoint(
 }
 
 /**
- * Aplica os relacionamentos declarados pela análise (LLM ou regex), validando
- * o tipo contra o schema canônico. Antes desta versão eles eram ignorados, o
- * que descartava silenciosamente a rastreabilidade extraída do briefing.
+ * Applies the relationships declared by the analysis (LLM or regex), validating
+ * the type against the canonical schema. Before this version they were ignored,
+ * which silently discarded the traceability extracted from the briefing.
  */
 function applyAnalysisRelationships(
   graph: KnowledgeGraph,
@@ -381,7 +381,7 @@ function applyAnalysisRelationships(
       })
       count++
     } catch {
-      // Já existe ou criaria ciclo — a inferência cobre o que faltar.
+      // Already exists or would create a cycle — inference covers whatever is left.
     }
   }
   return count
@@ -717,11 +717,11 @@ export function buildGraphFromAnalysis(
   const relationshipsCreated = buildRelationships(graph, analysis)
   progressEmitter.stepProgress("relationships", `Created ${relationshipsCreated} relationships`, undefined, buildId)
 
-  // Relacionamentos declarados pela análise do briefing (validados/normalizados)
+  // Relationships declared by the briefing analysis (validated/normalized)
   const declaredRelationships = applyAnalysisRelationships(graph, analysis)
 
-  // Inferência de rastreabilidade: cobre os vínculos que a heurística por
-  // keyword não alcança (endpoint/file --implements--> feature,
+  // Traceability inference: covers the links the keyword heuristic cannot
+  // reach (endpoint/file --implements--> feature,
   // endpoint --operates_on--> entity, requirement --specifies--> feature).
   progressEmitter.nextStep("relationships", "Inferindo relacionamentos de rastreabilidade...", buildId)
   const inference = runRelationshipInference(graph)

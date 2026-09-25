@@ -1,8 +1,8 @@
 /**
  * Composite Tools — Tools compostas que agrupam capacidades relacionadas.
  *
- * Cada tool composta aceita um parâmetro `action` e delega para funções
- * handler internas (tool-handlers.ts) ou implementação inline.
+ * Each composite tool takes an `action` parameter and delegates to internal
+ * handler functions (tool-handlers.ts) or inline implementation.
  *
  * Consumido por: createSddTools() em tools.ts
  */
@@ -105,21 +105,21 @@ export function createGraphMutationTool(): ToolDefinition {
   return tool({
     description:
       "Modificar a estrutura do Knowledge Graph. " +
-      "Use `action` para selecionar a operação: add_node, update_node, remove_node, add_relationship, remove_relationship.",
+      "Use `action` to select the operation: add_node, update_node, remove_node, add_relationship, remove_relationship.",
     args: {
-      action: tool.schema.enum(["add_node", "update_node", "remove_node", "add_relationship", "remove_relationship"]).describe("Operação a executar"),
-      type: tool.schema.string().optional().describe("Tipo do nó (para add_node)"),
-      name: tool.schema.string().optional().describe("Nome do nó (para add_node)"),
-      description_text: tool.schema.string().optional().describe("Descrição do nó (para add_node)"),
-      parent_id: tool.schema.string().optional().describe("ID do nó pai (para add_node)"),
+      action: tool.schema.enum(["add_node", "update_node", "remove_node", "add_relationship", "remove_relationship"]).describe("Operation to run"),
+      type: tool.schema.string().optional().describe("Node type (for add_node)"),
+      name: tool.schema.string().optional().describe("Node name (for add_node)"),
+      description_text: tool.schema.string().optional().describe("Node description (for add_node)"),
+      parent_id: tool.schema.string().optional().describe("Parent node ID (for add_node)"),
       metadata_json: tool.schema.string().optional().describe("Metadados como JSON (para add_node)"),
-      node_id: tool.schema.string().optional().describe("ID do nó (para update_node, remove_node)"),
+      node_id: tool.schema.string().optional().describe("Node ID (for update_node, remove_node)"),
       updates_json: tool.schema.string().optional().describe("Updates como JSON (para update_node)"),
-      expected_version: tool.schema.number().optional().describe("Versão esperada para evitar sobrescrita concorrente"),
-      from_id: tool.schema.string().optional().describe("Nó origem (para add_relationship)"),
-      to_id: tool.schema.string().optional().describe("Nó destino (para add_relationship)"),
-      rel_type: tool.schema.string().optional().describe("Tipo da relação (para add_relationship)"),
-      relationship_id: tool.schema.string().optional().describe("ID da relação (para remove_relationship)"),
+      expected_version: tool.schema.number().optional().describe("Expected version to avoid concurrent overwrite"),
+      from_id: tool.schema.string().optional().describe("Source node (for add_relationship)"),
+      to_id: tool.schema.string().optional().describe("Target node (for add_relationship)"),
+      rel_type: tool.schema.string().optional().describe("Relationship type (for add_relationship)"),
+      relationship_id: tool.schema.string().optional().describe("Relationship ID (for remove_relationship)"),
     },
     async execute(args, ctx) {
       const repo = getRepo(ctx.directory)
@@ -252,11 +252,11 @@ export function createGraphMutationTool(): ToolDefinition {
 
 export function createGraphQueryTool(): ToolDefinition {
   return tool({
-    description: "Consultar o Knowledge Graph: contar nós, filtrar por status, listar por tipo.",
+    description: "Query the Knowledge Graph: count nodes, filter by status, list by type.",
     args: {
-      action: tool.schema.enum(["count_nodes", "get_nodes_by_status", "list_nodes"]).describe("Operação a executar"),
-      type: tool.schema.string().optional().describe("Tipo de nó (para list_nodes)"),
-      status: tool.schema.string().optional().describe("Status do nó (para get_nodes_by_status)"),
+      action: tool.schema.enum(["count_nodes", "get_nodes_by_status", "list_nodes"]).describe("Operation to run"),
+      type: tool.schema.string().optional().describe("Node type (for list_nodes)"),
+      status: tool.schema.string().optional().describe("Node status (for get_nodes_by_status)"),
     },
     async execute(args, ctx) {
       const repo = getRepo(ctx.directory)
@@ -312,10 +312,10 @@ export function createTraverseTool(): ToolDefinition {
   return tool({
     description: "Percorrer o Knowledge Graph: BFS, subgraph, path finding.",
     args: {
-      action: tool.schema.enum(["outgoing", "incoming", "both", "subgraph", "find_path"]).describe("Operação a executar"),
-      node_id: tool.schema.string().describe("Nó de origem"),
-      to_id: tool.schema.string().optional().describe("Nó destino (para find_path)"),
-      depth: tool.schema.number().optional().describe("Profundidade máxima (default: 2)"),
+      action: tool.schema.enum(["outgoing", "incoming", "both", "subgraph", "find_path"]).describe("Operation to run"),
+      node_id: tool.schema.string().describe("Source node"),
+      to_id: tool.schema.string().optional().describe("Target node (for find_path)"),
+      depth: tool.schema.number().optional().describe("Maximum depth (default: 2)"),
     },
     async execute(args, ctx) {
       const repo = getRepo(ctx.directory)
@@ -380,15 +380,15 @@ export function createTraverseTool(): ToolDefinition {
 
 export function createPermissionsTool(): ToolDefinition {
   return tool({
-    description: "Gerenciar permissões, roles, audit log e configuração de acesso.",
+    description: "Manage permissions, roles, audit log and access configuration.",
     args: {
-      action: tool.schema.enum(["set_role", "check", "audit", "config", "save_config", "role", "approval"]).describe("Operação a executar"),
-      user: tool.schema.string().optional().describe("Nome do usuário"),
+      action: tool.schema.enum(["set_role", "check", "audit", "config", "save_config", "role", "approval"]).describe("Operation to run"),
+      user: tool.schema.string().optional().describe("User name"),
       role: tool.schema.string().optional().describe("Role a atribuir"),
-      permission: tool.schema.string().optional().describe("Permissão a verificar"),
+      permission: tool.schema.string().optional().describe("Permission to check"),
       change_id: tool.schema.string().optional().describe("ID da change"),
       limit: tool.schema.number().optional().describe("Limite de entradas no audit log"),
-      config_json: tool.schema.string().optional().describe("Configuração JSON para save_config"),
+      config_json: tool.schema.string().optional().describe("JSON configuration for save_config"),
     },
     async execute(args, ctx) {
       const currentUser = process.env.USER || process.env.USERNAME || "current"
@@ -445,9 +445,9 @@ export function createPermissionsTool(): ToolDefinition {
 
 export function createSnapshotTool(): ToolDefinition {
   return tool({
-    description: "Criar snapshots do grafo, rollback e histórico.",
+    description: "Create graph snapshots, rollback and history.",
     args: {
-      action: tool.schema.enum(["create", "rollback", "history", "list"]).describe("Operação a executar"),
+      action: tool.schema.enum(["create", "rollback", "history", "list"]).describe("Operation to run"),
       change_id: tool.schema.string().optional().describe("ID da change (para create)"),
       snapshot_id: tool.schema.string().optional().describe("ID do snapshot (para rollback)"),
     },
@@ -486,9 +486,9 @@ export function createSnapshotTool(): ToolDefinition {
 
 export function createSyncTool(): ToolDefinition {
   return tool({
-    description: "Sincronizar grafo com repositório remoto: pull, push, conflitos, merge.",
+    description: "Sync the graph with a remote repository: pull, push, conflicts, merge.",
     args: {
-      action: tool.schema.enum(["status", "pull", "push", "conflicts", "merge"]).describe("Operação a executar"),
+      action: tool.schema.enum(["status", "pull", "push", "conflicts", "merge"]).describe("Operation to run"),
       remote_graph_path: tool.schema.string().optional().describe("Caminho do grafo remoto para sync"),
       auto_resolve: tool.schema.boolean().optional().describe("Resolver conflitos automaticamente"),
     },
@@ -537,11 +537,11 @@ export function createSyncTool(): ToolDefinition {
 
 export function createGraphAdminTool(): ToolDefinition {
   return tool({
-    description: "Administração do grafo: health, pruning, cache, convenções, padrões.",
+    description: "Graph administration: health, pruning, cache, conventions, patterns.",
     args: {
-      action: tool.schema.enum(["health", "health_detail", "prune", "cache", "conventions", "learn"]).describe("Operação a executar"),
+      action: tool.schema.enum(["health", "health_detail", "prune", "cache", "conventions", "learn"]).describe("Operation to run"),
       learn_action: tool.schema.enum(["learn", "show", "suggest"]).optional().describe("Sub-action para learn"),
-      node_type: tool.schema.string().optional().describe("Tipo de nó (para learn com suggest)"),
+      node_type: tool.schema.string().optional().describe("Node type (for learn with suggest)"),
     },
     async execute(args, ctx) {
       const repo = getRepo(ctx.directory)
@@ -634,16 +634,16 @@ export function createGraphAdminTool(): ToolDefinition {
 
 export function createCodeQualityTool(): ToolDefinition {
   return tool({
-    description: "Análise de qualidade de código: complexidade, métricas, smells, dependências, código morto, símbolos.",
+    description: "Code quality analysis: complexity, metrics, smells, dependencies, dead code, symbols.",
     args: {
       action: tool.schema.enum([
         "complexity", "metrics", "smells", "dependencies",
         "usage", "dead_code", "remove_dead_code", "parse_symbols", "plan_implementation", "analyze_codebase",
-      ]).describe("Operação a executar"),
-      file_path: tool.schema.string().optional().describe("Caminho do arquivo"),
+      ]).describe("Operation to run"),
+      file_path: tool.schema.string().optional().describe("File path"),
       feature_id: tool.schema.string().optional().describe("ID da feature"),
-      files: tool.schema.string().optional().describe("Lista de arquivos separados por vírgula"),
-      dry_run: tool.schema.boolean().optional().describe("Apenas simular a remoção"),
+      files: tool.schema.string().optional().describe("Comma-separated list of files"),
+      dry_run: tool.schema.boolean().optional().describe("Only simulate the removal"),
     },
     async execute(args, ctx) {
       switch (args.action) {
@@ -716,8 +716,8 @@ export function createEnterpriseTool(): ToolDefinition {
         "migration", "experiment", "flag", "tenant", "security_audit", "scalability",
         "compliance", "monitoring", "dashboard", "incident", "sla", "cost", "docs",
         "onboarding", "knowledge_transfer", "disaster_recovery", "config_drift", "workflow_export",
-      ]).describe("Operação a executar"),
-      params_json: tool.schema.string().optional().describe("Parâmetros como JSON"),
+      ]).describe("Operation to run"),
+      params_json: tool.schema.string().optional().describe("Parameters as JSON"),
     },
     async execute(args, ctx) {
       const graph = loadOrEmpty(ctx.directory)
@@ -777,10 +777,10 @@ export function createEnterpriseTool(): ToolDefinition {
 
 export function createDriftWhitelistTool(): ToolDefinition {
   return tool({
-    description: "Gerenciar whitelist de drift: adicionar, remover, listar.",
+    description: "Manage the drift whitelist: add, remove, list.",
     args: {
-      action: tool.schema.enum(["add", "remove", "list"]).describe("Operação a executar"),
-      file_path: tool.schema.string().optional().describe("Caminho do arquivo ou padrão"),
+      action: tool.schema.enum(["add", "remove", "list"]).describe("Operation to run"),
+      file_path: tool.schema.string().optional().describe("File path or pattern"),
       reason: tool.schema.string().optional().describe("Motivo (para add)"),
     },
     async execute(args, ctx) {

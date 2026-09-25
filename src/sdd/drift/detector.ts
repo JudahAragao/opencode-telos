@@ -289,7 +289,7 @@ function detectUntrackedFiles(
           const inferredEntity = inferEntityFromFile(relPath, graph)
           const suggestion = inferredEntity
             ? `File likely implements "${inferredEntity}" — use sdd.graph_mutation(action=\"add_node\") to create FileNode, then sdd.graph_mutation(action=\"add_relationship\") to link it`
-            : "Arquivo não rastreado pelo SDD. Considere adicionar um FileNode."
+            : "File not tracked by the SDD. Consider adding a FileNode."
           result.untracked_files.push({
             file_path: relPath,
             full_path: fullPath,

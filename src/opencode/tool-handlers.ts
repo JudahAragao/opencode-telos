@@ -145,7 +145,7 @@ export async function removeDeadCodeHandler(
   const filePath = projectPath(ctx.directory, args.file)
 
   if (!existsSync(filePath)) {
-    return `❌ Arquivo não encontrado: ${args.file}`
+    return `❌ File not found: ${args.file}`
   }
 
   const code = readFileSync(filePath, "utf-8")
@@ -155,20 +155,20 @@ export async function removeDeadCodeHandler(
   const unusedImports = analysis.issues.filter((i: any) => i.type === "unused_import")
 
   if (unusedImports.length === 0) {
-    return `✅ Nenhum import não utilizado encontrado em ${args.file}`
+    return `✅ No unused imports found in ${args.file}`
   }
 
   if (args.dry_run) {
     return [
-      `🔍 **Dry Run** - Nenhuma alteração será feita`,
+      `🔍 **Dry Run** - No changes will be made`,
       "",
-      `**Arquivo:** ${args.file}`,
-      `**Imports não utilizados:** ${unusedImports.length}`,
+      `**File:** ${args.file}`,
+      `**Unused imports:** ${unusedImports.length}`,
       "",
       "### Imports para remover:",
       ...unusedImports.map((i: any) => `- Linha ${i.line}: ${i.message}`),
       "",
-      "Execute sem dry_run para criar o ChangeNode e solicitar aprovação.",
+      "Run without dry_run to create the ChangeNode and request approval.",
     ].join("\n")
   }
 
@@ -188,14 +188,14 @@ export async function removeDeadCodeHandler(
   const changeNode = {
     id: changeNodeId,
     type: "change" as const,
-    name: `Remover código morto de ${args.file}`,
+    name: `Remove dead code from ${args.file}`,
     status: "PROPOSED" as const,
     version: 1,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     metadata: {
-      title: `Remover código morto de ${args.file}`,
-      reason: `${unusedImports.length} imports não utilizados detectados`,
+      title: `Remove dead code from ${args.file}`,
+      reason: `${unusedImports.length} unused imports detected`,
       approval_level: "REVIEW" as const,
       affected_nodes: affectedNodes,
       affected_relationships: [],
@@ -217,18 +217,18 @@ export async function removeDeadCodeHandler(
   }
 
   return [
-    `📋 **ChangeNode criado para remoção de código morto**`,
+    `📋 **ChangeNode created for dead code removal**`,
     "",
     `**ID:** ${changeNodeId}`,
-    `**Arquivo:** ${args.file}`,
-    `**Imports para remover:** ${unusedImports.length}`,
+    `**File:** ${args.file}`,
+    `**Imports to remove:** ${unusedImports.length}`,
     "",
-    "### Próximos passos:",
-    "1. Use `sdd.approve_change` para aprovar a remoção",
-    "2. Após aprovação, o hook permitirá a edição do arquivo",
+    "### Next steps:",
+    "1. Use `sdd.approve_change` to approve the removal",
+    "2. After approval, the hook will allow editing the file",
     "3. Remova manualmente os imports listados acima",
     "",
-    "⚠️ **NENHUMA alteração foi feita ainda.** Aguarde aprovação.",
+    "⚠️ **NO change has been made yet.** Wait for approval.",
   ].join("\n")
 }
 
@@ -249,7 +249,7 @@ export async function planImplementationHandler(
     : graph.nodes.find((n) => n.id === args.feature_id)
 
   if (!featureNode) {
-    return `❌ Feature/Entity não encontrada: ${args.feature_id}\n\nCrie o nó primeiro com sdd.discover ou sdd.update_from_answers.`
+    return `❌ Feature/Entity not found: ${args.feature_id}\n\nCreate the node first with sdd.discover or sdd.update_from_answers.`
   }
 
   const newNodes: string[] = []
@@ -328,15 +328,15 @@ export async function planImplementationHandler(
   }
 
   return [
-    `✅ Implementação planejada para: ${featureNode.name}`,
+    `✅ Implementation planned for: ${featureNode.name}`,
     "",
-    `**Arquivos criados no grafo:** ${fileList.length}`,
-    `**Símbolos extraídos:** ${newNodes.length - fileList.length}`,
+    `**Files created in the graph:** ${fileList.length}`,
+    `**Extracted symbols:** ${newNodes.length - fileList.length}`,
     `**Relacionamentos criados:** ${newRelationships.length}`,
     "",
-    "### Próximos passos",
-    "1. Use sdd.verify_usage para garantir que o código é usado",
-    "2. Use sdd.find_dead_code para detectar imports não utilizados",
+    "### Next steps",
+    "1. Use sdd.verify_usage to make sure the code is used",
+    "2. Use sdd.find_dead_code to detect unused imports",
     "3. Use sdd.analyze_dependencies para verificar acoplamento",
   ].join("\n")
 }

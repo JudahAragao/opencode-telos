@@ -28,12 +28,12 @@ export interface ChangeProposal {
   affected_tests: string[]
   implementation_tasks: string[]
   /**
-   * Declaração explícita de que o Change não altera comportamento especificado.
-   * Sem isso (e sem requisito afetado) a evidência funcional não é avaliável e
-   * a conclusão do Change fica bloqueada.
+   * Explicit declaration that the Change does not alter specified behaviour.
+   * Without it (and without an affected requirement) the functional evidence is
+   * not evaluable and Change completion is blocked.
    */
   no_requirement_impact?: boolean
-  /** Auditoria de aprovação sem `affected_files` declarados. */
+  /** Approval audit without declared `affected_files`. */
   files_scope_acknowledged?: boolean
 }
 
@@ -191,21 +191,21 @@ export interface CompletionCheckResult {
 }
 
 export interface ChangePreflight {
-  /** Impedimentos que tornam o Change inutilizável se não forem corrigidos. */
+  /** Blockers that make the Change unusable if they are not fixed. */
   blockers: string[]
   /** Pontos que degradam a trava mas ainda permitem seguir. */
   warnings: string[]
 }
 
 /**
- * Preflight de escopo do Change (G3).
+ * Change scope preflight (G3).
  *
- * Cobre o buraco que deixava o fluxo travar *depois* de o agente já ter criado
- * o Change: sem `affected_files` o hook de escrita nunca libera nenhum arquivo
- * (Write/Edit respondem "not covered by an approved SDD Change"), e sem
- * requisito afetado (ou `no_requirement_impact`) a evidência funcional fica
- * inavaliável. Ambos são detectáveis no momento da criação/aprovação — melhor
- * avisar aí do que descobrir no meio da implementação.
+ * Closes the hole that let the flow deadlock *after* the agent had already created
+ * the Change: without `affected_files` the write hook never releases any file
+ * (Write/Edit answer "not covered by an approved SDD Change"), and without
+ * affected requirement (or `no_requirement_impact`) the functional evidence is
+ * unevaluable. Both are detectable at creation/approval time — better to warn
+ * there than to find out mid-implementation.
  */
 export function preflightChangeScope(graph: KnowledgeGraph, changeId: string): ChangePreflight {
   const change = getNode(graph, changeId) as ChangeNode | undefined
@@ -236,12 +236,12 @@ export function preflightChangeScope(graph: KnowledgeGraph, changeId: string): C
 }
 
 /**
- * Evidência de spec na conclusão (G7).
+ * Spec evidence at completion (G7).
  *
- * Um Change que não toca nenhum nó do grafo não tem como provar que a
- * implementação corresponde à especificação: ele passaria pela trava apenas com
- * "a suíte está verde". Exige vínculo com o grafo ou uma declaração explícita
- * de que não há impacto em comportamento especificado.
+ * A Change that does not touch any graph node cannot prove that the
+ * implementation matches the specification: it would pass the gate with only
+ * "the suite is green". It requires a link to the graph or an explicit statement
+ * that there is no impact on specified behaviour.
  */
 export function checkSpecEvidence(graph: KnowledgeGraph, changeId: string): CompletionCheckResult {
   const change = getNode(graph, changeId) as ChangeNode | undefined

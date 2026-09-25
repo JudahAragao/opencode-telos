@@ -1,15 +1,15 @@
 /**
- * Workflow Types — Tipos compartilhados para o módulo de workflows.
+ * Workflow Types — Shared types for the workflows module.
  *
  * Consumido por: chains.ts, executor.ts, tools-workflow.ts
  */
 
 import type { ChainExecutionResult } from "./executor.js"
 
-/** Status de uma execução de chain */
+/** Status of a chain execution */
 export type ChainStatus = "pending" | "running" | "completed" | "failed" | "rolled_back"
 
-/** Registro de uma execução de chain (para auditoria) */
+/** Record of a chain execution (for auditing) */
 export interface ChainExecutionLog {
   id: string
   runId?: string
@@ -22,19 +22,19 @@ export interface ChainExecutionLog {
   error?: string
 }
 
-/** Configuração do executor */
+/** Executor configuration */
 export interface ExecutorConfig {
-  /** Timeout máximo por step (ms) */
+  /** Maximum timeout per step (ms) */
   stepTimeoutMs: number
-  /** Timeout máximo da chain inteira (ms) */
+  /** Maximum timeout for the whole chain (ms) */
   chainTimeoutMs: number
   /** Se true, faz snapshot antes de cada step */
   snapshotBeforeStep: boolean
-  /** Se true, faz rollback automático em falha */
+  /** If true, rolls back automatically on failure */
   autoRollback: boolean
 }
 
-/** Configuração padrão */
+/** Default configuration */
 export const DEFAULT_EXECUTOR_CONFIG: ExecutorConfig = {
   stepTimeoutMs: 30_000,
   chainTimeoutMs: 120_000,

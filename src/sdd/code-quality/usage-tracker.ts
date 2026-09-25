@@ -100,9 +100,9 @@ export function trackUsage(
           type: 'file',
           name: filePath,
           file_path: filePath,
-          reason: `Arquivo conectado a spec (${specConnections.join(', ')}) mas não importado`,
+          reason: `File connected to spec (${specConnections.join(', ')}) but not imported`,
           severity: 'info',
-          recommendation: 'CONECTAR: Importe este arquivo. NÃO deletar.',
+          recommendation: 'CONNECT: import this file. DO NOT delete it.',
           is_connected_to_spec: true,
           connected_spec_nodes: specConnections,
         })
@@ -112,7 +112,7 @@ export function trackUsage(
           type: 'file',
           name: filePath,
           file_path: filePath,
-          reason: 'Arquivo não importado E não conectado a spec',
+          reason: 'File not imported AND not connected to spec',
           severity: 'warning',
           recommendation: 'Pode ser removido via sdd.code_quality(action="remove_dead_code").',
           is_connected_to_spec: false,
@@ -126,9 +126,9 @@ export function trackUsage(
           type: 'import',
           name: filePath,
           file_path: filePath,
-          reason: `Importado em ${usage.importing_file} mas símbolos não usados`,
+          reason: `Imported in ${usage.importing_file} but symbols are unused`,
           severity: 'warning',
-          recommendation: 'IMPORT MORTO: Remova o import ou use os símbolos.',
+          recommendation: 'DEAD IMPORT: remove the import or use the symbols.',
           is_connected_to_spec: specConnections.length > 0,
           connected_spec_nodes: specConnections,
           details: {
@@ -172,9 +172,9 @@ export function trackUsage(
           type: 'symbol',
           name: symbolName,
           file_path: filePath,
-          reason: `Símbolo ${symbolType} conectado a spec (${specConnections.join(', ')}) mas não usado`,
+          reason: `Symbol ${symbolType} connected to spec (${specConnections.join(', ')}) but unused`,
           severity: 'info',
-          recommendation: `CONECTAR: Use este símbolo. NÃO deletar.`,
+          recommendation: `CONNECT: use this symbol. DO NOT delete it.`,
           is_connected_to_spec: true,
           connected_spec_nodes: specConnections,
         })
@@ -184,9 +184,9 @@ export function trackUsage(
           type: 'symbol',
           name: symbolName,
           file_path: filePath,
-          reason: `Símbolo ${symbolType} não usado E não conectado a spec`,
+          reason: `Symbol ${symbolType} unused AND not connected to spec`,
           severity: 'warning',
-          recommendation: `Considere remover ${symbolType}`,
+          recommendation: `Consider removing ${symbolType}`,
           is_connected_to_spec: false,
           connected_spec_nodes: [],
         })
@@ -198,9 +198,9 @@ export function trackUsage(
           type: 'import',
           name: symbolName,
           file_path: filePath,
-          reason: `Símbolo ${symbolType} importado em ${usage.importing_file} mas não chamado`,
+          reason: `Symbol ${symbolType} imported in ${usage.importing_file} but never called`,
           severity: 'warning',
-          recommendation: 'IMPORT MORTO: Símbolo importado mas nunca chamado.',
+          recommendation: 'DEAD IMPORT: symbol imported but never called.',
           is_connected_to_spec: specConnections.length > 0,
           connected_spec_nodes: specConnections,
           details: {
@@ -453,15 +453,15 @@ function detectEntryPoint(filePath: string, sourceCode: string): boolean {
 
 export function formatUsageReport(report: UsageReport): string {
   const lines = [
-    '## Relatório de Uso de Código',
+    '## Code Usage Report',
     '',
     '### Resumo',
-    `- **Arquivos Totais:** ${report.summary.total_files}`,
-    `- **Arquivos Efetivamente Usados:** ${report.summary.used_files}`,
-    `- **Arquivos Sem Uso Real:** ${report.summary.unused_files}`,
-    `- **Símbolos Totais:** ${report.summary.total_symbols}`,
-    `- **Símbolos Efetivamente Usados:** ${report.summary.used_symbols}`,
-    `- **Símbolos Sem Uso Real:** ${report.summary.unused_symbols}`,
+    `- **Total files:** ${report.summary.total_files}`,
+    `- **Effectively used files:** ${report.summary.used_files}`,
+    `- **Files without real usage:** ${report.summary.unused_files}`,
+    `- **Total symbols:** ${report.summary.total_symbols}`,
+    `- **Effectively used symbols:** ${report.summary.used_symbols}`,
+    `- **Symbols without real usage:** ${report.summary.unused_symbols}`,
     '',
   ]
 
@@ -471,24 +471,24 @@ export function formatUsageReport(report: UsageReport): string {
 
   if (importsMortos.length > 0) {
     lines.push('### 🔴 IMPORTS MORTOS (importado mas NÃO usado)')
-    lines.push('⚠️ Estes imports existem mas os símbolos nunca são chamados/referenciados')
+    lines.push('⚠️ These imports exist but the symbols are never called/referenced')
     lines.push('')
     for (const item of importsMortos) {
       lines.push(`❌ **${item.name}**`)
-      lines.push(`   - **Arquivo que importa:** ${item.details?.importing_file || 'N/A'}`)
-      lines.push(`   - **Símbolos importados:** ${item.details?.imported_symbols?.join(', ') || 'N/A'}`)
-      lines.push(`   - **Símbolos NÃO usados:** ${item.details?.unused_symbols?.join(', ') || 'todos'}`)
-      lines.push(`   - **Ação:** ${item.recommendation}`)
+      lines.push(`   - **Importing file:** ${item.details?.importing_file || 'N/A'}`)
+      lines.push(`   - **Imported symbols:** ${item.details?.imported_symbols?.join(', ') || 'N/A'}`)
+      lines.push(`   - **Unused symbols:** ${item.details?.unused_symbols?.join(', ') || 'all'}`)
+      lines.push(`   - **Action:** ${item.recommendation}`)
       lines.push('')
     }
   }
 
   if (desconectados.length > 0) {
-    lines.push('### 🔌 DESCONECTADOS (tem spec mas não é importado)')
+    lines.push('### 🔌 DISCONNECTED (has spec but is not imported)')
     for (const item of desconectados) {
       lines.push(`ℹ️ **${item.type}:** ${item.name}`)
       lines.push(`   - **Spec:** ${item.connected_spec_nodes.join(', ')}`)
-      lines.push(`   - **Ação:** ${item.recommendation}`)
+      lines.push(`   - **Action:** ${item.recommendation}`)
     }
     lines.push('')
   }
@@ -498,17 +498,17 @@ export function formatUsageReport(report: UsageReport): string {
     for (const item of orfaos) {
       lines.push(`⚠️ **${item.type}:** ${item.name}`)
       lines.push(`   - **Motivo:** ${item.reason}`)
-      lines.push(`   - **Ação:** ${item.recommendation}`)
+      lines.push(`   - **Action:** ${item.recommendation}`)
     }
     lines.push('')
   }
 
   if (importsMortos.length === 0 && desconectados.length === 0 && orfaos.length === 0) {
-    lines.push('✅ Todo código é efetivamente usado e conectado ao SDD.')
+    lines.push('✅ All code is effectively used and connected to the SDD.')
   }
 
   lines.push('')
-  lines.push('### Arquivos com Mais Imports Mortos')
+  lines.push('### Files with Most Dead Imports')
   const filesWithDeadImports = report.files
     .filter(f => f.imported_by.some(i => !i.is_effectively_used))
     .sort((a, b) => {

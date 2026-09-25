@@ -439,7 +439,7 @@ function extractBusinessRules(text: string): ExtractedBusinessRule[] {
   const rules: ExtractedBusinessRule[] = []
   const seen = new Set<string>()
 
-  // Pattern: "deve", "must", "não pode", "cannot", "deve ser", "must be"
+  // Pattern: "deve", "must", "não pode", "cannot", "deve ser", "must be" (PT and EN)
   const rulePatterns = [
     /(?:deve|must|shall|required|obrigat[óo]ri[oa])\s+(.{10,120})/gi,
     /(?:n[aã]o pode|cannot|never|jamais|proibido|forbidden)\s+(.{10,120})/gi,
@@ -767,7 +767,7 @@ export function analyzeBriefingDeep(text: string): BriefingDeepAnalysis {
         rule.name.toLowerCase().includes(f.name.toLowerCase().split(" ")[0]),
     )
     if (matchingFeature) {
-      // Direção canônica: business_rule --constrains--> feature.
+      // Canonical direction: business_rule --constrains--> feature.
       relationships.push({
         from: `rule-${rule.name}`,
         to: `feature-${matchingFeature.name}`,

@@ -1,19 +1,19 @@
 /**
  * Reverse Engineering Scanner — Analisa um codebase existente e gera um
- * BriefingDeepAnalysis agnóstico de tecnologia.
+ * Technology-agnostic BriefingDeepAnalysis.
  *
  * O scanner extrai:
  * - Entidades e campos (de models/schemas/migrations)
  * - Endpoints (de routes/controllers)
- * - Regras de negócio (de services/use-cases)
- * - Componentes arquiteturais (por camada genérica)
- * - Decisões arquiteturais (inferidas da estrutura)
+ * - Business rules (from services/use-cases)
+ * - Architectural components (by generic layer)
+ * - Architectural decisions (inferred from the structure)
  *
- * Quando purpose === "reverse_engineering", TODA a tecnologia específica
- * é removida — o resultado descreve O QUE o sistema faz, não COMO.
+ * When purpose === "reverse_engineering", ALL specific technology is removed —
+ * the result describes WHAT the system does, not HOW.
  *
  * Consumido por: tools.ts (sdd.reverse_engineer)
- * Dependências: brownfield/scanner.ts, fs, path
+ * Dependencies: brownfield/scanner.ts, fs, path
  */
 
 import { readFileSync, existsSync, readdirSync } from "fs"
@@ -620,7 +620,7 @@ function buildAnalysis(
     })),
     ...entities.map((entity) => ({
       name: `Gerenciar ${entity.name}`,
-      description: `Permite consultar e operar a entidade ${entity.name}.`,
+      description:        `Allows querying and operating the ${entity.name} entity.`,
       priority: "medium" as const,
     })),
   ].filter((feature, index, all) => all.findIndex((candidate) => candidate.name.toLowerCase() === feature.name.toLowerCase()) === index)
@@ -628,31 +628,31 @@ function buildAnalysis(
   const discoveredRequirements = [
     ...endpoints.map((endpoint) => ({
       name: `Expor ${endpoint.method} ${endpoint.path}`,
-      description: `O sistema deve disponibilizar o comportamento observado em ${endpoint.method} ${endpoint.path}.`,
+      description:        `The system must provide the observed behaviour at ${endpoint.method} ${endpoint.path}.`,
       type: "functional" as const,
       priority: "medium" as const,
       acceptanceCriteria: [
         `O fluxo ${endpoint.method} ${endpoint.path} deve possuir contrato documentado.`,
-        "Cenários de sucesso e falha devem ser verificáveis por testes.",
+        "Success and failure scenarios must be verifiable by tests.",
       ],
     })),
     ...entities.map((entity) => ({
       name: `Persistir ${entity.name}`,
-      description: `O sistema deve representar a entidade ${entity.name} e seus campos observados.`,
+      description:        `The system must represent the ${entity.name} entity and its observed fields.`,
       type: "functional" as const,
       priority: "medium" as const,
       acceptanceCriteria: [
-        `Os campos observados de ${entity.name} devem possuir contrato agnóstico de tecnologia.`,
-        "Regras de validação e persistência devem ser verificáveis.",
+        `The observed fields of ${entity.name} must have a technology-agnostic contract.`,
+        "Validation and persistence rules must be verifiable.",
       ],
     })),
   ].filter((requirement, index, all) => all.findIndex((candidate) => candidate.name.toLowerCase() === requirement.name.toLowerCase()) === index)
 
   const discoveredDecisions = architecture.map((component) => ({
     title: `Preservar camada ${component.layer}`,
-    context: `A análise encontrou o componente arquitetural ${component.name} na origem (${component.source}).`,
+    context: `The analysis found the architectural component ${component.name} in the source (${component.source}).`,
     decision: `O SDD alvo deve manter a responsabilidade da camada ${component.layer}, podendo substituir a tecnologia.`,
-    consequences: "A escolha concreta de framework e infraestrutura permanece pendente da decisão de stack do novo projeto.",
+    consequences: "The concrete framework and infrastructure choice remains pending on the new project's stack decision.",
   }))
 
   return {

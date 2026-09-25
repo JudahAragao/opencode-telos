@@ -371,12 +371,12 @@ function validateCompleteness(
 }
 
 /**
- * Verifica se a cadeia de rastreabilidade está completa:
+ * Checks that the traceability chain is complete:
  * feature → requirement → endpoint/file → task → change.
  *
- * Diferente de `contains`/`belongs_to`, que apenas mantêm o grafo conectado,
- * estas são arestas semânticas. O auto-fix de órfãos (que liga ao project root)
- * NÃO satisfaz estes checks de propósito.
+ * Unlike `contains`/`belongs_to`, which merely keep the graph connected, these
+ * are semantic edges. The orphan auto-fix (which links to the project root)
+ * deliberately does NOT satisfy these checks.
  */
 function validateTraceability(
   graph: KnowledgeGraph,
@@ -416,7 +416,7 @@ function validateTraceability(
     }
   }
 
-  // Arquivos de código precisam estar ligados à feature que realizam.
+  // Code files must be linked to the feature they implement.
   if (hasFeature) {
     for (const file of graph.nodes.filter((n) => n.type === "file")) {
       if (!linksFeature(file.id)) {
@@ -445,7 +445,7 @@ function validateTraceability(
     }
   }
 
-  // Tasks precisam estar ligadas a um Change (autorização de trabalho).
+  // Tasks must be linked to a Change (work authorization).
   for (const task of graph.nodes.filter((n) => n.type === "task")) {
     const declared = (task.metadata as Record<string, unknown>).change_id
     const hasChange = typeof declared === "string" && typeById.get(declared) === "change"

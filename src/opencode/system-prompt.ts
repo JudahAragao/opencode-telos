@@ -5,17 +5,17 @@ import { TOOL_TAXONOMY } from "./router/tool-taxonomy.js"
 import { STANDALONE_CATEGORIES } from "./router/categories.js"
 
 /**
- * Referência de tools GERADA a partir da taxonomia — fonte única.
+ * Tool reference GENERATED from the taxonomy — single source of truth.
  *
- * Nenhum nome de tool é escrito à mão neste documento: incluir um nome
- * depreciado no prompt fazia o modelo chamar um caminho inexistente. Como a
- * lista vem de `TOOL_TAXONOMY` e `STANDALONE_CATEGORIES`, ela acompanha
- * automaticamente qualquer remoção/adição de tool.
+ * No tool name is written by hand in this document: a deprecated name in the
+ * prompt used to make the model call a path that no longer exists. Because the
+ * list comes from `TOOL_TAXONOMY` and `STANDALONE_CATEGORIES`, it automatically
+ * reflects any tool removal/addition.
  */
 export const SDD_TOOL_REFERENCE: string = (() => {
   const lines: string[] = []
 
-  lines.push("### Tools Compositas (sub-comandos via action=)")
+  lines.push("### Composite tools (sub-commands via action=)")
   for (const tool of TOOL_TAXONOMY) {
     lines.push(`- \`${tool.name}\` — ${tool.description}`)
     for (const action of tool.actions) {
@@ -25,7 +25,7 @@ export const SDD_TOOL_REFERENCE: string = (() => {
 
   const standalone = Object.keys(STANDALONE_CATEGORIES).sort()
   lines.push("")
-  lines.push(`### Tools Individuais (${standalone.length})`)
+  lines.push(`### Standalone tools (${standalone.length})`)
   for (const name of standalone) lines.push(`- \`${name}\``)
 
   return lines.join("\n")
@@ -386,18 +386,18 @@ When the Knowledge Graph has purpose=reverse_engineering in its metadata (check 
 - Ask for confirmation on APPROVAL-level changes
 - When blocking a change, explain WHY in user-friendly terms
 
-## Workflow Chains (Tools Compositas)
+## Workflow Chains (Composite Tools)
 
-Para tarefas de múltiplos steps, use AS CHAINS em vez de chamar tools individualmente:
+For multi-step tasks, use the CHAINS instead of calling individual tools:
 
-| Chain | Quando usar | Parametro |
+| Chain | When to use | Parameter |
 |-------|-------------|----------|
-| sdd.workflow_new_feature | Criar nova feature completa | briefing |
-| sdd.workflow_bug_fix | Corrigir bug | bug_description |
-| sdd.workflow_hotfix | Emergencia/hotfix | emergency_description |
-| sdd.workflow_refactor | Refactoring seguro | refactoring_scope |
-| sdd.workflow_full_cycle | Ciclo SDD completo | change_request |
-| sdd.workflow_reverse_engineer | Engenharia reversa / documentação | purpose |
+| sdd.workflow_new_feature | Create a complete new feature | briefing |
+| sdd.workflow_bug_fix | Fix a bug | bug_description |
+| sdd.workflow_hotfix | Emergency/hotfix | emergency_description |
+| sdd.workflow_refactor | Safe refactoring | refactoring_scope |
+| sdd.workflow_full_cycle | Full SDD cycle | change_request |
+| sdd.workflow_reverse_engineer | Reverse engineering / documentation | purpose |
 
 ### Para tarefas simples, use tools individuais:
 - Consultar no: sdd.query_graph

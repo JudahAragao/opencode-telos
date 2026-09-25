@@ -1,7 +1,7 @@
 /**
- * Tool Taxonomy — Mapeamento hierárquico de tools do SDD.
+ * Tool Taxonomy — Hierarchical mapping of SDD tools.
  *
- * Cada tool composta agrupa capacidades relacionadas por domínio.
+ * Each composite tool groups related capabilities by domain.
  * O LLM chama: `sdd.{composite}(action="sub_action")`
  *
  * Base para: router (intent classification), state gate, e system prompt.
@@ -18,7 +18,7 @@ export interface SubAction {
 
 export interface CompositeTool {
   name: string
-  /** Nome curto para exibição no system prompt */
+  /** Short name for display in the system prompt */
   label: string
   category: ToolCategory
   description: string
@@ -34,13 +34,13 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     name: "sdd.graph_mutation",
     label: "Graph Mutation",
     category: "graph",
-    description: "Modificar a estrutura do Knowledge Graph: criar, atualizar, remover nós e relações.",
+    description: "Modify the Knowledge Graph structure: create, update, remove nodes and relationships.",
     actions: [
-      { name: "add_node", description: "Adicionar um novo nó ao grafo" },
-      { name: "update_node", description: "Atualizar propriedades de um nó existente" },
-      { name: "remove_node", description: "Remover um nó do grafo" },
-      { name: "add_relationship", description: "Criar uma relação entre dois nós" },
-      { name: "remove_relationship", description: "Remover uma relação entre dois nós" },
+      { name: "add_node", description: "Add a new node to the graph" },
+      { name: "update_node", description: "Update properties of an existing node" },
+      { name: "remove_node", description: "Remove a node from the graph" },
+      { name: "add_relationship", description: "Create a relationship between two nodes" },
+      { name: "remove_relationship", description: "Remove a relationship between two nodes" },
     ],
   },
 
@@ -49,11 +49,11 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     name: "sdd.graph_query",
     label: "Graph Query",
     category: "graph",
-    description: "Consultar o Knowledge Graph: buscar, filtrar, contar, listar nós.",
+    description: "Query the Knowledge Graph: search, filter, count, list nodes.",
     actions: [
-      { name: "count_nodes", description: "Contar nós por tipo ou status" },
-      { name: "get_nodes_by_status", description: "Listar nós filtrados por status" },
-      { name: "list_nodes", description: "Listar todos os nós de um tipo" },
+      { name: "count_nodes", description: "Count nodes by type or status" },
+      { name: "get_nodes_by_status", description: "List nodes filtered by status" },
+      { name: "list_nodes", description: "List all nodes of a type" },
     ],
   },
 
@@ -64,11 +64,11 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     category: "graph",
     description: "Percorrer o grafo: BFS, subgraph, path finding.",
     actions: [
-      { name: "outgoing", description: "BFS nos nós de saída" },
-      { name: "incoming", description: "BFS nos nós de entrada" },
-      { name: "both", description: "BFS em ambas direções" },
-      { name: "subgraph", description: "Extrair subgrafo centrado em um nó" },
-      { name: "find_path", description: "Encontrar caminho entre dois nós" },
+      { name: "outgoing", description: "BFS on outgoing nodes" },
+      { name: "incoming", description: "BFS on incoming nodes" },
+      { name: "both", description: "BFS in both directions" },
+      { name: "subgraph", description: "Extract the subgraph centered on a node" },
+      { name: "find_path", description: "Find a path between two nodes" },
     ],
   },
 
@@ -77,15 +77,15 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     name: "sdd.permissions",
     label: "Permissions",
     category: "admin",
-    description: "Gerenciar permissões, roles, audit log e configuração de acesso.",
+    description: "Manage permissions, roles, audit log and access configuration.",
     actions: [
-      { name: "set_role", description: "Definir role de um usuário" },
-      { name: "check", description: "Verificar permissão de um usuário" },
+      { name: "set_role", description: "Set a user's role" },
+      { name: "check", description: "Check a user's permission" },
       { name: "audit", description: "Exibir audit log" },
-      { name: "config", description: "Carregar config de permissões" },
-      { name: "save_config", description: "Salvar config de permissões" },
-      { name: "role", description: "Obter role do usuário atual" },
-      { name: "approval", description: "Verificar aprovação de change" },
+      { name: "config", description: "Load permission config" },
+      { name: "save_config", description: "Save permission config" },
+      { name: "role", description: "Get the current user's role" },
+      { name: "approval", description: "Check change approval" },
     ],
   },
 
@@ -94,12 +94,12 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     name: "sdd.snapshot",
     label: "Snapshot",
     category: "admin",
-    description: "Criar snapshots do grafo, rollback e histórico.",
+    description: "Create graph snapshots, rollback and history.",
     actions: [
-      { name: "create", description: "Criar snapshot do estado atual" },
-      { name: "rollback", description: "Executar rollback para um snapshot" },
-      { name: "history", description: "Histórico de rollbacks" },
-      { name: "list", description: "Listar todos os snapshots" },
+      { name: "create", description: "Create a snapshot of the current state" },
+      { name: "rollback", description: "Roll back to a snapshot" },
+      { name: "history", description: "Rollback history" },
+      { name: "list", description: "List all snapshots" },
     ],
   },
 
@@ -108,11 +108,11 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     name: "sdd.sync",
     label: "Sync",
     category: "sync",
-    description: "Sincronizar grafo com repositório remoto: pull, push, conflitos.",
+    description: "Sync the graph with a remote repository: pull, push, conflicts.",
     actions: [
-      { name: "status", description: "Status da sincronização" },
-      { name: "pull", description: "Puxar mudanças remotas" },
-      { name: "push", description: "Enviar mudanças locais" },
+      { name: "status", description: "Sync status" },
+      { name: "pull", description: "Pull remote changes" },
+      { name: "push", description: "Push local changes" },
       { name: "conflicts", description: "Detectar conflitos" },
       { name: "merge", description: "Merge de grafos" },
     ],
@@ -123,14 +123,14 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     name: "sdd.graph_admin",
     label: "Graph Admin",
     category: "admin",
-    description: "Administração do grafo: health, pruning, cache, convenções, padrões.",
+    description: "Graph administration: health, pruning, cache, conventions, patterns.",
     actions: [
-      { name: "health", description: "Análise de saúde do grafo" },
-      { name: "health_detail", description: "Análise detalhada de saúde" },
-      { name: "prune", description: "Remover nós obsoletos" },
-      { name: "cache", description: "Estatísticas de cache" },
-      { name: "conventions", description: "Detectar convenções do projeto" },
-      { name: "learn", description: "Aprender padrões do grafo" },
+      { name: "health", description: "Graph health analysis" },
+      { name: "health_detail", description: "Detailed health analysis" },
+      { name: "prune", description: "Remove obsolete nodes" },
+      { name: "cache", description: "Cache statistics" },
+      { name: "conventions", description: "Detect project conventions" },
+      { name: "learn", description: "Learn patterns from the graph" },
     ],
   },
 
@@ -139,17 +139,17 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     name: "sdd.code_quality",
     label: "Code Quality",
     category: "quality",
-    description: "Análise de qualidade de código: complexidade, métricas, smells, dependências, código morto.",
+    description: "Code quality analysis: complexity, metrics, smells, dependencies, dead code.",
     actions: [
-      { name: "complexity", description: "Analisar complexidade ciclomática" },
-      { name: "metrics", description: "Calcular métricas de código" },
+      { name: "complexity", description: "Analyze cyclomatic complexity" },
+      { name: "metrics", description: "Compute code metrics" },
       { name: "smells", description: "Detectar code smells" },
-      { name: "dependencies", description: "Analisar dependências e acoplamento" },
-      { name: "usage", description: "Verificar uso de código" },
-      { name: "dead_code", description: "Encontrar código morto" },
-      { name: "remove_dead_code", description: "Remover código morto (requer SDD workflow)" },
-      { name: "parse_symbols", description: "Extrair símbolos de arquivos" },
-      { name: "plan_implementation", description: "Planejar implementação conectando código a spec" },
+      { name: "dependencies", description: "Analyze dependencies and coupling" },
+      { name: "usage", description: "Check code usage" },
+      { name: "dead_code", description: "Find dead code" },
+      { name: "remove_dead_code", description: "Remove dead code (requires SDD workflow)" },
+      { name: "parse_symbols", description: "Extract symbols from files" },
+      { name: "plan_implementation", description: "Plan implementation connecting code to spec" },
       { name: "analyze_codebase", description: "Analisar codebase inteira" },
     ],
   },
@@ -161,21 +161,21 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     category: "enterprise",
     description: "Workflows empresariais: migrations, experiments, feature flags, multi-tenancy.",
     actions: [
-      { name: "migration", description: "Criar migração de dados" },
-      { name: "experiment", description: "Criar experimento A/B" },
-      { name: "flag", description: "Criar feature flag" },
-      { name: "tenant", description: "Configurar multi-tenancy" },
-      { name: "security_audit", description: "Auditoria de segurança" },
-      { name: "scalability", description: "Análise de escalabilidade" },
-      { name: "compliance", description: "Verificar compliance" },
-      { name: "monitoring", description: "Configurar monitoramento" },
-      { name: "dashboard", description: "Gerar dashboard" },
+      { name: "migration", description: "Create a data migration" },
+      { name: "experiment", description: "Create an A/B experiment" },
+      { name: "flag", description: "Create a feature flag" },
+      { name: "tenant", description: "Configure multi-tenancy" },
+      { name: "security_audit", description: "Security audit" },
+      { name: "scalability", description: "Scalability analysis" },
+      { name: "compliance", description: "Check compliance" },
+      { name: "monitoring", description: "Configure monitoring" },
+      { name: "dashboard", description: "Generate a dashboard" },
       { name: "incident", description: "Reportar incidente" },
-      { name: "sla", description: "Criar SLA" },
+      { name: "sla", description: "Create an SLA" },
       { name: "cost", description: "Estimar custos" },
-      { name: "docs", description: "Gerar documentação" },
+      { name: "docs", description: "Generate documentation" },
       { name: "onboarding", description: "Guia de onboarding" },
-      { name: "knowledge_transfer", description: "Transferência de conhecimento" },
+      { name: "knowledge_transfer", description: "Knowledge transfer" },
       { name: "disaster_recovery", description: "Plano de disaster recovery" },
       { name: "config_drift", description: "Detectar config drift" },
       { name: "workflow_export", description: "Exportar workflow" },
@@ -187,11 +187,11 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
     name: "sdd.drift_whitelist",
     label: "Drift Whitelist",
     category: "analysis",
-    description: "Gerenciar whitelist de drift: adicionar, remover, listar.",
+    description: "Manage the drift whitelist: add, remove, list.",
     actions: [
-      { name: "add", description: "Adicionar arquivo/padrão à whitelist" },
-      { name: "remove", description: "Remover arquivo da whitelist" },
-      { name: "list", description: "Listar todos na whitelist" },
+      { name: "add", description: "Add a file/pattern to the whitelist" },
+      { name: "remove", description: "Remove a file from the whitelist" },
+      { name: "list", description: "List everything in the whitelist" },
     ],
   },
 ]
@@ -199,8 +199,8 @@ export const TOOL_TAXONOMY: CompositeTool[] = [
 /**
  * Tools que NÃO foram compostas (mantidas isoladas).
  *
- * Derivado de `STANDALONE_CATEGORIES` para que exista uma única fonte do
- * catálogo.
+ * Derived from `STANDALONE_CATEGORIES` so there is a single source for the
+ * catalog.
  */
 export const STANDALONE_TOOLS: string[] = Object.keys(STANDALONE_CATEGORIES)
 

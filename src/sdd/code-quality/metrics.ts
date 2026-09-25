@@ -149,7 +149,7 @@ export function analyzeMetrics(code: string, fileName: string): CodeMetricsRepor
         type: 'long_parameter_list',
         function: name,
         severity: 'warning',
-        message: `Função ${name} tem ${parameterCount} parâmetros (máximo recomendado: 5)`,
+        message: `Function ${name} has ${parameterCount} parameters (recommended max: 5)`,
       })
     }
 
@@ -158,7 +158,7 @@ export function analyzeMetrics(code: string, fileName: string): CodeMetricsRepor
         type: 'long_function',
         function: name,
         severity: 'warning',
-        message: `Função ${name} tem ${lines.LOC} linhas (máximo recomendado: 50)`,
+        message: `Function ${name} has ${lines.LOC} lines (recommended max: 50)`,
       })
     }
 
@@ -167,7 +167,7 @@ export function analyzeMetrics(code: string, fileName: string): CodeMetricsRepor
         type: 'deep_nesting',
         function: name,
         severity: 'warning',
-        message: `Função ${name} tem aninhamento de ${nestingDepth} níveis (máximo recomendado: 4)`,
+        message: `Function ${name} is nested ${nestingDepth} levels deep (recommended max: 4)`,
       })
     }
   }
@@ -196,21 +196,21 @@ export function analyzeMetrics(code: string, fileName: string): CodeMetricsRepor
 
 export function formatMetricsReport(report: CodeMetricsReport): string {
   const lines = [
-    '## Métricas de Código',
+    '## Code Metrics',
     '',
-    '### Resumo do Arquivo',
+    '### File Summary',
     `- **Total de Linhas:** ${report.file_summary.total_lines}`,
-    `- **Linhas de Código:** ${report.file_summary.total_code_lines}`,
-    `- **Linhas de Comentário:** ${report.file_summary.total_comment_lines}`,
+    `- **Lines of code:** ${report.file_summary.total_code_lines}`,
+    `- **Comment lines:** ${report.file_summary.total_comment_lines}`,
     `- **Linhas em Branco:** ${report.file_summary.total_blank_lines}`,
-    `- **Média de Linhas por Função:** ${report.file_summary.average_function_length}`,
-    `- **Função Maior:** ${report.file_summary.longest_function}`,
-    `- **Função Menor:** ${report.file_summary.shortest_function}`,
+    `- **Average lines per function:** ${report.file_summary.average_function_length}`,
+    `- **Longest function:** ${report.file_summary.longest_function}`,
+    `- **Shortest function:** ${report.file_summary.shortest_function}`,
     '',
   ]
 
   if (report.issues.length > 0) {
-    lines.push('### Problemas Detectados')
+    lines.push('### Detected Problems')
     for (const issue of report.issues) {
       const icon = issue.severity === 'error' ? '❌' : '⚠️'
       lines.push(`${icon} **${issue.type}**: ${issue.message}`)
@@ -218,11 +218,11 @@ export function formatMetricsReport(report: CodeMetricsReport): string {
     lines.push('')
   }
 
-  lines.push('### Detalhes por Função')
+  lines.push('### Per-function details')
   for (const func of report.functions) {
     lines.push(`#### ${func.name}`)
     lines.push(`- **Linhas:** ${func.lines_of_code}`)
-    lines.push(`- **Parâmetros:** ${func.parameter_count}`)
+    lines.push(`- **Parameters:** ${func.parameter_count}`)
     lines.push(`- **Aninhamento:** ${func.nesting_depth}`)
     lines.push(`- **LOC/LLOC/SLOC:** ${func.LOC}/${func.LLOC}/${func.SLOC}`)
     lines.push('')
