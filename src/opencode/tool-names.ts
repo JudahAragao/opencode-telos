@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, readFileSync } from "fs"
 import { join } from "path"
 
 export type ToolNameMode = "canonical" | "safe"
@@ -29,13 +29,6 @@ export function getToolNameMode(projectDir?: string): ToolNameMode {
 
 export function safeToolNamesEnabled(projectDir?: string): boolean {
   return getToolNameMode(projectDir) === "safe"
-}
-
-export function setToolNameMode(projectDir: string, mode: ToolNameMode): string {
-  const path = join(projectDir, TOOL_NAMES_CONFIG)
-  mkdirSync(join(projectDir, ".opencode"), { recursive: true })
-  writeFileSync(path, `${JSON.stringify({ mode }, null, 2)}\n`, "utf8")
-  return path
 }
 
 export function toWireToolName(name: string, safe: boolean): string {

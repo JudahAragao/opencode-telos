@@ -216,6 +216,14 @@ project file `.opencode/tool-names.json`. `safe` is intended for strict
 OpenAI-compatible providers; `canonical` is the default. Restart OpenCode after
 changing the file, because plugins register their tool catalog during startup.
 
+```jsonc
+// .opencode/tool-names.json — written by hand, Telos only reads it
+{ "mode": "safe" } // or "canonical" (default)
+```
+
+There is no Telos command that writes this file; it is the shared hand-off point
+with `opencode-ssh`, so both plugins agree on the spelling.
+
 The plugin hooks always use canonical names for permissions, enforcement,
 workflows and dispatch, so the wire spelling never leaks into the rules.
 

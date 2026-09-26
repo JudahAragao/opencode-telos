@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync, readFileSync } from "fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import {
   getToolNameMode,
   projectToolNames,
-  setToolNameMode,
   toCanonicalToolName,
   toWireToolName,
+  toolNamesConfigExists,
 } from "../src/opencode/tool-names"
 import { createSddTools } from "../src/opencode/tools"
 
@@ -39,10 +39,41 @@ describe("OpenAI-compatible tool names", () => {
     expect(toCanonicalToolName("sdd_acceptance", Object.keys(createSddTools()), true)).toBe("sdd.acceptance")
   })
 
-  it("persists the mode for both plugins to share", () => {
+  it("reads the mode from the shared project file", () => {
     const directory = mkdtempSync(join(tmpdir(), "telos-tool-names-"))
-    const path = setToolNameMode(directory, "safe")
+    const path = join(directory, ".opencode", "tool-names.json")
+    mkdirSync(join(directory, ".opencode"), { recursive: true })
+    writeFileSync(path, `${JSON.stringify({ mode: "safe" }, null, 2)}\n`, "utf8")
+
     expect(getToolNameMode(directory)).toBe("safe")
+    expect(toolNamesConfigExists(directory)).toBe(true)
     expect(JSON.parse(readFileSync(path, "utf8")).mode).toBe("safe")
+  })
+
+  it("falls back to canonical when the shared file is missing or malformed", () => {
+    const directory = mkdtempSync(join(tmpdir(), "telos-tool-names-"))
+    expect(getToolNameMode(directory)).toBe("canonical")
+
+    mkdirSync(join(directory, ".opencode"), { recursive: true })
+    writeFileSync(join(directory, ".opencode", "tool-names.json"), "{ not json", "utf8")
+    expect(getToolNameMode(directory)).toBe("canonical")
+  })
+
+  it("honours the environment variable and lets it win over the file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "telos-tool-names-"))
+    mkdirSync(join(directory, ".opencode"), { recursive: true })
+    writeFileSync(join(directory, ".opencode", "tool-names.json"), JSON.stringify({ mode: "safe" }), "utf8")
+
+    const previous = process.env.OPENCODE_SAFE_TOOL_NAMES
+    try {
+      process.env.OPENCODE_SAFE_TOOL_NAMES = "canonical"
+      expect(getToolNameMode(directory)).toBe("canonical")
+
+      process.env.OPENCODE_SAFE_TOOL_NAMES = "1"
+      expect(getToolNameMode(directory)).toBe("safe")
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODE_SAFE_TOOL_NAMES
+      else process.env.OPENCODE_SAFE_TOOL_NAMES = previous
+    }
   })
 })
