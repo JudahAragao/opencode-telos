@@ -32,7 +32,7 @@ import { setDashboardSessionID } from "../server/dashboard-context.js"
 import { finishExecution, findLatestExecutionByCall, startExecution } from "../sdd/execution/ledger.js"
 import { recordTelemetry } from "../sdd/monitoring/telemetry.js"
 import { restoreToolNames, rewriteToolNames, toCanonicalToolName, toWireToolName } from "./tool-names.js"
-import { extractSddCommandText, renderSddCommandMessage } from "./command.js"
+import { extractSddCommandText, renderSddCommandMessage, sddSubcommandReference } from "./command.js"
 
 /** File extensions treated as source code for the SDD write gate. */
 const SDD_FILE_PATTERNS = [
@@ -826,7 +826,7 @@ export async function buildSystemPromptSections(
 export function annotateToolDefinition(toolId: string, description: string | undefined): string | undefined {
   if (toolId === "sdd" || toolId === "sdd-panel") {
     return [
-      "SDD command hub. Available: `sdd on`, `sdd off`, `sdd status`, `sdd renew`, `sdd viz`, `sdd cache_reset`, `sdd panel`.",
+      `SDD command hub. Available: ${sddSubcommandReference()}.`,
       "Toggle/status/renew/viz/cache_reset are deterministic and do not require the LLM.",
     ].join("\n")
   }

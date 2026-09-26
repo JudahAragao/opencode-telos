@@ -8,6 +8,7 @@ import {
   renderSddCommandMessage,
   SDD_COMMAND_TEMPLATE,
 } from "../src/opencode/command.js"
+import { annotateToolDefinition } from "../src/opencode/sdd-runtime.js"
 
 describe("extractSddCommandText", () => {
   test("detects raw command forms", () => {
@@ -47,10 +48,10 @@ describe("runSddCommand", () => {
     expect(result.matched).toBe(false)
   })
 
-  test("unknown subcommand reports command not found", () => {
+  test("unknown subcommand is not matched, so it reaches the model", () => {
     const result = runSddCommand(dir, "sdd frobnicate")
-    expect(result.matched).toBe(true)
-    expect(result.text).toContain("Unrecognized SDD command")
+    expect(result.matched).toBe(false)
+    expect(result.text).toBe("")
   })
 
   test("on writes the toggle and reports enabled", () => {
@@ -124,14 +125,86 @@ describe("retired /sdd tool-names command", () => {
   test("is no longer a recognized subcommand", () => {
     for (const raw of ["sdd tool-names", "sdd tool-names safe", "sdd tool_names canonical"]) {
       const result = runSddCommand(dir, raw, "ses_test")
-      expect(result.text, raw).toContain("Unrecognized SDD command")
+      expect(result.matched, raw).toBe(false)
+      expect(result.text, raw).toBe("")
     }
   })
 
-  test("is not advertised by the panel or the help text", () => {
-    for (const raw of ["sdd", "sdd help", "sdd bogus"]) {
+  test("is not advertised by the panel or the status footer", () => {
+    for (const raw of ["sdd", "sdd help", "sdd status"]) {
       const result = runSddCommand(dir, raw, "ses_test")
       expect(result.text, raw).not.toContain("tool-names")
+    }
+  })
+})
+
+describe("/sdd grammar is derived from one table", () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sdd-grammar-"))
+    mkdirSync(join(dir, ".sdd"), { recursive: true })
+  })
+
+  // Every subcommand the hub advertises must behave identically through both
+  // entry points: the TUI command and the plain-text admission check. This is
+  // the invariant that used to break, because the dispatcher and the regex were
+  // two hand-written copies of the same grammar.
+  const KNOWN = [
+    "sdd", "sdd panel", "sdd help", "sdd on", "sdd enable", "sdd off", "sdd disable",
+    "sdd status", "sdd renew", "sdd cache_reset", "sdd cache reset", "sdd cachereset",
+    "sdd tasks", "sdd tasks board", "sdd tasks integrate", "sdd tasks change TASK-1",
+    "sdd acceptance", "sdd acceptance REQ-1", "sdd guide NODE-1 do the thing",
+    "sdd viz", "sdd viz stop", "sdd viz status",
+  ] as const
+
+  test("both entry points agree on every known subcommand", () => {
+    for (const raw of KNOWN) {
+      const asCommand = runSddCommand(dir, raw, "ses_t").matched
+      const asText = extractSddCommandText(raw) !== undefined
+      expect(asCommand, `dispatch: ${raw}`).toBe(true)
+      expect(asText, `text admission: ${raw}`).toBe(true)
+    }
+  })
+
+  test("both entry points reject what is not a subcommand", () => {
+    for (const raw of [
+      "sdd bogus", "sdd tool-names", "sdd tool-names safe", "sdd on extra", "sdd frobnicate",
+    ]) {
+      const asCommand = runSddCommand(dir, raw, "ses_t").matched
+      const asText = extractSddCommandText(raw) !== undefined
+      expect(asCommand, `dispatch: ${raw}`).toBe(false)
+      expect(asText, `text admission: ${raw}`).toBe(false)
+    }
+  })
+
+  test("ordinary prose is still never treated as a command", () => {
+    for (const prose of [
+      "what does /sdd on mean?", "sdd is great", "please run sdd on across the cluster",
+      "the sdd workflow requires a change", "",
+    ]) {
+      expect(extractSddCommandText(prose), prose).toBeUndefined()
+    }
+  })
+
+  test("the advertised list is exactly the dispatchable list", () => {
+    const panel = runSddCommand(dir, "sdd", "ses_t").text
+    const status = runSddCommand(dir, "sdd status", "ses_t").text
+    for (const alias of [
+      "on", "off", "status", "renew", "tasks", "acceptance", "guide", "viz", "cache_reset", "panel",
+    ]) {
+      expect(panel, `panel: ${alias}`).toContain(`\`sdd ${alias}\``)
+      expect(status, `status footer: ${alias}`).toContain(`\`/sdd ${alias}\``)
+      // and it is real, not just advertised
+      expect(runSddCommand(dir, `sdd ${alias}`, "ses_t").matched, `dispatch: ${alias}`).toBe(true)
+    }
+  })
+
+  test("the tool annotation advertises only real subcommands", () => {
+    const annotation = annotateToolDefinition("sdd", undefined) ?? ""
+    for (const alias of ["on", "off", "status", "renew", "tasks", "viz", "cache_reset"]) {
+      expect(annotation).toContain(`\`sdd ${alias}\``)
+      expect(runSddCommand(dir, `sdd ${alias}`, "ses_t").matched).toBe(true)
     }
   })
 })

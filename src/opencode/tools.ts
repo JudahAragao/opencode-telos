@@ -1,4 +1,5 @@
 import { tool, type ToolDefinition } from "./tool-helper.js"
+import { sddSubcommandNames } from "./command.js"
 import { createRepository, loadSddConfig, type GraphRepository } from "../sdd/persistence/repository.js"
 import { addRelationship, getNeighbors } from "../sdd/graph/engine.js"
 import {
@@ -2264,7 +2265,7 @@ function createAllTools(): Record<string, ToolDefinition> {
           "",
           `Toggle written to: ${togglePath}`,
           "",
-          "Commands: `/sdd on`, `/sdd off`, `/sdd status`",
+          `Commands: ${sddSubcommandNames()}`,
         ]
 
         return lines.join("\n")
@@ -3019,7 +3020,7 @@ function createAllTools(): Record<string, ToolDefinition> {
           `**Last Changed:** ${state.changed_at}`,
           `**Toggle file:** ${togglePath}`,
           "",
-          "Commands: `/sdd on`, `/sdd off`, `/sdd status`",
+          `Commands: ${sddSubcommandNames()}`,
         ].join("\n")
       },
     }),

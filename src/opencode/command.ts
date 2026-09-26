@@ -99,6 +99,81 @@ export interface SddCommandResult {
 }
 
 /**
+ * One entry per `/sdd` subcommand. This table is the single source of truth:
+ * the dispatcher, the raw-command grammar, the panel and the tool annotation
+ * are all derived from it, so a subcommand cannot exist in one place and be
+ * missing from another.
+ *
+ * `aliases` are the tokens accepted right after the `sdd` prefix. The first one
+ * is canonical and is the spelling shown in help output. `takesArgs` marks the
+ * subcommands whose arguments make the grammar unbounded (`.*`).
+ */
+export interface SddSubcommand {
+  aliases: string[]
+  takesArgs: boolean
+  summary: string
+  handler: (projectDir: string, input: SddCommandInput) => string
+}
+
+const SDD_SUBCOMMANDS: readonly SddSubcommand[] = [
+  { aliases: ["panel", "help"], takesArgs: false, summary: "Show this panel.", handler: sddPanel },
+  { aliases: ["on", "enable"], takesArgs: false, summary: "Enable SDD enforcement (deterministic).", handler: sddOn },
+  { aliases: ["off", "disable"], takesArgs: false, summary: "Disable SDD enforcement (deterministic).", handler: sddOff },
+  { aliases: ["status"], takesArgs: false, summary: "Show current toggle state.", handler: sddStatus },
+  { aliases: ["renew"], takesArgs: false, summary: "Renew the active workflow window (keeps the same Change).", handler: sddRenew },
+  { aliases: ["cache_reset", "cachereset"], takesArgs: false, summary: "Clear caches without killing the session (deterministic).", handler: sddCacheReset },
+  { aliases: ["tasks"], takesArgs: true, summary: "List the Kanban task board. Also `tasks board`, `tasks integrate`, `tasks change <TASK-ID>`.", handler: sddTasks },
+  { aliases: ["acceptance"], takesArgs: true, summary: "Human acceptance criteria. Also `acceptance accept|reject|waive|create|update|final-accept <ID>`.", handler: sddAcceptance },
+  { aliases: ["guide"], takesArgs: true, summary: "Register human guidance: `guide <NODE-ID> <instruction>`.", handler: sddGuide },
+  { aliases: ["viz"], takesArgs: true, summary: "Start the Knowledge Graph dashboard (deterministic). Also `viz stop`, `viz status`.", handler: sddViz },
+]
+
+/** Canonical subcommand list, one line per entry, for help and error output. */
+function sddSubcommandHelp(): string[] {
+  return SDD_SUBCOMMANDS.map((entry) => `- \`sdd ${entry.aliases[0]}\` — ${entry.summary}`)
+}
+
+/**
+ * One-line command reference derived from `SDD_SUBCOMMANDS`, for surfaces that
+ * advertise the hub outside `/sdd` itself (tool descriptions, system prompt).
+ */
+export function sddSubcommandReference(): string {
+  return SDD_SUBCOMMANDS.map((entry) => `\`sdd ${entry.aliases[0]}\``).join(", ")
+}
+
+/** Compact one-line list, for the `sdd status` footer and the toggle tool. */
+export function sddSubcommandNames(): string {
+  return SDD_SUBCOMMANDS.map((entry) => `\`/sdd ${entry.aliases[0]}\``).join(", ")
+}
+
+/** `cache_reset`, `cache reset` and `cachereset` are the same subcommand. */
+function normalizeSubcommand(value: string): string {
+  return value.replace(/[\s:_-]+/g, "")
+}
+
+/**
+ * Resolve the subcommand token to its table entry.
+ *
+ * Two stages, because an alias may itself contain a separator (`cache reset`)
+ * and an accepted subcommand may carry arguments (`tasks change TASK-1`):
+ *
+ * 1. the whole token, ignoring separators — resolves `cache reset` and stops
+ *    `on extra` from being mistaken for `on`;
+ * 2. otherwise the first word, but only for entries that declare `takesArgs`,
+ *    so `tasks integrate` reaches the task router.
+ */
+function resolveSddSubcommand(sub: string): SddSubcommand | undefined {
+  if (sub === "") return SDD_SUBCOMMANDS.find((entry) => entry.aliases.includes("panel"))
+
+  const normalized = normalizeSubcommand(sub)
+  const exact = SDD_SUBCOMMANDS.find((entry) => entry.aliases.some((alias) => normalizeSubcommand(alias) === normalized))
+  if (exact) return exact
+
+  const head = normalizeSubcommand(sub.split(/\s+/)[0] ?? "")
+  return SDD_SUBCOMMANDS.find((entry) => entry.takesArgs && entry.aliases.some((alias) => normalizeSubcommand(alias) === head))
+}
+
+/**
  * Tracks the deterministic result produced for each command message (keyed by
  * message id). The runtime re-invokes `experimental.chat.messages.transform`
  * on every LLM turn, re-sending stored command messages; this cache prevents
@@ -127,40 +202,32 @@ export function runSddCommand(
 
   const input: SddCommandInput = { command: "sdd", sessionID, arguments: subRaw }
 
-  let text: string
-  if (sub === "" || sub === "panel" || sub === "help") {
-    text = sddPanel(projectDir, input)
-  } else if (sub === "on" || sub === "enable") {
-    text = sddOn(projectDir, input)
-  } else if (sub === "off" || sub === "disable") {
-    text = sddOff(projectDir, input)
-  } else if (sub === "status") {
-    text = sddStatus(projectDir)
-  } else if (sub === "renew") {
-    text = sddRenew(projectDir, input)
-  } else if (sub === "cache_reset" || sub === "cachereset" || sub === "cache reset") {
-    text = sddCacheReset(projectDir)
-  } else if (sub === "tasks" || sub.startsWith("tasks ") || sub.startsWith("tasks:")) {
-    text = sddTasks(projectDir, input)
-  } else if (sub === "acceptance" || sub.startsWith("acceptance ") || sub.startsWith("acceptance:")) {
-    text = sddAcceptance(projectDir, input)
-  } else if (sub === "guide" || sub.startsWith("guide ") || sub.startsWith("guide:")) {
-    text = sddGuide(projectDir, input)
-  } else if (sub === "viz" || sub.startsWith("viz ") || sub.startsWith("viz:")) {
-    text = sddViz(projectDir, input)
-  } else {
-    text = commandNotFound(projectDir, input)
-  }
+  // Dispatch is a table lookup, so the grammar the panel advertises, the
+  // grammar the regex admits and the grammar the router answers can never
+  // drift apart. An unknown subcommand is deliberately *not* matched: it is
+  // not an SDD command, so it must reach the model instead of being swallowed
+  // by a canned error. `extractSddCommandText` applies the same rule to text
+  // that arrives outside the TUI, which keeps both entry points identical.
+  const entry = resolveSddSubcommand(sub)
+  if (!entry) return { matched: false, text: "" }
 
-  return { matched: true, text }
+  return { matched: true, text: entry.handler(projectDir, input) }
 }
 
 /**
- * Raw `/sdd ...` command grammar, restricted to the known subcommands.
+ * Raw `/sdd ...` command grammar, derived from `SDD_SUBCOMMANDS`.
  * Anchored full-text match so normal prose that merely contains "sdd" is
  * never treated as a command.
  */
-const SDD_RAW_COMMAND_RE = /^sdd(?:[\s:_-]+(?:on|off|status|enable|disable|panel|help|renew|cache[_\s-]*reset|tasks(?:[\s:_-]+(?:list|integrate|pending|board|kanban|open))?|acceptance(?:[\s:_-]+.*)?|guide(?:[\s:_-]+.*)?|viz(?:[\s:_-]+(?:start|stop|status))?))?$/i
+const SDD_RAW_COMMAND_RE = new RegExp(
+  `^sdd(?:[\\s:_-]+(?:` +
+    SDD_SUBCOMMANDS.map((entry) => {
+      const alternatives = entry.aliases.map((alias) => alias.replaceAll("_", "[_\\s-]*")).join("|")
+      return entry.takesArgs ? `(?:${alternatives})(?:[\\s:_-]+.*)?` : `(?:${alternatives})`
+    }).join("|") +
+    `))?$`,
+  "i",
+)
 
 /**
  * Detect a user message that is (or renders) an SDD command and normalize it
@@ -206,30 +273,6 @@ export function renderSddCommandMessage(
   return result.text
 }
 
-function commandNotFound(projectDir: string, _input: SddCommandInput): string {
-  return [
-    "## SDD — Command Hub",
-    "",
-    "Unrecognized SDD command. Available subcommands:",
-    "",
-    "- `sdd on` / `sdd:on`            — Enable SDD enforcement.",
-    "- `sdd off` / `sdd:off`           — Disable SDD enforcement.",
-    "- `sdd status` / `sdd:status`     — Show current SDD toggle.",
-    "- `sdd renew`                     — Renew the active workflow window (keeps the same Change).",
-    "- `sdd tasks`                     — List the Kanban task board.",
-    "- `sdd tasks integrate`           — Show the integration plan for pending tasks.",
-    "- `sdd tasks board`               — Open the dashboard on the Kanban board.",
-    "- `sdd viz`                       — Start the Knowledge Graph dashboard.",
-    "- `sdd viz stop`                  — Stop the dashboard.",
-    "- `sdd viz status`                — Show the dashboard URL.",
-    "- `sdd cache_reset` / `sdd:cache_reset` — Full cache reset.",
-    "",
-    "Toggle, status, viz and cache_reset are executed deterministically by the plugin (no LLM needed).",
-    "",
-    `Toggle state file: ${joinPath(projectDir, ".sdd", "enabled")}`,
-  ].join("\n")
-}
-
 function sddOn(projectDir: string, _input: SddCommandInput): string {
   const state = setToggleState(projectDir, true)
   return [
@@ -264,7 +307,7 @@ function sddStatus(projectDir: string): string {
     "",
     `Toggle file: ${joinPath(projectDir, ".sdd", "enabled")}`,
     "",
-    "Commands: `/sdd on`, `/sdd off`, `/sdd status`, `/sdd renew`, `/sdd tasks`, `/sdd viz`, `/sdd cache_reset`",
+    `Commands: ${sddSubcommandNames()}`,
   ].join("\n")
 }
 
@@ -332,23 +375,7 @@ function sddPanel(projectDir: string, _input: SddCommandInput): string {
     "This panel is an interactive shortcut for the most common SDD operations.",
     "Select a subcommand by typing it explicitly:",
     "",
-    "- `sdd on`       — Enable SDD enforcement (deterministic).",
-    "- `sdd off`      — Disable SDD enforcement (deterministic).",
-    "- `sdd status`   — Show current toggle state.",
-    "- `sdd renew`    — Renew the active workflow window (keeps the same Change).",
-    "- `sdd tasks`    — List the Kanban task board.",
-    "- `sdd tasks board` — Open the dashboard on the Kanban board.",
-    "- `sdd tasks change <TASK-ID>` — Open the SDD Change that authorizes the code of a task.",
-    "- `sdd acceptance <REQ-ID>` — List human acceptance criteria.",
-    "- `sdd acceptance accept <AC-ID>` — Accept one criterion.",
-    "- `sdd acceptance accept-all <REQ-ID>` — Accept all pending criteria transactionally.",
-    "- `sdd acceptance create <REQ-ID> <text>` — Create an official criterion.",
-    "- `sdd acceptance update <AC-ID> <text>` — Version and reopen a criterion.",
-    "- `sdd acceptance final-accept <CHG-ID>` — Record final delivery acceptance.",
-    "- `sdd guide <NODE-ID> <instruction>` — Register human guidance for any node.",
-    "- `sdd viz`      — Start the Knowledge Graph dashboard (deterministic).",
-    "- `sdd viz stop` — Stop the dashboard.",
-    "- `sdd cache_reset` — Clear caches without killing the session.",
+    ...sddSubcommandHelp(),
     "",
     "The panel itself does not modify the graph. It routes to deterministic actions.",
     "",
