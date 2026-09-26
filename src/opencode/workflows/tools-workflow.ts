@@ -8,7 +8,7 @@
  * Dependencies: chains.ts, executor.ts
  */
 
-import { tool, type ToolDefinition } from "@opencode-ai/plugin"
+import { tool, type ToolDefinition } from "../tool-helper.js"
 import { ALL_CHAINS, type WorkflowChain } from "./chains.js"
 import { executeChain, formatChainResult, type ToolExecutor, type WorkflowExecutorHooks } from "./executor.js"
 import { DEFAULT_EXECUTOR_CONFIG } from "./types.js"

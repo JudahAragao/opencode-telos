@@ -7,7 +7,7 @@
  * Consumido por: createSddTools() em tools.ts
  */
 
-import { tool, type ToolDefinition } from "@opencode-ai/plugin"
+import { tool, type ToolDefinition } from "../tool-helper.js"
 import { sddDebug } from "../../sdd/log.js"
 import { describeRelationshipTypes, normalizeRelationshipType } from "../../sdd/graph/schema.js"
 import { createRepository, type GraphRepository } from "../../sdd/persistence/repository.js"

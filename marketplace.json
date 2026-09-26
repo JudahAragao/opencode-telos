@@ -1,6 +1,6 @@
 {
   "name": "opencode-telos",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "OpenCode Telos - Spec-Driven Development plugin",
   "author": "OpenCode Telos Team",
   "license": "MIT",
@@ -12,6 +12,7 @@
     "enforcement"
   ],
   "features": [
+    "OpenCode SDK v2 support (@opencode/plugin 2.x) with a V1 fallback",
     "Knowledge Graph as source of truth",
     "Conversational discovery with structured questions",
     "Hard SDD-first enforcement",
@@ -33,7 +34,7 @@
     "MCP server integration"
   ],
   "requirements": {
-    "opencode": ">=1.0.0",
+    "opencode": ">=2.0.0",
     "node": ">=18.0.0"
   }
 }

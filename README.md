@@ -59,8 +59,14 @@ A **Spec-Driven Development (SDD)** plugin for [OpenCode](https://github.com/ano
 
 ## Prerequisites
 
-- [OpenCode](https://github.com/anomalyco/opencode) installed
+- [OpenCode](https://github.com/anomalyco/opencode) 2.x or newer
 - [Bun](https://bun.sh) (plugin runtime)
+
+Telos is built on the **OpenCode SDK v2** (`@opencode/plugin` 2.x) and exports
+`{ id, setup, server }`. The `server` export keeps OpenCode 1.18 working, so the
+plugin loads on both lines; on 2.x the `setup` path is used and every tool is
+registered under the `sdd` namespace as `sdd_<name>` (for example
+`sdd_acceptance`).
 
 ## Installation
 
@@ -82,9 +88,12 @@ Then add it to your `opencode.json`:
 
 ```json
 {
-  "plugin": ["opencode-telos"]
+  "plugins": ["opencode-telos"]
 }
 ```
+
+> **OpenCode 1.x only:** older releases read the singular `"plugin"` key. Use
+> `"plugin": ["opencode-telos"]` there.
 
 ### Option 3: Local plugin
 
@@ -102,7 +111,7 @@ Then add it to your `opencode.json`:
 
 ```json
 {
-  "plugin": ["~/.config/opencode/plugins/opencode-telos"]
+  "plugins": ["~/.config/opencode/plugins/opencode-telos"]
 }
 ```
 
@@ -120,7 +129,7 @@ Then add it to your `opencode.json`:
 
 ```json
 {
-  "plugin": ["./opencode-telos"]
+  "plugins": ["./opencode-telos"]
 }
 ```
 
@@ -192,25 +201,23 @@ The toggle state is persisted in `.sdd/enabled` inside the project.
 
 Some strict OpenAI-compatible providers, including NVIDIA NIM deployments, reject
 tool names containing dots. Telos keeps canonical names such as `sdd.acceptance`
-internally, but can expose provider-safe names such as `sdd_acceptance` at startup.
+internally, but exposes provider-safe names such as `sdd_acceptance` on the wire.
 This mode is shared with `opencode-ssh` through `.opencode/tool-names.json`.
 
-Use the deterministic command hub:
+On **OpenCode 2.x this needs no configuration**: the v2 host normalizes the `sdd`
+namespace itself, so tools are always exposed as `sdd_<name>`, and the system
+prompt advertises exactly those names. The underlying helpers
+(`projectToolNames` / `toWireToolName` / `toCanonicalToolName`) remain exported
+for V1 hosts and for `opencode-ssh`, but there is no user-facing command.
 
-```text
-/sdd tool-names safe
-/sdd tool-names canonical
-/sdd tool-names status
-```
+On **OpenCode 1.18** the mode is selected with the environment variable
+`OPENCODE_SAFE_TOOL_NAMES=1` (or `true`), which takes precedence over the shared
+project file `.opencode/tool-names.json`. `safe` is intended for strict
+OpenAI-compatible providers; `canonical` is the default. Restart OpenCode after
+changing the file, because plugins register their tool catalog during startup.
 
-Restart OpenCode after changing the mode because plugins register their tool
-catalog during startup. `safe` is intended for strict OpenAI-compatible
-providers; `canonical` is the default. The environment variable
-`OPENCODE_SAFE_TOOL_NAMES=1` (or `true`) enables safe mode for the current
-process and takes precedence over the project file.
-
-The plugin hooks continue to use canonical names for permissions, enforcement,
-workflows and dispatch. The shared file is `.opencode/tool-names.json`.
+The plugin hooks always use canonical names for permissions, enforcement,
+workflows and dispatch, so the wire spelling never leaks into the rules.
 
 ### Step 1: Describe the project
 
@@ -493,6 +500,21 @@ requests and non-loopback `Host` headers.
 | `GET /api/events` | Server-sent event stream (live dashboard updates) |
 
 ## Available tools
+
+The tables below use the **canonical** name of each tool (for example
+`sdd.acceptance`), which is the identifier used everywhere inside the
+specification, the hooks and the audit log. The name the model actually calls
+depends on the host:
+
+| Host | Wire name |
+|---|---|
+| OpenCode 2.x (SDK v2) | `sdd_acceptance` — namespace `sdd` + tool `acceptance` |
+| OpenCode 1.18 (SDK v1), `safe` mode | `sdd_acceptance` |
+| OpenCode 1.18 (SDK v1), `canonical` mode | `sdd.acceptance` |
+
+`src/opencode/tool-names.ts` converts between the two, and the system prompt is
+rewritten to advertise whichever spelling is live, so the model never sees a name
+that is not registered.
 
 ### Graph initialization and management
 

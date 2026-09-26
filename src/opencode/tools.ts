@@ -1,4 +1,4 @@
-import { tool, type ToolDefinition } from "@opencode-ai/plugin"
+import { tool, type ToolDefinition } from "./tool-helper.js"
 import { createRepository, loadSddConfig, type GraphRepository } from "../sdd/persistence/repository.js"
 import { addRelationship, getNeighbors } from "../sdd/graph/engine.js"
 import {

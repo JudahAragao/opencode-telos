@@ -16,18 +16,22 @@ import { buildTaskIntegrationPrompt } from "../sdd/tasks/board.js"
 import { sddDebug } from "../sdd/log.js"
 import { createHash } from "crypto"
 
-/** Minimal structural type for the OpenCode SDK client (avoids a hard dep). */
-interface OpenCodeSessionClient {
-  session?: {
-    promptAsync?: (options: {
-      path: { id: string }
-      body: { parts: Array<{ type: "text"; text: string }> }
-    }) => unknown
-  }
-}
+/**
+ * Submit a prompt to a session without blocking the caller.
+ *
+ * Each host SDK reaches the session differently — V1 exposes
+ * `client.session.promptAsync({ path, body })`, V2 exposes
+ * `ctx.session.prompt({ sessionID, text })` — so the bridge stores this
+ * capability as a plain function instead of a client object. The returned
+ * promise is optional: some hosts answer synchronously.
+ */
+export type DashboardPromptSubmitter = (
+  sessionID: string,
+  text: string,
+) => Promise<unknown> | unknown
 
 interface DashboardBridge {
-  client: OpenCodeSessionClient | null
+  submit: DashboardPromptSubmitter | null
   lastSessionID: string | null
   sessionsByProject: Map<string, string>
   jobs: Map<string, IntegrationJob>
@@ -44,15 +48,37 @@ interface IntegrationJob {
 }
 
 const bridge: DashboardBridge = {
-  client: null,
+  submit: null,
   lastSessionID: null,
   sessionsByProject: new Map(),
   jobs: new Map(),
 }
 
-/** Register the OpenCode client once, at plugin init. */
-export function registerDashboardAgentClient(client: unknown): void {
-  bridge.client = (client as OpenCodeSessionClient) ?? null
+/** Register the host prompt bridge once, at plugin init. */
+export function registerDashboardAgentClient(submit: DashboardPromptSubmitter | null | undefined): void {
+  bridge.submit = typeof submit === "function" ? submit : null
+}
+
+/**
+ * Adapt a V1 OpenCode SDK client to the bridge.
+ *
+ * V1 exposes `session.promptAsync({ path: { id }, body: { parts } })`; this
+ * keeps that call shape in one place instead of at every call site.
+ */
+export function registerDashboardClientV1(client: unknown): void {
+  const promptAsync = (
+    client as { session?: { promptAsync?: (options: unknown) => unknown } } | null | undefined
+  )?.session?.promptAsync
+  if (typeof promptAsync !== "function") {
+    registerDashboardAgentClient(null)
+    return
+  }
+  registerDashboardAgentClient((sessionID, text) =>
+    promptAsync.call((client as { session: unknown }).session, {
+      path: { id: sessionID },
+      body: { parts: [{ type: "text", text }] },
+    }),
+  )
 }
 
 /** Record the session currently driving an LLM turn. */
@@ -68,7 +94,7 @@ export function getDashboardSessionID(projectDir?: string): string | null {
 }
 
 export function hasDashboardAgent(): boolean {
-  return bridge.client !== null && bridge.lastSessionID !== null
+  return bridge.submit !== null && bridge.lastSessionID !== null
 }
 
 export interface IntegrationRequestResult {
@@ -92,8 +118,8 @@ export function requestAgentTurn(
   if (existing && (existing.status === "queued" || existing.status === "submitted")) {
     return { queued: true, reason: `A ${label} request is already in progress.`, job_id: existing.id, status: existing.status }
   }
-  const client = bridge.client
-  if (!client?.session?.promptAsync) {
+  const submit = bridge.submit
+  if (!submit) {
     return {
       queued: false,
       reason: `No OpenCode client available; ${label} stays queued for the agent tools.`,
@@ -118,10 +144,7 @@ export function requestAgentTurn(
       updatedAt: new Date().toISOString(),
     }
     bridge.jobs.set(key, job)
-    const result = client.session.promptAsync({
-      path: { id: sessionID },
-      body: { parts: [{ type: "text", text: prompt }] },
-    }) as Promise<unknown> | undefined
+    const result = submit(sessionID, prompt) as Promise<unknown> | undefined
 
     job.status = "submitted"
     job.updatedAt = new Date().toISOString()

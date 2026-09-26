@@ -115,3 +115,23 @@ describe("renderSddCommandMessage", () => {
     expect(second).toContain("enabled")
   })
 })
+describe("retired /sdd tool-names command", () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "telos-retired-cmd-"))
+  })
+
+  test("is no longer a recognized subcommand", () => {
+    for (const raw of ["sdd tool-names", "sdd tool-names safe", "sdd tool_names canonical"]) {
+      const result = runSddCommand(dir, raw, "ses_test")
+      expect(result.text, raw).toContain("Unrecognized SDD command")
+    }
+  })
+
+  test("is not advertised by the panel or the help text", () => {
+    for (const raw of ["sdd", "sdd help", "sdd bogus"]) {
+      const result = runSddCommand(dir, raw, "ses_test")
+      expect(result.text, raw).not.toContain("tool-names")
+    }
+  })
+})

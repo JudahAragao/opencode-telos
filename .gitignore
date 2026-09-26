@@ -6,3 +6,6 @@ package-lock.json
 .opencode/
 *.tgz
 dist/
+
+# Local smoke-test artifacts (large CLI tarballs)
+.smoke-tmp/
