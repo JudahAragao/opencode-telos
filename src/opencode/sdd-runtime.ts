@@ -1,12 +1,9 @@
 /**
- * Runtime policy shared by the V1 and V2 plugin hosts.
+ * Runtime policy of the plugin (OpenCode SDK v2 host).
  *
- * The V1 host (OpenCode 1.18) delivers hook events as `(input, output)` pairs and
- * the V2 host (`@opencode/plugin` 2.x) delivers a single mutable event. To keep
- * the enforcement rules — SDD-first write gate, shell bypass prevention, audit
- * log, execution ledger, telemetry, snapshots, cache invalidation — byte for byte
- * identical on both hosts, every rule lives here as a plain function and each
- * host only adapts the event shape.
+ * Every rule — SDD-first write gate, shell bypass prevention, audit log,
+ * execution ledger, telemetry, snapshots, cache invalidation — lives here as a
+ * plain function; `./v2/hooks.ts` only translates host events into these calls.
  *
  * Nothing in this module may import a host SDK: it is pure domain logic.
  */
@@ -20,6 +17,7 @@ import { checkPermission, getUserRoleWithAuth, addAuditEntry } from "../sdd/perm
 import { createSnapshot } from "../sdd/rollback/manager.js"
 import { getCacheManager } from "../sdd/cache/manager.js"
 import { checkToolAccess, getWorkflowState, markSpecUpdated, workflowScope } from "../sdd/enforcement/workflow-tracker.js"
+import { isWireToolName } from "./tool-names.js"
 import { ALL_TOOL_NAMES, getToolsForSession } from "./router/tool-registry.js"
 import { invalidateSnapshotCache } from "./router/graph-state-snapshot.js"
 import { hasPendingMigrations } from "../sdd/migrations/index.js"
@@ -31,8 +29,8 @@ import { getTasksAwaitingChangeApproval } from "../sdd/tasks/change-bridge.js"
 import { setDashboardSessionID } from "../server/dashboard-context.js"
 import { finishExecution, findLatestExecutionByCall, startExecution } from "../sdd/execution/ledger.js"
 import { recordTelemetry } from "../sdd/monitoring/telemetry.js"
-import { restoreToolNames, rewriteToolNames, toCanonicalToolName, toWireToolName } from "./tool-names.js"
-import { extractSddCommandText, renderSddCommandMessage, sddSubcommandReference } from "./command.js"
+import { rewriteToolNames, toCanonicalToolName } from "./tool-names.js"
+import { extractSddCommandText, renderSddCommandMessage } from "./command.js"
 
 /** File extensions treated as source code for the SDD write gate. */
 const SDD_FILE_PATTERNS = [
@@ -242,20 +240,20 @@ const SPEC_MUTATION_TOOLS = new Set([
 /**
  * Normalize a host tool id to a comparison key.
  *
- * V1 spells its file tools `Write` / `Edit` / `run_terminal_command`; V2 uses
- * lowercase ids such as `read` / `edit` / `bash`. Enforcement must fire on both,
- * so every host tool id is reduced to lowercase alphanumerics before matching.
+ * Hosts spell file tools `Write` / `Edit` / `run_terminal_command` or lowercase
+ * ids such as `read` / `edit` / `bash`. Enforcement must fire on both, so every
+ * host tool id is reduced to lowercase alphanumerics before matching.
  */
 export function normalizeToolId(toolId: string): string {
   return toolId.toLowerCase().replace(/[^a-z0-9]/g, "")
 }
 
-/** File-mutating tools, across V1 and V2 spellings. */
+/** File-mutating tools, across host spellings. */
 const FILE_WRITE_TOOL_IDS = new Set([
   "write", "edit", "multiedit", "writefile", "editfile", "patch", "applypatch", "str_replace_editor",
 ])
 
-/** Terminal/shell tools, across V1 and V2 spellings. */
+/** Terminal/shell tools, across host spellings. */
 const SHELL_TOOL_IDS = new Set([
   "runterminalcommand", "bash", "shell", "terminal", "runcommand", "executecommand", "sh",
 ])
@@ -273,7 +271,7 @@ export function isShellTool(toolId: string): boolean {
  *
  * Returns `undefined` when the call may proceed, or the blocking message when it
  * must not. Callers translate the message into their host's error mechanism
- * (`throw` in both V1 and V2).
+ * (the host receives a thrown `Error`).
  */
 export function enforceToolExecution(
   projectDir: string,
@@ -282,9 +280,8 @@ export function enforceToolExecution(
   hostToolId: string,
   args: Record<string, unknown> | undefined,
   state: SddRuntimeState,
-  safeToolNames: boolean,
 ): string | undefined {
-  const toolName = toCanonicalToolName(hostToolId, ALL_TOOL_NAMES, safeToolNames)
+  const toolName = toCanonicalToolName(hostToolId)
   // Skip enforcement if SDD is disabled
   if (!isSddEnabled(projectDir)) return
 
@@ -652,9 +649,8 @@ export function observeToolExecution(
   hostToolId: string,
   outputText: string,
   state: SddRuntimeState,
-  safeToolNames: boolean,
 ): void {
-  const toolName = toCanonicalToolName(hostToolId, ALL_TOOL_NAMES, safeToolNames)
+  const toolName = toCanonicalToolName(hostToolId)
   const execution = state.activeExecutions.get(callID) || findLatestExecutionByCall(projectDir, callID)
   if (execution) {
     const repository = createRepository(projectDir)
@@ -691,14 +687,13 @@ export function observeToolExecution(
 /**
  * Build the SDD system prompt sections for one model request.
  *
- * `safeToolNames` projects every `sdd.x` reference to the wire name the host
- * actually exposes (`sdd_x`), so the model never calls a name that is not
- * registered. V2 always projects because its core normalizes namespaces to `_`.
+ * Every `sdd.x` reference is rewritten to the effective wire name the host
+ * exposes (`sdd_x`), so the model never calls a name that is not registered —
+ * the V2 core performs that normalization itself.
  */
 export async function buildSystemPromptSections(
   projectDir: string,
   sessionID: string | undefined,
-  safeToolNames: boolean,
   state: SddRuntimeState,
 ): Promise<string[]> {
   // Track the session driving the current turn so the dashboard can wake the
@@ -733,9 +728,9 @@ export async function buildSystemPromptSections(
   // without a graph: the graph is created BY those tools (sdd.initialize /
   // sdd.build_graph). Gating the announcement behind isInitialized() hid
   // os entry points do agente — ciclo fechado.
-  sections.push(rewriteToolNames(SDD_CORE_SYSTEM_PROMPT, ALL_TOOL_NAMES, safeToolNames))
+  sections.push(rewriteToolNames(SDD_CORE_SYSTEM_PROMPT))
   try {
-    sections.push(rewriteToolNames(getToolsForSession(projectDir).formattedMessage, ALL_TOOL_NAMES, safeToolNames))
+    sections.push(rewriteToolNames(getToolsForSession(projectDir).formattedMessage))
   } catch (error) { sddDebug("hooks", "Failed to build tool registry message") }
 
   if (repo.isInitialized()) {
@@ -819,18 +814,11 @@ export async function buildSystemPromptSections(
  * Append the SDD enforcement warning to a host tool description.
  *
  * Returns the new description, or `undefined` when the tool is not one Telos
- * annotates. In V2 this reaches host built-ins through `editor.update(id, ...)`;
+ * annotates. This reaches host built-ins through `editor.update(id, ...)`;
  * when the host does not expose the built-in, the caller falls back to the
  * system prompt, which already states the same policy.
  */
 export function annotateToolDefinition(toolId: string, description: string | undefined): string | undefined {
-  if (toolId === "sdd" || toolId === "sdd-panel") {
-    return [
-      `SDD command hub. Available: ${sddSubcommandReference()}.`,
-      "Toggle/status/renew/viz/cache_reset are deterministic and do not require the LLM.",
-    ].join("\n")
-  }
-
   if (normalizeToolId(toolId) === "runterminalcommand") {
     const warning = [
       "",
@@ -848,12 +836,9 @@ export function annotateToolDefinition(toolId: string, description: string | und
   return undefined
 }
 
-/** Wire names of every Telos tool, for permission matching. */
-const SDD_WIRE_TOOL_NAMES = new Set(ALL_TOOL_NAMES.map((name) => toWireToolName(name, true)))
-
 /**
  * Auto-allow Telos' own tools so a permission prompt never interrupts the SDD
- * workflow. Mirrors the V1 `permission.ask` hook for the V2 evaluate hook.
+ * workflow.
  *
  * Matching is exact against the registered wire names (or the `sdd` namespace
  * prefix) rather than a substring test, so a permission for an unrelated tool
@@ -862,21 +847,19 @@ const SDD_WIRE_TOOL_NAMES = new Set(ALL_TOOL_NAMES.map((name) => toWireToolName(
 export function shouldAutoAllowPermission(
   action: string,
   resources: readonly string[],
-  safeToolNames: boolean,
 ): boolean {
   const candidates = [action, ...resources]
   return candidates.some((value) => {
     if (typeof value !== "string" || value === "") return false
-    const canonical = restoreToolNames(value, ALL_TOOL_NAMES, safeToolNames)
-    if (ALL_TOOL_NAMES.includes(canonical)) return true
-    if (SDD_WIRE_TOOL_NAMES.has(value)) return true
+    if (isWireToolName(value)) return true
+    if (ALL_TOOL_NAMES.includes(value)) return true
     return /(^|[^A-Za-z0-9])sdd[._]/.test(value)
   })
 }
 
 /**
- * Release process-wide resources owned by the plugin (V1 `dispose` hook, V2
- * cleanup function).
+ * Release process-wide resources owned by the plugin (the cleanup function
+ * returned by `setup`).
  */
 export function releaseRuntimeResources(projectDir: string): void {
   try {
@@ -890,10 +873,9 @@ export function releaseRuntimeResources(projectDir: string): void {
  * Replace an already-stored `/sdd ...` user message with its deterministic
  * result.
  *
- * V1 runs this in `experimental.chat.messages.transform`; V2 runs it against
- * `event.messages` in the session `context` hook. Either way the model only ever
- * sees the outcome of a command, never the raw command, so it cannot re-execute
- * or "investigate" it.
+ * Runs against `event.messages` in the session `context` hook. The model only
+ * ever sees the outcome of a command, never the raw command, so it cannot
+ * re-execute or "investigate" it.
  */
 export function rewriteSddCommandMessages(
   projectDir: string,
@@ -907,7 +889,6 @@ export function rewriteSddCommandMessages(
   let rewritten = 0
   for (const entry of messages) {
     if (entry.role !== "user") continue
-    // V1 addresses message content as `parts`; V2 as `content`.
     const parts = Array.isArray(entry.parts) ? entry.parts : entry.content
     if (!Array.isArray(parts)) continue
     const text = parts

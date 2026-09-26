@@ -1,30 +1,32 @@
 /**
  * V2 tool registration.
  *
- * The Telos catalog stays authored once, in `createSddTools()` (zod schemas, V1
- * `ToolDefinition` shape). This module projects it onto the V2 registry:
+ * The Telos catalog stays authored once, in `createSddTools()` (zod schemas,
+ * local `ToolDefinition` shape from `../tool-helper.js`). This module projects
+ * it onto the V2 registry:
  *
  *   - `sdd.acceptance` → namespace `sdd` + tool `acceptance` → effective id
- *     `sdd_acceptance`. The V2 core performs this normalization itself (dots and
- *     unsupported characters in a namespace become `_`), so the plugin does not
- *     rename anything by hand.
+ *     `sdd_acceptance`. The V2 core performs this normalization itself (dots
+ *     and unsupported characters become `_` —
+ *     https://opencode.ai/v2/docs/build/plugins/), so the plugin does not
+ *     rename anything by hand; `../tool-names.ts` only mirrors the documented
+ *     host rule so prompts and enforcement agree with the wire spelling.
  *   - `input` becomes JSON Schema, derived from the same zod raw shape. V2 also
  *     accepts a Standard Schema there, but the published JSON Schema keeps the
  *     model-facing contract explicit and matches the official examples.
- *   - `execute` re-validates the arguments with zod and delegates to the V1
- *     implementation, so validation and business rules are identical on both
- *     hosts. The V1 return value (`string | { output }`) is mapped to the V2
- *     `Result` shape (`{ content }`).
+ *   - `execute` re-validates the arguments with zod and delegates to the
+ *     implementation, so validation and business rules stay in one place. The
+ *     tool result (`string | { output }`) is mapped to the V2 `Result` shape
+ *     (`{ content }`).
  *
  * Because the model only ever sees `sdd_acceptance`, every description is
  * rewritten to the wire name — otherwise the prompt would advertise tool names
  * that are not registered.
  */
 
-import { tool, type ToolDefinition, type ToolContext as V1ToolContext } from "../tool-helper.js"
+import { tool, type ToolDefinition, type ToolContext as TelosToolContext } from "../tool-helper.js"
 import { toolArgsToJsonSchema, type JsonSchema, type ZodSchemaLike } from "./json-schema.js"
 import { rewriteToolNames, toWireToolName } from "../tool-names.js"
-import { ALL_TOOL_NAMES } from "../router/tool-registry.js"
 
 /** The namespace every Telos tool is registered under in V2. */
 export const SDD_NAMESPACE = "sdd"
@@ -64,7 +66,7 @@ export interface V2ToolContext {
 
 /** Effective (wire) name for a canonical Telos tool name. */
 export function toEffectiveToolName(canonicalName: string): string {
-  return toWireToolName(canonicalName, true)
+  return toWireToolName(canonicalName)
 }
 
 /** Split `sdd.acceptance` into its namespace and bare tool name. */
@@ -75,17 +77,16 @@ export function splitToolName(canonicalName: string): { namespace: string; name:
 }
 
 /**
- * Build the V1 `ToolContext` the Telos executors expect from a V2 context.
+ * Build the Telos `ToolContext` the executors expect from a V2 context.
  *
- * The only meaningful difference is `abort`: V1 passes an `AbortSignal` as
- * `abort`, V2 as `signal`. `directory` and `worktree` are the resolved project
- * root, which is what the handlers use to reach `.sdd/`.
+ * The only meaningful difference is `abort`: the host passes an `AbortSignal`
+ * as `signal`. `directory` and `worktree` are the resolved project root, which
+ * is what the handlers use to reach `.sdd/`.
  */
-export function toV1ToolContext(
+export function toTelosToolContext(
   context: V2ToolContext,
   projectDir: string,
-  ask: (input: { permission: string; patterns: string[]; always: string[]; metadata: Record<string, unknown> }) => Promise<void>,
-): V1ToolContext {
+): TelosToolContext {
   return {
     sessionID: context.sessionID,
     messageID: context.messageID,
@@ -94,14 +95,13 @@ export function toV1ToolContext(
     worktree: projectDir,
     abort: context.signal,
     metadata: () => {},
-    ask,
   }
 }
 
 /**
- * Normalize a V1 tool result into the V2 `Result` shape.
+ * Normalize a tool result into the V2 `Result` shape.
  *
- * V1 tools return either a bare string or `{ title?, output, metadata? }`. V2
+ * Tools return either a bare string or `{ title?, output, metadata? }`. V2
  * renders `content`; `output` is left unset because Telos output is already
  * human/model readable text.
  */
@@ -120,9 +120,9 @@ interface ValidationIssue {
  * Rebuild the object schema with the very zod instance the catalog was authored
  * with.
  *
- * The Telos tools are declared through `tool()` from `@opencode-ai/plugin`,
- * whose `tool.schema` is a nested zod v4. Importing the repo's own `zod` here
- * would mix two majors and fail at runtime (`_parse is not a function`), so the
+ * The Telos tools are declared through `tool()` from `../tool-helper.js`, whose
+ * `tool.schema` is a nested zod v4. Importing the repo's own `zod` here would
+ * mix two majors and fail at runtime (`_parse is not a function`), so the
  * catalog's own instance is the only correct source.
  */
 function objectSchemaFor(shape: Record<string, unknown>): {
@@ -162,21 +162,13 @@ export interface V2ToolCatalog {
 /**
  * Project the whole Telos catalog onto the V2 registry shape.
  *
- * @param tools  the catalog from `createSddTools()`
- * @param projectDir  resolved project root, used to build the V1 tool context
- * @param ask  permission bridge. V2 has no equivalent of the V1 per-tool `ask`
- *   helper, so the host's `permission.hook("evaluate")` is the single decision
- *   point and the Telos tools accept what the host already authorized.
+ * The host normalizes namespaces to `_` itself; the `effectiveNames`/`canonicalNames`
+ * maps mirror that projection for diagnostics, tests and enforcement.
  */
-export function buildV2ToolCatalog(
-  tools: Record<string, ToolDefinition>,
-  projectDir: string,
-  ask: (input: { permission: string; patterns: string[]; always: string[]; metadata: Record<string, unknown> }) => Promise<void>,
-): V2ToolCatalog {
+export function buildV2ToolCatalog(tools: Record<string, ToolDefinition>, projectDir: string): V2ToolCatalog {
   const definitions = new Map<string, V2ToolDefinition>()
   const effectiveNames = new Map<string, string>()
   const canonicalNames = new Map<string, string>()
-  const canonicalList = Object.keys(tools)
 
   for (const [canonicalName, definition] of Object.entries(tools)) {
     const { namespace, name } = splitToolName(canonicalName)
@@ -193,7 +185,7 @@ export function buildV2ToolCatalog(
     const input = toolArgsToJsonSchema(shape)
     // The model calls the tool by its effective name, so the description and any
     // `sdd.x` reference inside it must use the wire spelling.
-    const description = rewriteToolNames(definition.description, canonicalList, true)
+    const description = rewriteToolNames(definition.description)
 
     definitions.set(canonicalName, {
       name,
@@ -207,7 +199,7 @@ export function buildV2ToolCatalog(
         const parsed = schema.safeParse(rawInput ?? {})
         if (!parsed.success) return { content: formatValidationError(canonicalName, parsed.error) }
 
-        const result = await definition.execute(parsed.data, toV1ToolContext(context, projectDir, ask))
+        const result = await definition.execute(parsed.data, toTelosToolContext(context, projectDir))
         return toV2Result(result)
       },
     })
@@ -222,10 +214,9 @@ export function buildV2ToolCatalog(
 /**
  * The V2 system prompt must advertise effective names.
  *
- * V2 always projects `sdd.x` → `sdd_x` because the core normalizes namespaces,
- * so this is unconditional there (unlike V1, where the projection depends on the
- * configured compatibility mode).
+ * The host projects `sdd.x` → `sdd_x` because its core normalizes namespaces,
+ * so this is unconditional.
  */
 export function rewriteForV2(text: string): string {
-  return rewriteToolNames(text, ALL_TOOL_NAMES, true)
+  return rewriteToolNames(text)
 }

@@ -62,11 +62,9 @@ A **Spec-Driven Development (SDD)** plugin for [OpenCode](https://github.com/ano
 - [OpenCode](https://github.com/anomalyco/opencode) 2.x or newer
 - [Bun](https://bun.sh) (plugin runtime)
 
-Telos is built on the **OpenCode SDK v2** (`@opencode/plugin` 2.x) and exports
-`{ id, setup, server }`. The `server` export keeps OpenCode 1.18 working, so the
-plugin loads on both lines; on 2.x the `setup` path is used and every tool is
-registered under the `sdd` namespace as `sdd_<name>` (for example
-`sdd_acceptance`).
+Telos is built exclusively on the **OpenCode SDK v2** (`@opencode/plugin` 2.x)
+and exports `{ id, setup }`. Every tool is registered under the `sdd` namespace
+as `sdd_<name>` (for example `sdd_acceptance`).
 
 ## Installation
 
@@ -91,9 +89,6 @@ Then add it to your `opencode.json`:
   "plugins": ["opencode-telos"]
 }
 ```
-
-> **OpenCode 1.x only:** older releases read the singular `"plugin"` key. Use
-> `"plugin": ["opencode-telos"]` there.
 
 ### Option 3: Local plugin
 
@@ -138,7 +133,7 @@ Then add it to your `opencode.json`:
 ### SDD toggle (on/off)
 
 The plugin can be enabled or disabled at any time. The plugin registers a
-**command hub** on the `command.execute.before` hook: a single `sdd` command
+**command hub** through `ctx.command.transform`: a single `sdd` command
 that routes to deterministic subcommands (executed by the plugin, without
 depending on the LLM to perform the action):
 
@@ -172,10 +167,10 @@ falls back to a free port when 7331 is taken, and is stopped when the OpenCode
 process exits — it is an in-process server, not a detached daemon.
 
 > **Note:** because slash `/` commands in OpenCode are *prompt commands* by
-> definition, invoking them makes OpenCode **also trigger an LLM turn** after
-> the `command.execute.before` hook. The deterministic action itself
-> (enable/disable) is performed by the hook without depending on the model; the
-> extra turn is an inherent behavior of the OpenCode command flow.
+> definition, invoking them may make OpenCode **also trigger an LLM turn**.
+> The deterministic action itself is performed by the plugin command handler
+> without depending on the model; on hosts that support synthetic messages the
+> result is delivered without any model turn.
 
 **Recommended way (no LLM turn):** the same operations are available as
 **tools/MCP**, called by the agent deterministically:
@@ -197,32 +192,16 @@ When enabled:
 
 The toggle state is persisted in `.sdd/enabled` inside the project.
 
-### OpenAI-compatible tool-name mode
+### Provider-safe tool names (automatic)
 
 Some strict OpenAI-compatible providers, including NVIDIA NIM deployments, reject
 tool names containing dots. Telos keeps canonical names such as `sdd.acceptance`
-internally, but exposes provider-safe names such as `sdd_acceptance` on the wire.
-This mode is shared with `opencode-ssh` through `.opencode/tool-names.json`.
-
-On **OpenCode 2.x this needs no configuration**: the v2 host normalizes the `sdd`
-namespace itself, so tools are always exposed as `sdd_<name>`, and the system
-prompt advertises exactly those names. The underlying helpers
-(`projectToolNames` / `toWireToolName` / `toCanonicalToolName`) remain exported
-for V1 hosts and for `opencode-ssh`, but there is no user-facing command.
-
-On **OpenCode 1.18** the mode is selected with the environment variable
-`OPENCODE_SAFE_TOOL_NAMES=1` (or `true`), which takes precedence over the shared
-project file `.opencode/tool-names.json`. `safe` is intended for strict
-OpenAI-compatible providers; `canonical` is the default. Restart OpenCode after
-changing the file, because plugins register their tool catalog during startup.
-
-```jsonc
-// .opencode/tool-names.json — written by hand, Telos only reads it
-{ "mode": "safe" } // or "canonical" (default)
-```
-
-There is no Telos command that writes this file; it is the shared hand-off point
-with `opencode-ssh`, so both plugins agree on the spelling.
+internally, and the **OpenCode v2 host normalizes the `sdd` namespace itself**:
+"Dots in namespaces and unsupported characters in tool names become `_`")
+(https://opencode.ai/v2/docs/build/plugins/), so every tool is exposed to every
+provider as `sdd_<name>`, and the system prompt advertises exactly those names.
+There is no configuration: no environment variable, no `.opencode/tool-names.json`
+and no plugin-side renaming — the host does the normalization.
 
 The plugin hooks always use canonical names for permissions, enforcement,
 workflows and dispatch, so the wire spelling never leaks into the rules.
@@ -512,17 +491,11 @@ requests and non-loopback `Host` headers.
 The tables below use the **canonical** name of each tool (for example
 `sdd.acceptance`), which is the identifier used everywhere inside the
 specification, the hooks and the audit log. The name the model actually calls
-depends on the host:
+is the host's effective name: namespace `sdd` + tool `acceptance` →
+`sdd_acceptance`.
 
-| Host | Wire name |
-|---|---|
-| OpenCode 2.x (SDK v2) | `sdd_acceptance` — namespace `sdd` + tool `acceptance` |
-| OpenCode 1.18 (SDK v1), `safe` mode | `sdd_acceptance` |
-| OpenCode 1.18 (SDK v1), `canonical` mode | `sdd.acceptance` |
-
-`src/opencode/tool-names.ts` converts between the two, and the system prompt is
-rewritten to advertise whichever spelling is live, so the model never sees a name
-that is not registered.
+The system prompt is rewritten to advertise the effective spelling, so the model
+never sees a name that is not registered.
 
 ### Graph initialization and management
 
@@ -1183,7 +1156,6 @@ Environment variables:
 src/
 ├ index.ts                              # Plugin entry point (synchronous init — no HTTP await)
 ├ version.ts                            # PLUGIN_VERSION + GRAPH_SCHEMA_VERSION (generated by scripts/sync-version.cjs)
-├ server-entry.ts                       # "./server" subpath with utilities (createMcpServer, dashboard, analyzeCodebase)
 ├ sdd/
 │  ├── domain/types.ts                  # Node types + relationships + graphs
 │  ├── graph/                           # Knowledge Graph CRUD and navigation
@@ -1270,8 +1242,9 @@ src/
 │  └── log.ts                           # Plugin debug log
 ├ opencode/
 │  ├── tools.ts                         # Tools for the agent
-│  ├── hooks.ts                         # OpenCode hooks (including cache restore with try/catch)
-│  ├── command.ts                       # "sdd" command hub (command.execute.before)
+│  ├── sdd-runtime.ts                   # Shared runtime policy (enforcement, ledger, telemetry)
+│  ├── v2/                              # OpenCode SDK v2 adapters (tools + host registration)
+│  ├── command.ts                       # "sdd" command hub (deterministic router)
 │  ├── system-prompt.ts                 # SDD instructions + question tool integration
 │  ├── tool-handlers.ts                 # Business logic shared by the composite tools
 │  ├── runtime/dispatcher.ts             # Single dispatch path (execution lock + ledger ids)

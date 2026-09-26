@@ -19,11 +19,8 @@ import { createHash } from "crypto"
 /**
  * Submit a prompt to a session without blocking the caller.
  *
- * Each host SDK reaches the session differently — V1 exposes
- * `client.session.promptAsync({ path, body })`, V2 exposes
- * `ctx.session.prompt({ sessionID, text })` — so the bridge stores this
- * capability as a plain function instead of a client object. The returned
- * promise is optional: some hosts answer synchronously.
+ * The bridge stores this capability as a plain function instead of a client
+ * object. The returned promise is optional: some hosts answer synchronously.
  */
 export type DashboardPromptSubmitter = (
   sessionID: string,
@@ -57,28 +54,6 @@ const bridge: DashboardBridge = {
 /** Register the host prompt bridge once, at plugin init. */
 export function registerDashboardAgentClient(submit: DashboardPromptSubmitter | null | undefined): void {
   bridge.submit = typeof submit === "function" ? submit : null
-}
-
-/**
- * Adapt a V1 OpenCode SDK client to the bridge.
- *
- * V1 exposes `session.promptAsync({ path: { id }, body: { parts } })`; this
- * keeps that call shape in one place instead of at every call site.
- */
-export function registerDashboardClientV1(client: unknown): void {
-  const promptAsync = (
-    client as { session?: { promptAsync?: (options: unknown) => unknown } } | null | undefined
-  )?.session?.promptAsync
-  if (typeof promptAsync !== "function") {
-    registerDashboardAgentClient(null)
-    return
-  }
-  registerDashboardAgentClient((sessionID, text) =>
-    promptAsync.call((client as { session: unknown }).session, {
-      path: { id: sessionID },
-      body: { parts: [{ type: "text", text }] },
-    }),
-  )
 }
 
 /** Record the session currently driving an LLM turn. */

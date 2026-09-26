@@ -1,4 +1,4 @@
-import type { ToolContext } from "@opencode-ai/plugin"
+import type { ToolContext } from "../tool-helper.js"
 import { withProjectExecutionLock } from "../../sdd/execution/lock.js"
 import type { ToolExecutionResult } from "../../sdd/execution/types.js"
 import type { ExecutionContext } from "../../sdd/execution/types.js"

@@ -1,6 +1,6 @@
 {
   "name": "opencode-telos",
-  "version": "2.8.0",
+  "version": "3.0.0",
   "description": "OpenCode Telos - Spec-Driven Development plugin",
   "author": "OpenCode Telos Team",
   "license": "MIT",
@@ -12,7 +12,7 @@
     "enforcement"
   ],
   "features": [
-    "OpenCode SDK v2 support (@opencode/plugin 2.x) with a V1 fallback",
+    "OpenCode SDK v2 support (@opencode/plugin 2.x) with automatic tool-name normalization",
     "Knowledge Graph as source of truth",
     "Conversational discovery with structured questions",
     "Hard SDD-first enforcement",

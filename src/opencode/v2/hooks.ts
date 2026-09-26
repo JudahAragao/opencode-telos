@@ -1,12 +1,13 @@
 /**
  * V2 host registration (`@opencode/plugin` 2.x).
  *
- * Every rule is delegated to `./sdd-runtime.ts`, the same module the V1 adapter
- * uses, so enforcement, audit, ledger, telemetry, cache and command behaviour
- * cannot drift between hosts. This file only translates between the V2 context
- * and that shared runtime.
+ * Every rule is delegated to `./sdd-runtime.ts`, the shared runtime module, so
+ * enforcement, audit, ledger, telemetry, cache and command behaviour live in
+ * one place. This file only translates between the V2 context and that shared
+ * runtime.
  *
- * Hook mapping (per the official V1 → V2 migration table):
+ * Hook mapping (per the official V1 → V2 migration table, kept as reference
+ * for the origin of each registration):
  *
  *   experimental.chat.system.transform   → ctx.session.hook("context")
  *   experimental.chat.messages.transform → ctx.session.hook("context") (event.messages)
@@ -107,10 +108,10 @@ export interface V2RegistrationResult {
 }
 
 /**
- * Host terminal tool ids Telos annotates, across V1 and V2 spellings.
+ * Host terminal tool ids Telos annotates, across host spellings.
  *
- * `editor.update` ignores a missing id, so listing several spellings is safe on
- * every host.
+ * `editor.update` ignores a missing id, so listing several spellings is safe
+ * on every host.
  */
 const TERMINAL_TOOL_IDS = ["run_terminal_command", "bash", "shell", "terminal"]
 
@@ -126,15 +127,11 @@ export async function registerSddV2(
   options: { debug?: boolean } = {},
 ): Promise<V2RegistrationResult> {
   const state: SddRuntimeState = createRuntimeState()
-  // V2 always normalizes the namespace to underscores, so the tool-name
-  // projection is unconditional on this host.
-  const safeToolNames = true
 
   // ── Tools ────────────────────────────────────────────────────────────────
-  // V1 offers a per-tool `ctx.ask` permission helper; V2 has no equivalent, and
-  // the host's `permission.hook("evaluate")` below is the single decision point.
-  // Telos tools therefore accept what the host already authorized.
-  const catalog: V2ToolCatalog = buildV2ToolCatalog(createSddTools(), projectDir, async () => {})
+  // The host's `permission.hook("evaluate")` below is the single permission
+  // decision point; Telos tools accept what the host already authorized.
+  const catalog: V2ToolCatalog = buildV2ToolCatalog(createSddTools(), projectDir)
 
   await ctx.tool.transform((editor) => {
     editor.namespace({ name: SDD_NAMESPACE, description: SDD_NAMESPACE_DESCRIPTION })
@@ -159,7 +156,6 @@ export async function registerSddV2(
       toolEvent.tool,
       (toolEvent.input ?? {}) as Record<string, unknown>,
       state,
-      safeToolNames,
     )
     if (blocked) throw new Error(blocked)
   })
@@ -177,12 +173,12 @@ export async function registerSddV2(
       toolEvent.status === "error"
         ? `Error: ${toolEvent.error?.message ?? "unknown error"}`
         : renderResultContent(toolEvent.result)
-    observeToolExecution(projectDir, toolEvent.sessionID, toolEvent.id, toolEvent.tool, text, state, safeToolNames)
+    observeToolExecution(projectDir, toolEvent.sessionID, toolEvent.id, toolEvent.tool, text, state)
   })
 
-  // ── Tool descriptions ────────────────────────────────────────────────────
-  // Replaces the V1 `tool.definition` hook: Telos annotates the host's terminal
-  // tool so the model knows shell writes are gated.
+  // ── Tool descriptions ──────────────────────────────────────────────
+  // Telos annotates the host's terminal tool so the model knows shell writes
+  // are gated.
   await ctx.tool.transform((editor) => {
     for (const id of TERMINAL_TOOL_IDS) {
       const existing = editor.get(id) as { description?: string } | undefined
@@ -210,7 +206,6 @@ export async function registerSddV2(
     const sections = await buildSystemPromptSections(
       projectDir,
       contextEvent.sessionID,
-      safeToolNames,
       state,
     )
     for (const section of sections) {
@@ -238,11 +233,11 @@ export async function registerSddV2(
       resources: ReadonlyArray<string>
       effect: "allow" | "ask" | "deny"
     }
-    // V1 evaluated the permission *pattern*; V2 reports an action plus the
-    // resources it targets, so both are offered to the shared rule.
+    // The host reports an action plus the resources it targets, so both are
+    // offered to the shared rule.
     const allowed = permissionEvent.resources.some((resource) =>
-      shouldAutoAllowPermission(resource, [], safeToolNames),
-    ) || shouldAutoAllowPermission(permissionEvent.action, [], safeToolNames)
+      shouldAutoAllowPermission(resource, []),
+    ) || shouldAutoAllowPermission(permissionEvent.action, [])
     if (allowed) permissionEvent.effect = "allow"
   })
 
@@ -253,12 +248,10 @@ export async function registerSddV2(
       description: SDD_COMMAND_DESCRIPTION,
       execute: async ({ sessionID, prompt, delivery }) => {
         // The plugin owns the command, so it is executed here — no LLM turn.
-        // `runSddCommand` is the same deterministic router the V1 host uses.
-        //
-        // V1 received `command` + `arguments`; V2 hands over the parsed command
-        // name plus `prompt.text`, which the host may or may not still prefix
-        // with `sdd`. Normalize both into the canonical `sdd <sub>` form, exactly
-        // as `createSddCommandHooks` does for V1.
+        // `runSddCommand` is the deterministic router for every subcommand.
+        // The host hands over the parsed command name plus `prompt.text`, which
+        // it may or may not still prefix with `sdd`. Normalize both into the
+        // canonical `sdd <sub>` form.
         const args = `${prompt?.text ?? ""}`.replace(/^[/\s]+/, "").trim().toLowerCase()
         const raw = args.startsWith(SDD_COMMAND_NAME) ? args : `${SDD_COMMAND_NAME} ${args}`.trim()
         const result = runSddCommand(projectDir, raw, sessionID)

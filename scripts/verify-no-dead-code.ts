@@ -44,7 +44,8 @@ const NEW_FILES = [
 // Arquivos existentes que importam os novos módulos
 const CONSUMERS = [
   "src/opencode/tools.ts",       // importa tools-composite.ts, tools-workflow.ts
-  "src/opencode/hooks.ts",       // importa router/tool-registry.ts, router/graph-state-snapshot.ts
+  "src/opencode/sdd-runtime.ts", // importa router/tool-registry.ts, router/graph-state-snapshot.ts
+  "src/opencode/v2/hooks.ts",    // importa router/tool-registry.ts (via sdd-runtime)
   "src/opencode/system-prompt.ts", // Referenciado mas não importa diretamente
   // Internos dos módulos novos
   "src/opencode/router/index.ts",

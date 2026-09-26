@@ -6,7 +6,7 @@ import TelosPlugin from "../src/index"
 import { registerSddV2, type V2Context, type V2ToolEditor } from "../src/opencode/v2/hooks"
 import { createSddTools } from "../src/opencode/tools"
 import { toolArgsToJsonSchema } from "../src/opencode/v2/json-schema"
-import { buildV2ToolCatalog, SDD_NAMESPACE, toV1ToolContext } from "../src/opencode/v2/tools"
+import { buildV2ToolCatalog, SDD_NAMESPACE, toTelosToolContext } from "../src/opencode/v2/tools"
 
 const TOOL_COUNT = Object.keys(createSddTools()).length
 
@@ -145,7 +145,7 @@ describe("V2 SDK — JSON Schema conversion", () => {
 
 describe("V2 SDK — tool catalog projection", () => {
   it("registers every tool under the sdd namespace with codemode off", () => {
-    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project", async () => {})
+    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project")
     expect(catalog.definitions.size).toBe(TOOL_COUNT)
     for (const [canonical, definition] of catalog.definitions) {
       expect(definition.name, canonical).toBe(canonical.slice("sdd.".length))
@@ -154,20 +154,20 @@ describe("V2 SDK — tool catalog projection", () => {
   })
 
   it("maps canonical names to the effective underscore names", () => {
-    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project", async () => {})
+    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project")
     expect(catalog.effectiveNames.get("sdd.acceptance")).toBe("sdd_acceptance")
     expect(catalog.canonicalNames.get("sdd_acceptance")).toBe("sdd.acceptance")
     expect(catalog.effectiveNames.size).toBe(TOOL_COUNT)
   })
 
   it("rewrites dotted references inside descriptions to the wire name", () => {
-    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project", async () => {})
+    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project")
     const description = catalog.definitions.get("sdd.enforce")!.description
     expect(description).not.toContain("sdd.")
   })
 
   it("returns a zod validation error as tool content instead of throwing", async () => {
-    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project", async () => {})
+    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project")
     const result = await catalog.definitions.get("sdd.findings")!.execute(
       { action: "not-a-real-action" },
       v2ToolContext("/tmp/project"),
@@ -175,8 +175,8 @@ describe("V2 SDK — tool catalog projection", () => {
     expect(result.content).toContain("[SDD INVALID ARGUMENTS]")
   })
 
-  it("maps a V1 string result onto the V2 content field", async () => {
-    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project", async () => {})
+  it("maps a tool string result onto the V2 content field", async () => {
+    const catalog = buildV2ToolCatalog(createSddTools(), "/tmp/project")
     const result = await catalog.definitions.get("sdd.toggle")!.execute(
       { action: "status" },
       v2ToolContext(mkdtempSync(join(tmpdir(), "telos-v2-exec-"))),
@@ -386,9 +386,9 @@ describe("V2 SDK — host registration", () => {
 })
 
 describe("V2 SDK — tool context shim", () => {
-  it("maps signal onto the V1 abort and keeps the project directory", () => {
+  it("maps signal onto abort and keeps the project directory", () => {
     const controller = new AbortController()
-    const context = toV1ToolContext(
+    const context = toTelosToolContext(
       {
         sessionID: "ses_1",
         agent: "build",
@@ -407,10 +407,10 @@ describe("V2 SDK — tool context shim", () => {
   })
 })
 
-describe("Dual entrypoint", () => {
-  it("exposes the V2 id/setup contract and the V1 server export", () => {
+describe("Plugin entrypoint", () => {
+  it("exposes the V2-only id/setup contract", () => {
     expect(TelosPlugin.id).toBe("opencode-telos")
     expect(typeof TelosPlugin.setup).toBe("function")
-    expect(typeof TelosPlugin.server).toBe("function")
+    expect((TelosPlugin as Record<string, unknown>).server).toBeUndefined()
   })
 })

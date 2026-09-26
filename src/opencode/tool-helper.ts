@@ -1,38 +1,43 @@
 /**
- * Local stand-in for the V1 `tool()` helper from `@opencode-ai/plugin`.
+ * Tool catalog primitives.
  *
- * The V1 helper is an identity function whose only extra surface is
- * `tool.schema` (a zod instance). Importing it would make the published bundle
- * depend on `@opencode-ai/plugin` at runtime, which breaks two things:
- *
- *   - a V2-only host has no reason to install the V1 package;
- *   - `scripts/check-import-isolated.cjs` installs production dependencies only,
- *     so `require("dist/index.js")` would throw.
- *
- * All Telos types (`ToolDefinition`, `ToolContext`) stay imported from the real
- * package as `import type`, which is erased at compile time and therefore adds
- * no runtime edge.
- *
- * The catalog is authored against `zod/v4`, shipped by the `zod` dependency this
- * package already declares. Using one single v4 instance — rather than the
- * nested copy inside `@opencode-ai/plugin` — is what lets the V2 adapter rebuild
- * the object schema and validate arguments successfully.
+ * The Telos catalog is authored once here — zod schemas (`zod/v4`, shipped by
+ * the `zod` dependency this package already declares) plus a small local
+ * context/result contract — and projected onto the OpenCode V2 registry by
+ * `./v2/tools.ts`. Keeping the primitives local means the published bundle has
+ * no runtime dependency on any host SDK, which keeps
+ * `scripts/check-import-isolated.cjs` green: production installs exclude peer
+ * dependencies.
  */
 
 import * as z4 from "zod/v4"
-import type { ToolContext, ToolResult } from "@opencode-ai/plugin"
 
 /** The argument-shape type accepted by `tool()`. */
 export type ToolArgs = z4.ZodRawShape
 
 /**
- * A declared Telos tool.
+ * Context handed to every tool executor.
  *
- * Declared here rather than imported from `@opencode-ai/plugin` because the
- * plugin's own `ToolDefinition` infers through *its* zod instance; keeping the
- * inference on `zod/v4` preserves the argument typing at all ~70 `tool({...})`
- * call sites. The type-only `ToolContext`/`ToolResult` imports are erased and add
- * no runtime edge.
+ * The V2 adapter (`./v2/tools.ts`) builds this from the host's tool context:
+ * `signal` becomes `abort`, and the resolved project root becomes both
+ * `directory` and `worktree`, which is what the handlers use to reach `.sdd/`.
+ */
+export interface ToolContext {
+  readonly sessionID: string
+  readonly messageID: string
+  readonly agent?: string
+  readonly directory: string
+  readonly worktree?: string
+  readonly abort?: AbortSignal
+  metadata(input: { title?: string; metadata?: Record<string, unknown> }): void
+  ask?(input: { permission: string; patterns: string[]; always: string[]; metadata: Record<string, unknown> }): Promise<void>
+}
+
+/** A tool result: a bare string, or an output envelope with optional metadata. */
+export type ToolResult = string | { title?: string; output: string; metadata?: Record<string, unknown> }
+
+/**
+ * A declared Telos tool.
  */
 export interface ToolDefinition<Args extends ToolArgs = any> {
   description: string
@@ -42,9 +47,6 @@ export interface ToolDefinition<Args extends ToolArgs = any> {
 
 /**
  * Identity factory: declares a Telos tool without wrapping it.
- *
- * Mirrors `@opencode-ai/plugin`'s `tool()` signature so every existing call site
- * keeps compiling unchanged.
  */
 export function tool<Args extends ToolArgs>(input: {
   description: string
@@ -56,5 +58,3 @@ export function tool<Args extends ToolArgs>(input: {
 
 /** zod v4, exposed under the name the catalog was authored with. */
 tool.schema = z4
-
-export type { ToolContext, ToolResult }

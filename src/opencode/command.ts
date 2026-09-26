@@ -1,4 +1,3 @@
-import type { Hooks } from "@opencode-ai/plugin"
 import { setToggleState, getToggleState } from "../sdd/toggle/state.js"
 import {
   resetWorkflowState,
@@ -24,7 +23,6 @@ import {
   resolveDashboardPort,
 } from "../server/server.js"
 import { join as joinPath } from "path"
-import { sddDebug } from "../sdd/log.js"
 import { AcceptanceService, materializeLegacyAcceptanceCriteria } from "../sdd/acceptance/service.js"
 import { addAuditEntry, checkPermission, getUserRoleWithAuth, type Permission } from "../sdd/permissions/access.js"
 import { createAcceptanceAuditSink } from "../sdd/acceptance/audit.js"
@@ -54,43 +52,10 @@ export const SDD_COMMAND_NAME = "sdd"
 export const SDD_COMMAND_DESCRIPTION =
   "SDD command hub: enable/disable enforcement, show status, open the dashboard, or reset caches (deterministic, no LLM needed)."
 
-/**
- * Template registered via `config(cfg).command` so `/sdd` shows up in the
- * command preview without the user having to create `.md` files.
- *
- * The deterministic action is already executed by `command.execute.before`.
- * OpenCode still dispatches an LLM turn after the hook (no `noReply` in
- * @opencode-ai/plugin 1.18). This template constrains that turn to only echo
- * the plugin result — no tool calls, no file changes, no workflow mutation.
- */
-export const SDD_COMMAND_TEMPLATE = [
-  "You are the interactive hub for the opencode-telos SDD plugin.",
-  "",
-  "The request has ALREADY been handled deterministically by the plugin runtime. Its exact result is in the 'User input' at the end of this message.",
-  "",
-  "REQUIRED BEHAVIOR:",
-  "- Reply ONLY with the result text found in 'User input', reproducing it verbatim.",
-  "- Do NOT call any tools.",
-  "- Do NOT create, modify, or delete any files.",
-  "- Do NOT execute, re-run, or alter any /sdd command — the side effects already happened.",
-  "- Do NOT investigate, summarize, or question the result.",
-  "",
-  "If 'User input' contains no result, reply ONLY with: 'SDD command executed. Run /sdd status to see the current state.'",
-  "",
-  "User input:",
-  "$ARGUMENTS",
-].join("\n")
-
 export interface SddCommandInput {
   command: string
   sessionID: string
   arguments: string
-}
-
-import type { Part } from "@opencode-ai/sdk"
-
-export interface SddCommandOutput {
-  parts: Part[]
 }
 
 export interface SddCommandResult {
@@ -674,49 +639,4 @@ function sddViz(projectDir: string, input: SddCommandInput): string {
   }
 }
 
-/**
- * Detects SDD commands and executes them deterministically.
- *
- * We chose `command.execute.before` because it is the public SDK 1.18 hook that
- * corresponds to a TUI command arriving before execution. The hook
- * permite interceptar e substituir o comportamento de comandos reconhecidos
- * (neste caso, o command `sdd`), sem depender do chat.message/LLM.
- */
-export function createSddCommandHooks(projectDir: string): Hooks {
-  return {
-    config: async (cfg) => {
-      // Registra o command `sdd` programaticamente. Isso faz `/sdd` aparecer
-      // in the TUI command preview without the user creating `.md` files.
-      cfg.command = cfg.command ?? {}
-      if (!cfg.command.sdd) {
-        cfg.command.sdd = {
-          template: SDD_COMMAND_TEMPLATE,
-          description: SDD_COMMAND_DESCRIPTION,
-        }
-      }
-    },
 
-    "command.execute.before": async (input, output) => {
-      sddDebug("command", `command.execute.before called: ${input.command} (${input.arguments})`)
-
-      // Reconhece comandos com nomes como:
-      //   sdd                 -> panel
-      //   sdd on / sdd-on     -> enable
-      //   sdd off / sdd-off   -> disable
-      //   sdd status          -> status
-      //   sdd renew           -> renew the active workflow window
-      //   sdd cache_reset     -> reset
-      // O runtime pode entregar o comando como `command` + `arguments`
-      // separated (e.g. command="sdd", arguments="on") or already concatenated
-      // (ex: command="/sdd on"). Normalizamos ambas as formas.
-      const raw = `${input.command} ${input.arguments ?? ""}`.replace(/^[/\s]+/, "").trim().toLowerCase()
-      if (!raw.startsWith("sdd")) return
-
-      const sessionID = input.sessionID ?? "unknown"
-      const result = runSddCommand(projectDir, raw, sessionID)
-      if (!result.matched) return
-
-      output.parts = [{ type: "text" as const, text: result.text } as Part]
-    },
-  }
-}

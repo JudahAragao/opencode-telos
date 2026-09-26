@@ -1,9 +1,9 @@
 /**
  * zod → JSON Schema conversion for the V2 tool registry.
  *
- * V2 tools declare `input` as JSON Schema (the V1 `tool()` helper used a zod
- * raw shape). Telos keeps zod as its single source of truth — the same schema
- * both documents the tool to the model and validates the arguments at
+ * V2 tools declare `input` as JSON Schema, while the Telos catalog is authored
+ * as a zod raw shape. Telos keeps zod as its single source of truth — the same
+ * schema both documents the tool to the model and validates the arguments at
  * execution time — so this module derives the wire schema from it.
  *
  * The converter covers the subset of zod the Telos catalog actually uses
@@ -16,11 +16,11 @@
 /**
  * A zod schema, described structurally.
  *
- * The Telos catalog is authored with `tool.schema` from `@opencode-ai/plugin`,
- * which bundles its own zod v4, while other modules in this repo depend on
- * zod 3.25. The two have incompatible type identities but the same runtime
- * `_def` shape, so this module stays structural and version-agnostic instead of
- * binding to either.
+ * The Telos catalog is authored with `tool.schema` from `../tool-helper.js`,
+ * which uses zod v4, while other modules in this repo depend on zod 3.25. The
+ * two have incompatible type identities but the same runtime `_def` shape, so
+ * this module stays structural and version-agnostic instead of binding to
+ * either.
  */
 export type ZodSchemaLike = {
   _def?: Record<string, unknown>
@@ -258,7 +258,7 @@ export function objectShapeToJsonSchema(shape: Record<string, ZodSchemaLike>): J
 }
 
 /**
- * Convert a V1 tool `args` raw shape into the JSON Schema V2 expects.
+ * Convert a tool `args` zod raw shape into the JSON Schema the V2 host expects.
  *
  * This is the public entry point used by the V2 tool adapter.
  */

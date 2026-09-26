@@ -1,84 +1,47 @@
-import { existsSync, readFileSync } from "fs"
-import { join } from "path"
+import { ALL_TOOL_NAMES } from "./router/tool-registry.js"
 
-export type ToolNameMode = "canonical" | "safe"
+/**
+ * OpenCode V2 tool-name normalization.
+ *
+ * The V2 host registers tools under an *effective* id and performs the
+ * normalization itself: "Dots in namespaces and unsupported characters in tool
+ * names become _" (https://opencode.ai/v2/docs/build/plugins/). Telos authors
+ * its catalog once with canonical dotted names (`sdd.acceptance`) under the
+ * `sdd` namespace, and the host exposes `sdd_acceptance` on the wire for every
+ * provider — including strict OpenAI-compatible ones that reject dots.
+ *
+ * These helpers only mirror that documented host rule so enforcement, the
+ * system prompt and the tool registry can spell names exactly the way the
+ * model sees them. There is no configurable mode, no environment variable and
+ * no plugin-side renaming of the registry — the host does the normalization.
+ */
 
-const SAFE_TOOL_NAMES_ENV = "OPENCODE_SAFE_TOOL_NAMES"
-const TOOL_NAMES_CONFIG = ".opencode/tool-names.json"
-
-function envMode(): ToolNameMode | undefined {
-  const value = process.env[SAFE_TOOL_NAMES_ENV]?.trim().toLowerCase()
-  if (["1", "true", "yes", "on", "safe"].includes(value ?? "")) return "safe"
-  if (["0", "false", "no", "off", "canonical"].includes(value ?? "")) return "canonical"
-  return undefined
+/** Effective (wire) name for a canonical `sdd.*` tool name. */
+export function toWireToolName(canonicalName: string): string {
+  return canonicalName.replaceAll(".", "_")
 }
 
-export function getToolNameMode(projectDir?: string): ToolNameMode {
-  const configured = envMode()
-  if (configured) return configured
-  if (projectDir) {
-    try {
-      const value = JSON.parse(readFileSync(join(projectDir, TOOL_NAMES_CONFIG), "utf8")) as { mode?: unknown }
-      if (value.mode === "safe" || value.mode === "canonical") return value.mode
-    } catch {
-      // Missing or malformed optional configuration falls back to canonical names.
-    }
-  }
-  return "canonical"
+const CANONICAL_BY_WIRE = new Map(ALL_TOOL_NAMES.map((name) => [toWireToolName(name), name]))
+const WIRE_TOOL_NAMES = new Set(CANONICAL_BY_WIRE.keys())
+
+/** Map an effective (wire) tool id back to its canonical `sdd.*` name. */
+export function toCanonicalToolName(name: string): string {
+  return CANONICAL_BY_WIRE.get(name) ?? name
 }
 
-export function safeToolNamesEnabled(projectDir?: string): boolean {
-  return getToolNameMode(projectDir) === "safe"
+/** True when the id is a Telos tool spelled the way the provider sees it. */
+export function isWireToolName(name: string): boolean {
+  return WIRE_TOOL_NAMES.has(name)
 }
 
-export function toWireToolName(name: string, safe: boolean): string {
-  return safe ? name.replaceAll(".", "_") : name
-}
-
-export function toCanonicalToolName(name: string, canonicalNames: readonly string[], safe: boolean): string {
-  if (!safe) return name
-  return canonicalNames.find((canonical) => toWireToolName(canonical, true) === name) ?? name
-}
-
-export function rewriteToolNames(text: string, canonicalNames: readonly string[], safe: boolean): string {
-  if (!safe) return text
-  return [...canonicalNames]
+/**
+ * Rewrite canonical `sdd.x` references inside prompt/description text to the
+ * effective wire spelling, so the model never sees a name that is not
+ * registered. Longest names first so a name that prefixes another cannot be
+ * partially rewritten.
+ */
+export function rewriteToolNames(text: string): string {
+  return [...ALL_TOOL_NAMES]
     .sort((a, b) => b.length - a.length)
-    .reduce((result, canonical) => result.split(canonical).join(toWireToolName(canonical, true)), text)
-}
-
-export function restoreToolNames(text: string, canonicalNames: readonly string[], safe: boolean): string {
-  if (!safe) return text
-  return [...canonicalNames]
-    .sort((a, b) => b.length - a.length)
-    .reduce((result, canonical) => result.split(toWireToolName(canonical, true)).join(canonical), text)
-}
-
-export function projectToolNames<T extends { description: string }>(
-  tools: Record<string, T>,
-  safe: boolean,
-): Record<string, T> {
-  if (!safe) return tools
-
-  const canonicalNames = Object.keys(tools)
-  const projected: Record<string, T> = {}
-  for (const [canonical, tool] of Object.entries(tools)) {
-    const wire = toWireToolName(canonical, true)
-    if (projected[wire]) {
-      throw new Error(`Tool name collision after OpenAI compatibility projection: ${canonical} -> ${wire}`)
-    }
-    projected[wire] = {
-      ...tool,
-      description: rewriteToolNames(tool.description, canonicalNames, true),
-    }
-  }
-  return projected
-}
-
-export function toolNamesConfigPath(projectDir: string): string {
-  return join(projectDir, TOOL_NAMES_CONFIG)
-}
-
-export function toolNamesConfigExists(projectDir: string): boolean {
-  return existsSync(toolNamesConfigPath(projectDir))
+    .reduce((result, canonical) => result.split(canonical).join(toWireToolName(canonical)), text)
 }

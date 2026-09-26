@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { detectShellFileWrites } from "../src/opencode/hooks"
+import { detectShellFileWrites } from "../src/opencode/sdd-runtime"
 
 describe("Shell Command Enforcement", () => {
   describe("Python heredocs", () => {

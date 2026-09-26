@@ -6,7 +6,6 @@ import {
   runSddCommand,
   extractSddCommandText,
   renderSddCommandMessage,
-  SDD_COMMAND_TEMPLATE,
 } from "../src/opencode/command.js"
 import { annotateToolDefinition } from "../src/opencode/sdd-runtime.js"
 
@@ -20,11 +19,6 @@ describe("extractSddCommandText", () => {
     expect(extractSddCommandText("sdd:off")).toBe("sdd:off")
     expect(extractSddCommandText("/sdd-on")).toBe("sdd-on")
     expect(extractSddCommandText("sdd")).toBe("sdd")
-  })
-
-  test("detects template-rendered command messages", () => {
-    const rendered = SDD_COMMAND_TEMPLATE.replace("$ARGUMENTS", "on")
-    expect(extractSddCommandText(rendered)).toBe("sdd on")
   })
 
   test("rejects ordinary prose that merely mentions sdd", () => {
@@ -200,11 +194,13 @@ describe("/sdd grammar is derived from one table", () => {
     }
   })
 
-  test("the tool annotation advertises only real subcommands", () => {
-    const annotation = annotateToolDefinition("sdd", undefined) ?? ""
-    for (const alias of ["on", "off", "status", "renew", "tasks", "viz", "cache_reset"]) {
-      expect(annotation).toContain(`\`sdd ${alias}\``)
-      expect(runSddCommand(dir, `sdd ${alias}`, "ses_t").matched).toBe(true)
+  test("the terminal tool annotation does not leak V1-only surfaces", () => {
+    // The `sdd`/`sdd-panel` annotation belonged to the V1 command hub and was
+    // removed; the only annotated host tool is the terminal tool.
+    for (const toolId of ["sdd", "sdd-panel"]) {
+      expect(annotateToolDefinition(toolId, undefined)).toBeUndefined()
     }
+    const terminal = annotateToolDefinition("run_terminal_command", "Runs commands.") ?? ""
+    expect(terminal).toContain("SDD ENFORCEMENT")
   })
 })
