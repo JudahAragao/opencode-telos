@@ -2683,11 +2683,17 @@ function createAllTools(): Record<string, ToolDefinition> {
         "Use purpose='documentation' to document the system as-is with its real tech stack. " +
         "Use purpose='reverse_engineering' to create a technology-agnostic spec that captures " +
         "WHAT the system does (entities, endpoints, business rules, architecture layers) without " +
-        "committing to specific frameworks — ideal for rebuilding the system with a different stack.",
+        "committing to specific frameworks — ideal for rebuilding the system with a different stack.\n\n" +
+        "IMPORTANT: If the user has NOT explicitly chosen a purpose, do NOT infer it from context. " +
+        "Instead, use the `question` tool to ask: " +
+        "'This project already has implemented code. What is the purpose of the SDD?' " +
+        "with options 'Complete documentation' and 'Reverse engineering'. " +
+        "Only call this tool after receiving the user's explicit answer.",
       args: {
         purpose: tool.schema.enum(["documentation", "reverse_engineering"]).describe(
           "documentation = document the existing system as-is. " +
-          "reverse_engineering = create a technology-agnostic spec for rebuilding elsewhere."
+          "reverse_engineering = create a technology-agnostic spec for rebuilding elsewhere. " +
+          "MUST be explicitly chosen by the user via the question tool — never inferred from context."
         ),
         depth: tool.schema.enum(["structure", "full"]).optional().describe(
           "structure = only entities, endpoints, and architecture. " +

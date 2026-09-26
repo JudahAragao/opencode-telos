@@ -249,36 +249,78 @@ export const FULL_CYCLE_CHAIN: WorkflowChain = {
   }],
 }
 
-// ── Chain: Reverse Engineering ──────────────────────────────────
+// ── Chain: Brownfield (documentation OR reverse engineering) ─────
 
 export const REVERSE_ENGINEERING_CHAIN: WorkflowChain = {
   name: "sdd.workflow_reverse_engineer",
-  description: "Workflow de engenharia reversa: scan do codebase → gerar SDD → validar.",
+  description:
+    "Workflow brownfield para projetos com código existente. " +
+    "Asks the user whether to document the system as-is (purpose=documentation) " +
+    "or to produce a technology-agnostic spec for rebuilding (purpose=reverse_engineering). " +
+    "NEVER assume a purpose — the first step is always sdd.discover so the user " +
+    "is asked via the question tool before any scan runs.",
   params: [
-    { name: "purpose", type: "string", description: "documentation ou reverse_engineering", required: true },
+    {
+      name: "purpose",
+      type: "string",
+      description:
+        "documentation = document the existing system as-is. " +
+        "reverse_engineering = create a technology-agnostic spec for rebuilding. " +
+        "If not provided by the user, sdd.discover will ask via the question tool first.",
+      required: false,
+    },
     { name: "focus_dirs", type: "string", description: "Directories to focus on (optional, comma-separated)", required: false },
   ],
   steps: [
     {
-      tool: "sdd.reverse_engineer",
+      // First: always run discovery so the user is asked what they want
+      // (generatePurposeQuestion fires when existing code is detected).
+      tool: "sdd.discover",
       args: (_prev, initial) => ({
-        purpose: String(initial.purpose || "reverse_engineering"),
-        focus_dirs: initial.focus_dirs ? String(initial.focus_dirs) : undefined,
+        briefing:
+          initial.purpose
+            ? `Analyze the existing codebase with purpose=${String(initial.purpose)}.`
+            : "Analyze the existing codebase.",
       }),
       required: true,
-      description: "Analisar codebase e gerar SDD",
+      description: "Run discovery to ask the user for purpose (documentation vs reverse_engineering) before scanning",
+    },
+    {
+      tool: "sdd.reverse_engineer",
+      args: (_prev, initial, steps) => {
+        // Try to extract purpose from the discover step output so that the
+        // user's answer propagates automatically; fall back to the param
+        // explicitly passed to the chain. Never default silently.
+        const discoverOutput = steps.find(s => s.tool === "sdd.discover")?.result ?? ""
+        const purposeFromDiscovery =
+          /reverse[_\s]?engineer/i.test(discoverOutput) ? "reverse_engineering" :
+          /documentat/i.test(discoverOutput) ? "documentation" : undefined
+
+        const resolved = purposeFromDiscovery ?? (initial.purpose ? String(initial.purpose) : undefined)
+        if (!resolved) {
+          // Safeguard: if purpose could not be determined, default to
+          // documentation (the least destructive mode) and surface a warning.
+          return { purpose: "documentation", focus_dirs: initial.focus_dirs ? String(initial.focus_dirs) : undefined }
+        }
+        return {
+          purpose: resolved as "documentation" | "reverse_engineering",
+          focus_dirs: initial.focus_dirs ? String(initial.focus_dirs) : undefined,
+        }
+      },
+      required: true,
+      description: "Scan the codebase and generate the SDD with the user-chosen purpose",
     },
     {
       tool: "sdd.validate",
       args: {},
       required: true,
-      description: "Validar integridade do grafo gerado",
+      description: "Validate the integrity of the generated graph",
     },
     {
       tool: "sdd.inspect",
       args: {},
       required: false,
-      description: "Revisar o que foi criado",
+      description: "Review what was created",
     },
   ],
 }

@@ -315,16 +315,48 @@ DO:
 
 ## Reverse Engineering Mode
 
+### CRITICAL: ALWAYS ask the user before calling any brownfield tool
+
+When the user asks to generate an SDD, document, or analyze a project that **already has code**,
+you MUST call \`sdd.discover\` first (NOT \`sdd.reverse_engineer\` directly).
+
+\`sdd.discover\` will call \`generatePurposeQuestion\` automatically when existing code is detected,
+which surfaces the question via the \`question\` tool:
+
+> "This project already has implemented code. What is the purpose of the SDD?"
+> - Complete documentation (document the system as-is)
+> - Reverse engineering (create a technology-agnostic spec to rebuild)
+
+**NEVER infer \`purpose\` from the user's wording.** Words like "engenharia reversa",
+"reverse engineering", "SDD do projeto", "analisar projeto" do NOT imply
+\`purpose=reverse_engineering\` — they may just mean "document my project".
+The user must make an **explicit selection** through the \`question\` tool before any scan runs.
+
+**The ONLY correct flow for any brownfield request:**
+1. Call \`sdd.discover\` with the user's briefing
+2. The \`question\` tool fires with the purpose question → user selects
+3. Call \`sdd.update_from_answers\` with the user's answer
+4. THEN call \`sdd.reverse_engineer\` (or \`sdd.workflow_reverse_engineer\`) with the confirmed purpose
+
+**ABSOLUTELY PROHIBITED:**
+- Calling \`sdd.reverse_engineer\` or \`sdd.workflow_reverse_engineer\` WITHOUT a confirmed purpose answer from the user
+- Passing \`purpose="reverse_engineering"\` because the user's message "sounded like" reverse engineering
+- Skipping \`sdd.discover\` and going straight to the scan
+
+---
+
+### After the scan: what to do depending on purpose
+
 When the Knowledge Graph has purpose=reverse_engineering in its metadata (check with sdd.inspect):
 
-### What this means:
+**What this means:**
 - The SDD was created by analyzing an existing codebase
 - The spec is TECHNOLOGY-AGNOSTIC — it describes WHAT the system does, not HOW
 - Architecture components use generic layers (frontend/backend/database), not specific frameworks
 - Entities have fields but no ORM or database-specific types
 - The techStack in graph metadata is empty — technologies must be chosen
 
-### What you MUST do:
+**What you MUST do:**
 1. **Detect the purpose** — run sdd.inspect and check for purpose: reverse_engineering
 2. **Generate technology choice questions** — ask the user what tech stack they want for the NEW implementation:
    - "What frontend framework?" (React, Vue, Angular, Svelte, Next.js, etc.)
@@ -397,7 +429,7 @@ For multi-step tasks, use the CHAINS instead of calling individual tools:
 | sdd.workflow_hotfix | Emergency/hotfix | emergency_description |
 | sdd.workflow_refactor | Safe refactoring | refactoring_scope |
 | sdd.workflow_full_cycle | Full SDD cycle | change_request |
-| sdd.workflow_reverse_engineer | Reverse engineering / documentation | purpose |
+| sdd.workflow_reverse_engineer | Existing project with code — runs sdd.discover first so the user is asked for the purpose via the question tool **before** any scan. Never call it with an assumed purpose. | purpose (optional — filled from the question tool answer) |
 
 ### Para tarefas simples, use tools individuais:
 - Consultar no: sdd.query_graph
@@ -638,6 +670,12 @@ object and the briefing anyway. Then validate and inspect the graph. For a
 change: inspect impact, create and approve a Change, update the graph, validate,
 implement, run verification, detect drift, then complete the Change. Never
 modify .sdd data directly.
+
+BROWNFIELD RULE: When the user asks for an SDD of a project that already has
+code, ALWAYS call sdd.discover first. It will ask the user whether they want
+documentation or reverse engineering via the question tool. NEVER call
+sdd.reverse_engineer or sdd.workflow_reverse_engineer without an explicit
+purpose answer from the user — do not infer purpose from context.
 
 Use focused graph queries instead of guessing. Treat unconfirmed extraction as
 an assumption and ask for confirmation where it changes behaviour, security,

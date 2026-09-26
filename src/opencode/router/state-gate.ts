@@ -52,7 +52,7 @@ const STATE_TOOLS: Record<GraphState, { composite: string[]; standalone: string[
   },
   empty: {
     composite: ["sdd.graph_mutation"],
-    standalone: ["sdd.build_graph", "sdd.discover", "sdd.inspect", "sdd.reverse_engineer"],
+    standalone: ["sdd.build_graph", "sdd.discover", "sdd.inspect"],
   },
   partial: {
     composite: ["sdd.graph_mutation", "sdd.graph_query"],
