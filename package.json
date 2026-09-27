@@ -1,5 +1,5 @@
 {
-  "name": "@telos/sdd-graph",
+  "name": "@oktis-works/telos-sdd-graph",
   "version": "3.2.0",
   "description": "OpenCode Telos - Spec-Driven Development plugin with Knowledge Graph enforcement",
   "homepage": "https://github.com/JudahAragao/opencode-telos#readme",
