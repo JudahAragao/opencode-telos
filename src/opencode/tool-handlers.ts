@@ -209,7 +209,14 @@ export async function removeDeadCodeHandler(
     },
   }
 
-  graph.nodes.push(changeNode)
+  const { addNode: addNodeFn, addRelationship: addRelationshipFn } = await import("../sdd/graph/engine.js")
+  try { addNodeFn(graph, changeNode as any) } catch { /* already exists */ }
+  // change must be linked to project root
+  try { addRelationshipFn(graph, graph.project_id, changeNodeId, "contains", { source: "dead_code_handler" }) } catch {}
+  // Link to affected file nodes
+  for (const fileNodeId of affectedNodes) {
+    try { addRelationshipFn(graph, changeNodeId, fileNodeId, "affects", { source: "dead_code_handler" }) } catch {}
+  }
 
   const repo = createRepository(ctx.directory)
   if (repo.isInitialized()) {
@@ -271,19 +278,31 @@ export async function planImplementationHandler(
     }
 
     const fileNodeId = `file-${file.replace(/[^a-zA-Z0-9]/g, "-")}`
-    const fileNode = {
-      id: fileNodeId,
-      type: "file" as const,
-      name: file,
-      status: "DRAFT" as const,
-      version: 1,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      metadata: { path: file },
-    }
 
-    graph.nodes.push(fileNode)
+    // Only add if not already in graph
+    if (!graph.nodes.find((n) => n.id === fileNodeId)) {
+      const fileNode = {
+        id: fileNodeId,
+        type: "file" as const,
+        name: file,
+        status: "DRAFT" as const,
+        version: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: { path: file },
+      }
+      try { graph.nodes.push(fileNode) } catch {}
+    }
     newNodes.push(fileNodeId)
+
+    // Link file to project root (minimum required for file nodes)
+    newRelationships.push({
+      id: `rel-project-${fileNodeId}`,
+      from: graph.project_id,
+      to: fileNodeId,
+      type: "contains" as const,
+      metadata: { source: "plan_implementation" },
+    })
 
     newRelationships.push({
       id: `rel-${fileNodeId}-${args.feature_id}`,
@@ -374,6 +393,8 @@ export async function createMigrationHandler(
   const { createMigrationChange, getMigrationInstructions } = await import(
     "../sdd/workflows/data-migration.js"
   )
+  const { addNode, addRelationship } = await import("../sdd/graph/engine.js")
+
   const { change, migration } = createMigrationChange(graph, {
     id: `migration-${Date.now()}`,
     source_schema: args.source,
@@ -385,7 +406,14 @@ export async function createMigrationHandler(
   const repo = getRepo(ctx.directory)
   if (repo.isInitialized()) {
     const g = repo.loadGraph()
-    g.nodes.push(change, migration)
+    // Use addNode to ensure proper graph registration
+    try { addNode(g, change as any) } catch { /* already exists */ }
+    try { addNode(g, migration as any) } catch { /* already exists */ }
+    // Link both to project root (minimum required relationship)
+    try { addRelationship(g, g.project_id, change.id, "contains", { source: "enterprise_handler" }) } catch {}
+    try { addRelationship(g, g.project_id, migration.id, "contains", { source: "enterprise_handler" }) } catch {}
+    // change affects migration (semantic link)
+    try { addRelationship(g, change.id, migration.id, "affects", { source: "enterprise_handler" }) } catch {}
     repo.saveGraph(g)
   }
 
@@ -402,6 +430,8 @@ export async function createExperimentHandler(
   const { createExperimentChange, getExperimentInstructions } = await import(
     "../sdd/workflows/ab-testing.js"
   )
+  const { addNode, addRelationship } = await import("../sdd/graph/engine.js")
+
   const { change, experiment } = createExperimentChange(graph, {
     id: `experiment-${Date.now()}`,
     hypothesis: args.hypothesis,
@@ -413,7 +443,13 @@ export async function createExperimentHandler(
   const repo = getRepo(ctx.directory)
   if (repo.isInitialized()) {
     const g = repo.loadGraph()
-    g.nodes.push(change, experiment)
+    try { addNode(g, change as any) } catch { /* already exists */ }
+    try { addNode(g, experiment as any) } catch { /* already exists */ }
+    // Link both to project root
+    try { addRelationship(g, g.project_id, change.id, "contains", { source: "enterprise_handler" }) } catch {}
+    try { addRelationship(g, g.project_id, experiment.id, "contains", { source: "enterprise_handler" }) } catch {}
+    // change affects experiment
+    try { addRelationship(g, change.id, experiment.id, "affects", { source: "enterprise_handler" }) } catch {}
     repo.saveGraph(g)
   }
 
@@ -430,6 +466,8 @@ export async function createFlagHandler(
   const { createFeatureFlagChange, getFeatureFlagInstructions } = await import(
     "../sdd/workflows/feature-flags.js"
   )
+  const { addNode, addRelationship } = await import("../sdd/graph/engine.js")
+
   const { change, featureFlag } = createFeatureFlagChange(graph, {
     id: `flag-${Date.now()}`,
     flag_name: args.name,
@@ -441,7 +479,13 @@ export async function createFlagHandler(
   const repo = getRepo(ctx.directory)
   if (repo.isInitialized()) {
     const g = repo.loadGraph()
-    g.nodes.push(change, featureFlag)
+    try { addNode(g, change as any) } catch { /* already exists */ }
+    try { addNode(g, featureFlag as any) } catch { /* already exists */ }
+    // Link both to project root
+    try { addRelationship(g, g.project_id, change.id, "contains", { source: "enterprise_handler" }) } catch {}
+    try { addRelationship(g, g.project_id, featureFlag.id, "contains", { source: "enterprise_handler" }) } catch {}
+    // change affects featureFlag
+    try { addRelationship(g, change.id, featureFlag.id, "affects", { source: "enterprise_handler" }) } catch {}
     repo.saveGraph(g)
   }
 
@@ -458,6 +502,8 @@ export async function createTenantHandler(
   const { createTenantChange, getTenantInstructions } = await import(
     "../sdd/workflows/multi-tenancy.js"
   )
+  const { addNode, addRelationship } = await import("../sdd/graph/engine.js")
+
   const { change, tenant } = createTenantChange(graph, {
     id: `tenant-${Date.now()}`,
     tenant_name: args.name,
@@ -468,7 +514,13 @@ export async function createTenantHandler(
   const repo = getRepo(ctx.directory)
   if (repo.isInitialized()) {
     const g = repo.loadGraph()
-    g.nodes.push(change, tenant)
+    try { addNode(g, change as any) } catch { /* already exists */ }
+    try { addNode(g, tenant as any) } catch { /* already exists */ }
+    // Link both to project root
+    try { addRelationship(g, g.project_id, change.id, "contains", { source: "enterprise_handler" }) } catch {}
+    try { addRelationship(g, g.project_id, tenant.id, "contains", { source: "enterprise_handler" }) } catch {}
+    // change affects tenant
+    try { addRelationship(g, change.id, tenant.id, "affects", { source: "enterprise_handler" }) } catch {}
     repo.saveGraph(g)
   }
 
@@ -499,6 +551,8 @@ export async function reportIncidentHandler(
   const { createIncident, getIncidentInstructions } = await import(
     "../sdd/incidents/manager.js"
   )
+  const { addNode, addRelationship } = await import("../sdd/graph/engine.js")
+
   const incident = createIncident(graph, {
     id: `incident-${Date.now()}`,
     title: args.title,
@@ -509,7 +563,18 @@ export async function reportIncidentHandler(
   const repo = getRepo(ctx.directory)
   if (repo.isInitialized()) {
     const g = repo.loadGraph()
-    g.nodes.push(incident)
+    try { addNode(g, incident as any) } catch { /* already exists */ }
+    // incident must be contained by project root
+    try { addRelationship(g, g.project_id, incident.id, "contains", { source: "enterprise_handler" }) } catch {}
+    // Link to architecture_component if component name is provided
+    if (args.component) {
+      const compNode = g.nodes.find(
+        (n) => n.type === "architecture_component" && n.name.toLowerCase().includes(args.component.toLowerCase())
+      )
+      if (compNode) {
+        try { addRelationship(g, incident.id, compNode.id, "incident_in", { source: "enterprise_handler" }) } catch {}
+      }
+    }
     repo.saveGraph(g)
   }
 
@@ -524,6 +589,8 @@ export async function createSlaHandler(
 ): Promise<string> {
   const graph = loadOrEmpty(ctx.directory)
   const { createSLA, getSLAInstructions } = await import("../sdd/sla/tracker.js")
+  const { addNode, addRelationship } = await import("../sdd/graph/engine.js")
+
   const sla = createSLA(graph, {
     id: `sla-${Date.now()}`,
     name: args.name,
@@ -535,7 +602,18 @@ export async function createSlaHandler(
   const repo = getRepo(ctx.directory)
   if (repo.isInitialized()) {
     const g = repo.loadGraph()
-    g.nodes.push(sla)
+    try { addNode(g, sla as any) } catch { /* already exists */ }
+    // sla must be contained by project root
+    try { addRelationship(g, g.project_id, sla.id, "contains", { source: "enterprise_handler" }) } catch {}
+    // Link to feature if feature name matches
+    if (args.feature) {
+      const featureNode = g.nodes.find(
+        (n) => n.type === "feature" && n.name.toLowerCase().includes(args.feature.toLowerCase())
+      )
+      if (featureNode) {
+        try { addRelationship(g, sla.id, featureNode.id, "sla_for", { source: "enterprise_handler" }) } catch {}
+      }
+    }
     repo.saveGraph(g)
   }
 

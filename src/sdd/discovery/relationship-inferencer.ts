@@ -187,11 +187,11 @@ export function ensureMilestoneNodes(graph: KnowledgeGraph): number {
     }
 
     const now = new Date().toISOString()
-    graph.nodes.push({
+    const milestoneNode = {
       id,
-      type: "milestone",
+      type: "milestone" as const,
       name,
-      status: "DRAFT",
+      status: "DRAFT" as const,
       version: 1,
       metadata: {
         milestone_name: name,
@@ -200,7 +200,31 @@ export function ensureMilestoneNodes(graph: KnowledgeGraph): number {
       },
       created_at: now,
       updated_at: now,
-    } as AnyNode)
+    }
+    try {
+      addRelationship(graph, graph.project_id, id, "contains", {
+        source: "inference-engine",
+        created_by: "ensureMilestoneNodes",
+      })
+    } catch {
+      // Node does not exist yet — add it first via graph.nodes.push since
+      // addNode would throw if we call addRelationship before the node exists.
+      // We push first, then add the relationship.
+      graph.nodes.push(milestoneNode as AnyNode)
+      try {
+        addRelationship(graph, graph.project_id, id, "contains", {
+          source: "inference-engine",
+          created_by: "ensureMilestoneNodes",
+        })
+      } catch { /* project might not have a contains edge allowed — fallback is silent */ }
+    }
+
+    // If the push path was not taken (node didn't exist before addRelationship call),
+    // we need to ensure the node was actually added. Re-check:
+    if (!getNode(graph, id)) {
+      graph.nodes.push(milestoneNode as AnyNode)
+    }
+
     created++
     milestoneCache.set(cacheKey, id)
     return id
@@ -427,6 +451,85 @@ export function inferRelationships(
   for (const task of nodesByType.get("task") ?? []) {
     bestMatches(task, nameTokens(task), requirements, "implements", "name-match", 0.45, 0.4)
     bestMatches(task, nameTokens(task), features, "implements", "name-match", 0.45, 0.4)
+  }
+
+  // ── 3. Domain → project root (ensure all domains are reachable) ───
+  const projectId = graph.project_id
+  const projectNode = getNode(graph, projectId)
+  const existingRelKeys = new Set(graph.relationships.map((r) => `${r.from}||${r.to}||${r.type}`))
+  for (const domainNode of nodesByType.get("domain") ?? []) {
+    if (domainNode.id === projectId) continue
+    const key = `${projectId}||${domainNode.id}||contains`
+    if (existingRelKeys.has(key)) continue
+    if (projectNode) {
+      add({
+        from: projectId,
+        to: domainNode.id,
+        type: "contains",
+        confidence: 1,
+        method: "handler-match",
+        evidence: "domain must be contained by project root",
+      })
+    }
+  }
+
+  // ── 4. Architecture components → project root ─────────────────────
+  for (const archNode of nodesByType.get("architecture_component") ?? []) {
+    if (archNode.id === projectId) continue
+    const key = `${projectId}||${archNode.id}||contains`
+    if (existingRelKeys.has(key)) continue
+    if (projectNode) {
+      add({
+        from: projectId,
+        to: archNode.id,
+        type: "contains",
+        confidence: 1,
+        method: "handler-match",
+        evidence: "architecture_component must be contained by project root",
+      })
+    }
+  }
+
+  // ── 5. ADR/decision → project root ────────────────────────────────
+  for (const decisionNode of nodesByType.get("decision") ?? []) {
+    if (decisionNode.id === projectId) continue
+    const key = `${projectId}||${decisionNode.id}||contains`
+    if (existingRelKeys.has(key)) continue
+    if (projectNode) {
+      add({
+        from: projectId,
+        to: decisionNode.id,
+        type: "contains",
+        confidence: 1,
+        method: "handler-match",
+        evidence: "decision (ADR) must be contained by project root",
+      })
+    }
+  }
+
+  // ── 6. Enterprise nodes → project root ────────────────────────────
+  const enterpriseTypes: NodeType[] = [
+    "migration", "experiment", "feature_flag", "tenant",
+    "metric", "alert", "incident", "sla",
+    "bug_fix", "hotfix", "refactoring", "deprecation",
+    "milestone",
+  ]
+  for (const nodeType of enterpriseTypes) {
+    for (const node of nodesByType.get(nodeType) ?? []) {
+      if (node.id === projectId) continue
+      const key = `${projectId}||${node.id}||contains`
+      if (existingRelKeys.has(key)) continue
+      if (projectNode) {
+        add({
+          from: projectId,
+          to: node.id,
+          type: "contains",
+          confidence: 1,
+          method: "handler-match",
+          evidence: `${nodeType} must be contained by project root`,
+        })
+      }
+    }
   }
 
   return [...proposals.values()]

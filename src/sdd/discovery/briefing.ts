@@ -664,8 +664,9 @@ export function updateGraphFromAnswers(
     // Auth type
     if (lowerQ.includes("login") || lowerQ.includes("log in") || lowerQ.includes("autenticação")) {
       let authType = answer
+      const authId = `${graph.project_id}-AUTH`
       upsertAnswerNode({
-        id: `${graph.project_id}-AUTH`,
+        id: authId,
         type: "architecture_component",
         name: "Authentication",
         description: `Authentication mechanism: ${authType}`,
@@ -675,12 +676,15 @@ export function updateGraphFromAnswers(
         created_at: now,
         updated_at: now,
       })
+      // architecture_component must be contained by project root
+      try { addRelationship(graph, graph.project_id, authId, "contains", { source: "discovery_answer" }) } catch {}
     }
 
     // Frontend
     if (lowerQ.includes("frontend")) {
+      const feId = `${graph.project_id}-FE`
       upsertAnswerNode({
-        id: `${graph.project_id}-FE`,
+        id: feId,
         type: "architecture_component",
         name: "Frontend",
         description: `Frontend: ${answer}`,
@@ -690,12 +694,15 @@ export function updateGraphFromAnswers(
         created_at: now,
         updated_at: now,
       })
+      // architecture_component must be contained by project root
+      try { addRelationship(graph, graph.project_id, feId, "contains", { source: "discovery_answer" }) } catch {}
     }
 
     // Backend
     if (lowerQ.includes("backend")) {
+      const beId = `${graph.project_id}-BE`
       upsertAnswerNode({
-        id: `${graph.project_id}-BE`,
+        id: beId,
         type: "architecture_component",
         name: "Backend",
         description: `Backend: ${answer}`,
@@ -705,12 +712,20 @@ export function updateGraphFromAnswers(
         created_at: now,
         updated_at: now,
       })
+      // architecture_component must be contained by project root
+      try { addRelationship(graph, graph.project_id, beId, "contains", { source: "discovery_answer" }) } catch {}
+      // Frontend depends on backend when both are known
+      const feNode = getNode(graph, `${graph.project_id}-FE`)
+      if (feNode) {
+        try { addRelationship(graph, `${graph.project_id}-FE`, beId, "depends_on", { source: "discovery_answer" }) } catch {}
+      }
     }
 
     // Database
     if (lowerQ.includes("banco") || lowerQ.includes("database")) {
+      const dbId = `${graph.project_id}-DB`
       upsertAnswerNode({
-        id: `${graph.project_id}-DB`,
+        id: dbId,
         type: "database",
         name: "Database",
         description: `Database: ${answer}`,
@@ -720,14 +735,22 @@ export function updateGraphFromAnswers(
         created_at: now,
         updated_at: now,
       })
+      // database must be contained by project root
+      try { addRelationship(graph, graph.project_id, dbId, "contains", { source: "discovery_answer" }) } catch {}
+      // Backend depends on database when both are known
+      const beNode = getNode(graph, `${graph.project_id}-BE`)
+      if (beNode) {
+        try { addRelationship(graph, `${graph.project_id}-BE`, dbId, "depends_on", { source: "discovery_answer" }) } catch {}
+      }
     }
 
     // Multi-tenancy
     if (lowerQ.includes("tenant")) {
       const isMultiTenant = /sim|yes|true/i.test(answer) || /multi/i.test(answer)
       if (isMultiTenant) {
+        const tenantId = `${graph.project_id}-TENANT`
         upsertAnswerNode({
-          id: `${graph.project_id}-TENANT`,
+          id: tenantId,
           type: "entity",
           name: "Tenant",
           description: "Tenant entity for multi-tenancy",
@@ -743,14 +766,17 @@ export function updateGraphFromAnswers(
           created_at: now,
           updated_at: now,
         })
+        // entity must be contained by project root
+        try { addRelationship(graph, graph.project_id, tenantId, "contains", { source: "discovery_answer" }) } catch {}
       }
     }
 
     // Delete behavior
     if (lowerQ.includes("exclusão") || lowerQ.includes("deletion") || lowerQ.includes("delete")) {
       const isSoftDelete = /soft|reversível|reversivel/i.test(answer)
+      const ruleId = `${graph.project_id}-RULE-DELETE`
       upsertAnswerNode({
-        id: `${graph.project_id}-RULE-DELETE`,
+        id: ruleId,
         type: "business_rule",
         name: "Delete Behavior",
         description: isSoftDelete
@@ -766,6 +792,8 @@ export function updateGraphFromAnswers(
         created_at: now,
         updated_at: now,
       })
+      // business_rule must be contained by project root
+      try { addRelationship(graph, graph.project_id, ruleId, "contains", { source: "discovery_answer" }) } catch {}
     }
   }
   answerMetadata.discovery_answers = existingAnswers

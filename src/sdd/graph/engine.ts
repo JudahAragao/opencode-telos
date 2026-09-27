@@ -9,6 +9,10 @@ import type {
 import { GraphIndices } from "./index.js"
 import { GRAPH_SCHEMA_VERSION } from "../../version.js"
 import { isRelationshipAllowed } from "./schema.js"
+import {
+  getNodeTypeSchema,
+  getMinimumFallback,
+} from "./node-schema.js"
 
 export function createGraph(projectId: string): KnowledgeGraph {
   const now = new Date().toISOString()
@@ -30,6 +34,137 @@ export function addNode(graph: KnowledgeGraph, node: AnyNode): void {
   if (existing) throw new Error(`Node ${node.id} already exists`)
   graph.nodes.push(node)
   graph.metadata.updated_at = new Date().toISOString()
+}
+
+/**
+ * Validates that a node has all REQUIRED relationships declared before
+ * persisting to the graph.
+ *
+ * This is Approach A: synchronous validation at creation time.
+ *
+ * Rules:
+ * 1. For each `required` rule in NodeRelationshipSchema:
+ *    - If the rule has `fallbackToProject: true` and the project root exists,
+ *      the relationship is auto-created (keeps the graph connected).
+ *    - If `fallbackToProject: false` and the rule cannot be satisfied,
+ *      the validation REJECTS the creation with a descriptive error.
+ * 2. Temporary orphans (types with `allowsTemporaryOrphan: true`) are allowed
+ *    with a warning but never blocked.
+ *
+ * Returns a list of warnings (non-blocking) and auto-fixes applied.
+ * Throws if a required relationship cannot be satisfied.
+ */
+export function validateNodeCreation(
+  graph: KnowledgeGraph,
+  node: AnyNode,
+  declaredRelationships: Array<{ direction: "outgoing" | "incoming"; type: RelationshipType; partnerId: string }> = [],
+): { warnings: string[]; autoFixed: string[] } {
+  const schema = getNodeTypeSchema(node.type)
+  if (!schema) return { warnings: [], autoFixed: [] }
+
+  const warnings: string[] = []
+  const autoFixed: string[] = []
+
+  // Build the set of edge types that will exist after creation
+  const outgoing = new Set<RelationshipType>(
+    declaredRelationships.filter((r) => r.direction === "outgoing").map((r) => r.type),
+  )
+  const incoming = new Set<RelationshipType>(
+    declaredRelationships.filter((r) => r.direction === "incoming").map((r) => r.type),
+  )
+
+  for (const rule of schema.rules) {
+    if (rule.level !== "required") continue
+
+    const satisfied = (() => {
+      if (rule.direction === "outgoing") return outgoing.has(rule.type)
+      if (rule.direction === "incoming") return incoming.has(rule.type)
+      return outgoing.has(rule.type) || incoming.has(rule.type)
+    })()
+
+    if (satisfied) continue
+
+    // Not satisfied — try to auto-fix via fallback
+    if (rule.fallbackToProject) {
+      const projectNode = getNode(graph, graph.project_id)
+      if (projectNode) {
+        // Auto-fix will happen after the node is added; record the intent
+        autoFixed.push(
+          `Auto-linked ${node.type} "${node.name}" to project root via ${rule.direction === "incoming" ? "project --[contains]-->" : `--[${rule.type}]-->`} (fallback)`,
+        )
+        // Mark as satisfied so we don't also throw
+        if (rule.direction === "incoming") incoming.add("contains")
+        else outgoing.add(rule.type)
+        continue
+      }
+    }
+
+    // Cannot auto-fix — check if temporary orphan is allowed
+    if (schema.allowsTemporaryOrphan) {
+      warnings.push(
+        `⚠ Node "${node.name}" (${node.type}) created without required ${rule.direction} "${rule.type}" relationship. ` +
+        `Reason: ${rule.rationale} This node is temporarily incomplete — add the relationship before saving.`,
+      )
+      continue
+    }
+
+    // Hard block
+    const partners = rule.partnerTypes?.join(" | ") ?? "any"
+    throw new Error(
+      `Cannot create ${node.type} "${node.name}" without a required ${rule.direction} "${rule.type}" relationship ` +
+      `to a node of type [${partners}]. ${rule.rationale} ` +
+      `Either pass the partner node ID in the same call, or create the required parent node first.`,
+    )
+  }
+
+  return { warnings, autoFixed }
+}
+
+/**
+ * Creates a node and immediately applies the minimum fallback relationship
+ * (project --contains--> node) when no relationships were declared and the
+ * node type requires one.
+ *
+ * This is the safe version of addNode used by all creation paths.
+ * Returns validation warnings (non-blocking) for the caller to surface.
+ */
+export function addNodeSafe(
+  graph: KnowledgeGraph,
+  node: AnyNode,
+  declaredRelationships: Array<{ direction: "outgoing" | "incoming"; type: RelationshipType; partnerId: string }> = [],
+): { warnings: string[]; autoFixed: string[] } {
+  // Validate BEFORE adding — throws if hard block
+  const result = validateNodeCreation(graph, node, declaredRelationships)
+
+  // Add the node
+  const existing = graph.nodes.find((n) => n.id === node.id)
+  if (existing) throw new Error(`Node ${node.id} already exists`)
+  graph.nodes.push(node)
+  graph.metadata.updated_at = new Date().toISOString()
+
+  // Apply auto-fixes declared by validateNodeCreation (fallbackToProject)
+  const schema = getNodeTypeSchema(node.type)
+  if (schema && result.autoFixed.length > 0) {
+    const fallback = getMinimumFallback(node.type)
+    if (fallback && fallback.partnerType === "project_root") {
+      const projectId = graph.project_id
+      if (getNode(graph, projectId)) {
+        try {
+          if (fallback.direction === "incoming") {
+            addRelationship(graph, projectId, node.id, fallback.relType, {
+              source: "addNodeSafe_auto_fix",
+            })
+          } else {
+            addRelationship(graph, node.id, projectId, fallback.relType, {
+              source: "addNodeSafe_auto_fix",
+            })
+          }
+        } catch { /* already exists */ }
+      }
+    }
+  }
+
+  return result
 }
 
 export function updateNode(

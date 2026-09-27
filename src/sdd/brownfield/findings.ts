@@ -163,16 +163,40 @@ export function upsertFinding(graph: KnowledgeGraph, input: FindingInput): Findi
   }
   addNode(graph, node)
 
+  let detectedInEdgeCreated = false
+
   for (const path of sourceFiles) {
     const source = ensureSourceFile(graph, path)
     if (source) {
-      try { addRelationship(graph, node.id, source.id, "detected_in", { source: "brownfield_findings", path }) } catch {}
+      try {
+        addRelationship(graph, node.id, source.id, "detected_in", { source: "brownfield_findings", path })
+        detectedInEdgeCreated = true
+      } catch { /* already exists */ }
     }
   }
   for (const sourceId of sourceNodeIds) {
     if (!getNode(graph, sourceId)) continue
-    try { addRelationship(graph, node.id, sourceId, "detected_in", { source: "brownfield_findings" }) } catch {}
+    try {
+      addRelationship(graph, node.id, sourceId, "detected_in", { source: "brownfield_findings" })
+      detectedInEdgeCreated = true
+    } catch { /* already exists */ }
   }
+
+  // If no detected_in edge was created, fall back to the project root.
+  // A finding with ZERO relationships is always worse than one linked to root.
+  if (!detectedInEdgeCreated) {
+    const projectNode = getNode(graph, graph.project_id)
+    if (projectNode) {
+      try {
+        addRelationship(graph, node.id, graph.project_id, "detected_in", {
+          source: "brownfield_findings",
+          fallback: true,
+          reason: "no source file or source_node_id resolved to an existing node",
+        })
+      } catch { /* already exists */ }
+    }
+  }
+
   return node
 }
 

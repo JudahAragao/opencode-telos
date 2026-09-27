@@ -19,8 +19,15 @@ import {
   removeRelationship,
   getNodesByTypeIndexed,
   getGraphStatsIndexed,
+  addNodeSafe,
 } from "../../sdd/graph/engine.js"
 import { bfsOutgoing, bfsBoth, bfsIncoming, getSubgraph, findPath } from "../../sdd/graph/traverse.js"
+import {
+  NODE_RELATIONSHIP_SCHEMA as _NODE_RELATIONSHIP_SCHEMA,
+  getNodeTypeSchema,
+  getRequiredRules as _getRequiredRules,
+  getRecommendedRules,
+} from "../../sdd/graph/node-schema.js"
 import {
   checkPermission,
   getUserRoleWithAuth,
@@ -44,7 +51,7 @@ import { detectCodeSmells, formatCodeSmellReport } from "../../sdd/code-quality/
 import { analyzeDependencies, formatDependencyReport } from "../../sdd/code-quality/dependencies.js"
 import { addToDriftWhitelist, removeFromDriftWhitelist, loadDriftWhitelist } from "../../sdd/drift/exclusion.js"
 import { parseSymbols, convertToSymbolNodes } from "../../sdd/code-quality/symbol-parser.js"
-import type { KnowledgeGraph, AnyNode, NodeType } from "../../sdd/domain/types.js"
+import type { KnowledgeGraph, AnyNode, NodeType, RelationshipType } from "../../sdd/domain/types.js"
 import { pruneGraph, formatPruneReport } from "../../sdd/graph/pruner.js"
 import { projectPath } from "../../sdd/security/paths.js"
 import { GRAPH_SCHEMA_VERSION } from "../../version.js"
@@ -160,14 +167,35 @@ export function createGraphMutationTool(): ToolDefinition {
             metadata, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
           } as AnyNode
 
-          graph.nodes.push(node)
+          // Use addNode (validates uniqueness and updates metadata.updated_at)
+          try {
+            const { addNode: addNodeFn } = await import("../../sdd/graph/engine.js")
+            addNodeFn(graph, node)
+          } catch (e) {
+            return `Error creating node: ${e instanceof Error ? e.message : String(e)}`
+          }
 
-          if (args.parent_id) {
-            try { addRelationship(graph, args.parent_id, nodeId, "contains") } catch (error) { sddDebug("composite", `Failed to add parent relationship for ${nodeId}`) }
+          // Resolve parent: explicit parent_id takes priority, then fallback to project root.
+          const parentId = args.parent_id ?? graph.project_id
+          const warningLines: string[] = []
+
+          if (!args.parent_id) {
+            warningLines.push(
+              `⚠ No parent_id provided — automatically linked to project root (${graph.project_id}) via contains. ` +
+              `Pass parent_id to place this node in the correct context.`
+            )
+          }
+
+          try {
+            addRelationship(graph, parentId, nodeId, "contains")
+          } catch (e) {
+            sddDebug("composite", `Failed to add parent relationship for ${nodeId}: ${e instanceof Error ? e.message : String(e)}`)
           }
 
           repo.saveGraph(graph)
-          return `Node created: **${nodeId}** (${args.type}): ${args.name}`
+
+          const warning = warningLines.length > 0 ? "\n\n" + warningLines.join("\n") : ""
+          return `Node created: **${nodeId}** (${args.type}): ${args.name}${warning}`
         }
 
         case "update_node": {
@@ -244,6 +272,218 @@ export function createGraphMutationTool(): ToolDefinition {
         default:
           return `Unknown action: ${args.action}`
       }
+    },
+  })
+}
+
+// ── Composite: sdd.create_node_with_links (Atomic creation — Approach B) ─────
+
+/**
+ * Atomic node creation with mandatory relationship chain.
+ *
+ * This tool is the PREFERRED way to create any node in the Knowledge Graph.
+ * It enforces the canonical relationship rules from node-schema.ts in a single
+ * atomic operation:
+ *
+ * 1. Validates that all required relationships are satisfiable before writing.
+ * 2. Creates the node.
+ * 3. Creates ALL declared relationships atomically.
+ * 4. Applies minimum fallback (project root) for any missing required link.
+ * 5. Returns a detailed result including any auto-fixes and warnings.
+ *
+ * If any required relationship cannot be satisfied (no fallback available),
+ * the entire operation is rejected — no partial state is left in the graph.
+ */
+export function createNodeWithLinksTool(): ToolDefinition {
+  return tool({
+    description:
+      "PREFERRED tool for creating any Knowledge Graph node. " +
+      "Creates a node and ALL its relationships in a single atomic operation. " +
+      "Validates required relationship rules from the canonical schema before writing — " +
+      "if a required link cannot be satisfied, the entire operation is rejected. " +
+      "Use this instead of graph_mutation(add_node) + graph_mutation(add_relationship) separately. " +
+      "Pass `links` as a JSON array of {direction, type, partner_id} objects.",
+    args: {
+      type: tool.schema.string().describe("Node type (e.g. feature, requirement, entity, endpoint, domain, task)"),
+      name: tool.schema.string().describe("Node name"),
+      description_text: tool.schema.string().optional().describe("Node description"),
+      metadata_json: tool.schema.string().optional().describe("Extra metadata as JSON object"),
+      links_json: tool.schema.string().optional().describe(
+        'Relationships to create immediately as JSON array. Each item: {"direction":"incoming"|"outgoing", "type":"contains|implements|...", "partner_id":"NODE-ID"}. ' +
+        "Example: [{\"direction\":\"incoming\",\"type\":\"contains\",\"partner_id\":\"PROJ-001\"},{\"direction\":\"outgoing\",\"type\":\"implements\",\"partner_id\":\"REQ-001\"}]"
+      ),
+      auto_create_chain: tool.schema.boolean().optional().describe(
+        "When true (default), automatically creates any missing required parent nodes using minimum fallback (project root). " +
+        "When false, rejects if required relationships cannot be satisfied by declared links."
+      ),
+    },
+    async execute(args, ctx) {
+      const repo = getRepo(ctx.directory)
+      if (!repo.isInitialized()) return "SDD not initialized. Call sdd.initialize first."
+      const graph = repo.loadGraph()
+
+      if (!args.type || !args.name) return "type and name are required."
+      if (args.type === "acceptance_criterion") {
+        return "Create acceptance criteria with `sdd.acceptance(action=\"create\")` so they are versioned, hashed and linked to a Requirement."
+      }
+      if (args.type === "guidance") {
+        return "Create human guidance with `sdd.node_guidance(action=\"create\")`."
+      }
+      if (args.type === "project") {
+        return "The project root is created by `sdd.initialize`. Do not create a second project node."
+      }
+
+      // Parse declared links
+      let declaredLinks: Array<{ direction: "outgoing" | "incoming"; type: string; partner_id: string }> = []
+      if (args.links_json) {
+        try {
+          const parsed = JSON.parse(args.links_json)
+          if (!Array.isArray(parsed)) return "links_json must be a JSON array."
+          declaredLinks = parsed
+        } catch {
+          return "Invalid JSON in links_json."
+        }
+      }
+
+      // Validate partner nodes exist
+      for (const link of declaredLinks) {
+        if (!link.partner_id || !link.type || !link.direction) {
+          return `Invalid link entry: ${JSON.stringify(link)}. Each link requires direction, type, and partner_id.`
+        }
+        const partner = graph.nodes.find((n) => n.id === link.partner_id)
+        if (!partner) {
+          return (
+            `Partner node "${link.partner_id}" not found in the graph. ` +
+            `Create it first or check the ID with sdd.query_graph.`
+          )
+        }
+      }
+
+      // Normalize relationship types
+      const normalizedLinks: Array<{ direction: "outgoing" | "incoming"; type: RelationshipType; partnerId: string }> = []
+      for (const link of declaredLinks) {
+        const relType = normalizeRelationshipType(link.type)
+        if (!relType) {
+          return `Unknown relationship type "${link.type}". Valid types: ${describeRelationshipTypes()}`
+        }
+        normalizedLinks.push({
+          direction: link.direction as "outgoing" | "incoming",
+          type: relType,
+          partnerId: link.partner_id,
+        })
+      }
+
+      // Generate node ID
+      const nodeId = `${graph.project_id}-${args.type.toUpperCase().slice(0, 4)}-${String(
+        graph.nodes.filter((n) => n.type === args.type).length + 1
+      ).padStart(3, "0")}`
+
+      // Check for duplicate
+      const existing = graph.nodes.find(
+        (n) => n.type === args.type && n.name.toLowerCase() === args.name.toLowerCase()
+      )
+      if (existing) {
+        return `Node "${args.name}" (${args.type}) already exists as ${existing.id}. Use sdd.graph_mutation(action="update_node") to modify it.`
+      }
+
+      // Parse metadata
+      let metadata: Record<string, unknown> = {}
+      if (args.metadata_json) {
+        try { metadata = JSON.parse(args.metadata_json) } catch { return "Invalid JSON in metadata_json." }
+      }
+      // Apply type-specific metadata defaults
+      const nodeType = args.type as NodeType
+      if (nodeType === "business_rule" && !metadata.rule_text) metadata.rule_text = args.description_text || args.name
+      if (nodeType === "constraint" && !metadata.rule_text) metadata.rule_text = args.description_text || args.name
+      if (nodeType === "constraint" && !metadata.constraint_type) metadata.constraint_type = "business"
+      if (nodeType === "entity" && !metadata.fields) metadata.fields = []
+      if (nodeType === "endpoint" && !metadata.method) { metadata.method = "GET"; metadata.path = "/" }
+      if (nodeType === "database" && !metadata.engine) metadata.engine = "postgresql"
+      if (nodeType === "architecture_component" && !metadata.layer) metadata.layer = "backend"
+      if (nodeType === "domain" && !metadata.domain_name) metadata.domain_name = args.name
+      if (nodeType === "milestone" && !metadata.milestone_name) metadata.milestone_name = args.name
+
+      const node: AnyNode = {
+        id: nodeId,
+        type: args.type as NodeType,
+        name: args.name,
+        description: args.description_text,
+        status: "DRAFT",
+        version: 1,
+        metadata,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as AnyNode
+
+      // Validate and create atomically — addNodeSafe applies fallback auto-fixes
+      let validationResult: { warnings: string[]; autoFixed: string[] }
+      try {
+        validationResult = addNodeSafe(graph, node, normalizedLinks)
+      } catch (e) {
+        return (
+          `❌ Cannot create node: ${e instanceof Error ? e.message : String(e)}\n\n` +
+          `**How to fix:** Create the required parent node first, then call sdd.create_node_with_links again ` +
+          `with the parent's ID in the links_json array.`
+        )
+      }
+
+      // Create all declared relationships
+      const createdLinks: string[] = []
+      const failedLinks: string[] = []
+      for (const link of normalizedLinks) {
+        try {
+          if (link.direction === "outgoing") {
+            addRelationship(graph, nodeId, link.partnerId, link.type, { source: "create_node_with_links" })
+          } else {
+            addRelationship(graph, link.partnerId, nodeId, link.type, { source: "create_node_with_links" })
+          }
+          createdLinks.push(`${link.direction === "outgoing" ? `${nodeId} --[${link.type}]--> ${link.partnerId}` : `${link.partnerId} --[${link.type}]--> ${nodeId}`}`)
+        } catch (e) {
+          failedLinks.push(`${link.type} with ${link.partnerId}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+
+      repo.saveGraph(graph)
+
+      // Build result report
+      const lines = [`✅ Node created: **${nodeId}** (${args.type}): ${args.name}`]
+
+      if (createdLinks.length > 0) {
+        lines.push("", `**Relationships created (${createdLinks.length}):**`)
+        for (const l of createdLinks) lines.push(`- ${l}`)
+      }
+      if (validationResult.autoFixed.length > 0) {
+        lines.push("", `**Auto-fixed (${validationResult.autoFixed.length}):**`)
+        for (const f of validationResult.autoFixed) lines.push(`- ${f}`)
+      }
+      if (validationResult.warnings.length > 0) {
+        lines.push("", `**Warnings:**`)
+        for (const w of validationResult.warnings) lines.push(`- ${w}`)
+      }
+      if (failedLinks.length > 0) {
+        lines.push("", `**Failed relationships:**`)
+        for (const f of failedLinks) lines.push(`- ⚠ ${f}`)
+      }
+
+      // Show recommended relationships still missing
+      const schema = getNodeTypeSchema(args.type as NodeType)
+      if (schema) {
+        const recommended = getRecommendedRules(args.type as NodeType)
+        const allCreatedTypes = new Set([
+          ...normalizedLinks.map((l) => l.type),
+          ...(validationResult.autoFixed.length > 0 ? ["contains"] : []),
+        ])
+        const missingRec = recommended.filter((r) => !allCreatedTypes.has(r.type))
+        if (missingRec.length > 0) {
+          lines.push("", `**Recommended relationships not yet created:**`)
+          for (const r of missingRec) {
+            const partners = r.partnerTypes?.join(" | ") ?? "any"
+            lines.push(`- \`${r.direction} ${r.type}\` → [${partners}] — ${r.rationale}`)
+          }
+        }
+      }
+
+      return lines.join("\n")
     },
   })
 }

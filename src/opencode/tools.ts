@@ -13,6 +13,7 @@ import {
   createCodeQualityTool,
   createEnterpriseTool,
   createDriftWhitelistTool,
+  createNodeWithLinksTool,
 } from "./router/tools-composite.js"
 import {
   createGraph,
@@ -3661,6 +3662,7 @@ export function createSddTools(): Record<string, ToolDefinition> {
   return {
     ...standalone,
     "sdd.graph_mutation": createGraphMutationTool(),
+    "sdd.create_node_with_links": createNodeWithLinksTool(),
     "sdd.graph_query": createGraphQueryTool(),
     "sdd.traverse": createTraverseTool(),
     "sdd.permissions": createPermissionsTool(),

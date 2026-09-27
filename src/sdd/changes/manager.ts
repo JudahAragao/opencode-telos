@@ -147,15 +147,32 @@ export function createChange(
   // Materialize the Change scope as edges immediately, so every execution
   // path (agent tool, dashboard, workflow chain, or smart enforcement) starts
   // with the same traceability contract.
+  let affectsEdgesCreated = 0
   for (const affectedId of allAffected) {
     const target = getNode(graph, affectedId)
     if (!target) continue
     try {
       addRelationship(graph, id, affectedId, target.type === "task" ? "affects" : "affects", { source: "change_manager" })
+      affectsEdgesCreated++
     } catch {
       // A legacy graph may contain a pair rejected by the canonical schema;
       // the metadata scope remains authoritative for reconciliation.
     }
+  }
+
+  // If no affects edges were created, record a warning in the change metadata
+  // so downstream gates (preflightChangeScope, checkSpecEvidence) can surface it.
+  if (affectsEdgesCreated === 0 && !proposal.no_requirement_impact) {
+    const currentMeta = changeNode.metadata as unknown as Record<string, unknown>
+    const updatedMeta = {
+      ...currentMeta,
+      zero_affects_warning: true,
+      zero_affects_reason:
+        "No affected_node_ids resolved to existing graph nodes. " +
+        "The write hook will not block files, but spec evidence cannot be evaluated. " +
+        "Update the spec or set no_requirement_impact=true.",
+    }
+    updateNode(graph, id, { metadata: updatedMeta as unknown as typeof changeNode.metadata })
   }
   for (const filePath of proposal.affected_files) {
     const file = graph.nodes.find((node) => node.type === "file" && ((node.metadata as Record<string, unknown>).path === filePath || node.name === filePath))

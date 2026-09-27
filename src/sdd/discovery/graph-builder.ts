@@ -38,11 +38,80 @@ function now(): string {
   return new Date().toISOString()
 }
 
+// ─── Domain helpers ────────────────────────────────────────────────
+
+/**
+ * Ensures a domain node exists and is linked to the project root.
+ * Returns the domain node ID.
+ */
 // ─── Node Builders ─────────────────────────────────────────────────
+
+/**
+ * Builds domain nodes from the analysis and links them to the project root.
+ * Must be called BEFORE buildFeatureNodes and buildEntityNodes so that
+ * feature→domain and entity→domain edges can be created.
+ */
+function buildDomainNodes(
+  graph: KnowledgeGraph,
+  analysis: BriefingDeepAnalysis,
+): number {
+  let count = 0
+
+  // Build from the domains array in the analysis
+  for (const domainName of analysis.domains ?? []) {
+    if (!domainName) continue
+    const id = safeId(graph.project_id, "domain", domainName)
+    if (!getNode(graph, id)) {
+      try {
+        addNode(graph, {
+          id,
+          type: "domain",
+          name: domainName,
+          description: `Domain: ${domainName}`,
+          status: "APPROVED",
+          version: 1,
+          metadata: { domain_name: domainName },
+          created_at: now(),
+          updated_at: now(),
+        } as AnyNode)
+        count++
+      } catch { /* skip duplicates */ }
+    }
+    try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+  }
+
+  // Additional domains from features that declare a domain field
+  for (const feature of analysis.features ?? []) {
+    const featureDomain = (feature as unknown as Record<string, unknown>).domain as string | undefined
+    if (featureDomain) {
+      const id = safeId(graph.project_id, "domain", featureDomain)
+      if (!getNode(graph, id)) {
+        try {
+          addNode(graph, {
+            id,
+            type: "domain",
+            name: featureDomain,
+            description: `Domain: ${featureDomain}`,
+            status: "APPROVED",
+            version: 1,
+            metadata: { domain_name: featureDomain },
+            created_at: now(),
+            updated_at: now(),
+          } as AnyNode)
+          count++
+        } catch { /* skip */ }
+      }
+      try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+    }
+  }
+
+  return count
+}
 
 function buildFeatureNodes(
   graph: KnowledgeGraph,
   features: ExtractedFeature[],
+  primaryDomainId: string | null,
 ): number {
   let count = 0
   for (const f of features) {
@@ -60,6 +129,19 @@ function buildFeatureNodes(
         created_at: now(),
         updated_at: now(),
       } as AnyNode)
+
+      // Link to domain if available, otherwise to project root
+      const featureDomain = (f as unknown as Record<string, unknown>).domain as string | undefined
+      const domainId = featureDomain
+        ? safeId(graph.project_id, "domain", featureDomain)
+        : primaryDomainId
+
+      if (domainId && getNode(graph, domainId)) {
+        try { addRelationship(graph, domainId, id, "contains", { source: "graph-builder" }) } catch {}
+      } else {
+        try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+      }
+
       count++
     } catch { /* skip duplicates */ }
   }
@@ -69,6 +151,7 @@ function buildFeatureNodes(
 function buildEntityNodes(
   graph: KnowledgeGraph,
   entities: ExtractedEntity[],
+  primaryDomainId: string | null,
 ): number {
   let count = 0
   for (const e of entities) {
@@ -86,6 +169,19 @@ function buildEntityNodes(
         created_at: now(),
         updated_at: now(),
       } as AnyNode)
+
+      // Link to domain if available, otherwise to project root
+      const entityDomain = (e as unknown as Record<string, unknown>).domain as string | undefined
+      const domainId = entityDomain
+        ? safeId(graph.project_id, "domain", entityDomain)
+        : primaryDomainId
+
+      if (domainId && getNode(graph, domainId)) {
+        try { addRelationship(graph, domainId, id, "contains", { source: "graph-builder" }) } catch {}
+      } else {
+        try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+      }
+
       count++
     } catch { /* skip */ }
   }
@@ -116,6 +212,23 @@ function buildEndpointNodes(
         created_at: now(),
         updated_at: now(),
       } as AnyNode)
+
+      // Link endpoint to project root (minimum required relationship)
+      try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+
+      // Immediately create operates_on edge to entity if declared
+      if (ep.relatedEntity) {
+        const entityId = safeId(graph.project_id, "entity", ep.relatedEntity)
+        if (getNode(graph, entityId)) {
+          try {
+            addRelationship(graph, id, entityId, "operates_on", {
+              source: "graph-builder",
+              declared_in: "endpoint.relatedEntity",
+            })
+          } catch { /* skip if cycle or already exists */ }
+        }
+      }
+
       count++
     } catch { /* skip */ }
   }
@@ -125,6 +238,7 @@ function buildEndpointNodes(
 function buildBusinessRuleNodes(
   graph: KnowledgeGraph,
   rules: ExtractedBusinessRule[],
+  primaryDomainId: string | null,
 ): number {
   let count = 0
   for (const r of rules) {
@@ -142,6 +256,14 @@ function buildBusinessRuleNodes(
         created_at: now(),
         updated_at: now(),
       } as AnyNode)
+
+      // Link to domain if available, otherwise to project root
+      if (primaryDomainId && getNode(graph, primaryDomainId)) {
+        try { addRelationship(graph, primaryDomainId, id, "contains", { source: "graph-builder" }) } catch {}
+      } else {
+        try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+      }
+
       count++
     } catch { /* skip */ }
   }
@@ -168,6 +290,10 @@ function buildArchitectureNodes(
         created_at: now(),
         updated_at: now(),
       } as AnyNode)
+
+      // Architecture components must be contained by project root
+      try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+
       count++
     } catch { /* skip */ }
   }
@@ -199,6 +325,10 @@ function buildDecisionNodes(
         created_at: now(),
         updated_at: now(),
       } as AnyNode)
+
+      // Decisions must be contained by project root
+      try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+
       count++
     } catch { /* skip */ }
   }
@@ -208,6 +338,7 @@ function buildDecisionNodes(
 function buildRequirementNodes(
   graph: KnowledgeGraph,
   requirements: ExtractedRequirement[],
+  primaryDomainId: string | null,
 ): number {
   let count = 0
   for (const r of requirements) {
@@ -228,6 +359,14 @@ function buildRequirementNodes(
         created_at: now(),
         updated_at: now(),
       } as AnyNode)
+
+      // Link to domain if available, otherwise to project root
+      if (primaryDomainId && getNode(graph, primaryDomainId)) {
+        try { addRelationship(graph, primaryDomainId, id, "contains", { source: "graph-builder" }) } catch {}
+      } else {
+        try { addRelationship(graph, graph.project_id, id, "contains", { source: "graph-builder" }) } catch {}
+      }
+
       for (const criterion of r.acceptanceCriteria || []) {
         try { createAcceptanceCriterion(graph, id, criterion, "discovery") } catch { /* invalid criterion is reported by validation */ }
       }
@@ -645,6 +784,7 @@ export function buildGraphFromAnalysis(
 
   // Define build steps for progress tracking
   const steps = [
+    "domains",
     "features",
     "entities",
     "endpoints",
@@ -660,13 +800,22 @@ export function buildGraphFromAnalysis(
   // Start build tracking
   progressEmitter.startBuild(buildId, steps)
 
+  // Step 0: Build domain nodes FIRST — features, entities and requirements link to them
+  progressEmitter.nextStep("domains", `Building domain nodes...`, buildId)
+  byType.domain = buildDomainNodes(graph, analysis)
+  const primaryDomain = analysis.domains?.[0] ?? null
+  const primaryDomainId: string | null = primaryDomain
+    ? safeId(graph.project_id, "domain", primaryDomain)
+    : null
+  progressEmitter.stepProgress("domains", `Created ${byType.domain} domain nodes`, undefined, buildId)
+
   // Build all node types
   progressEmitter.nextStep("features", `Building feature nodes (${analysis.features.length} found)...`, buildId)
-  byType.feature = buildFeatureNodes(graph, analysis.features)
+  byType.feature = buildFeatureNodes(graph, analysis.features, primaryDomainId)
   progressEmitter.stepProgress("features", `Created ${byType.feature} feature nodes`, undefined, buildId)
 
   progressEmitter.nextStep("entities", `Building entity nodes (${analysis.entities.length} found)...`, buildId)
-  byType.entity = buildEntityNodes(graph, analysis.entities)
+  byType.entity = buildEntityNodes(graph, analysis.entities, primaryDomainId)
   progressEmitter.stepProgress("entities", `Created ${byType.entity} entity nodes`, undefined, buildId)
 
   progressEmitter.nextStep("endpoints", `Building endpoint nodes (${analysis.endpoints.length} found)...`, buildId)
@@ -674,7 +823,7 @@ export function buildGraphFromAnalysis(
   progressEmitter.stepProgress("endpoints", `Created ${byType.endpoint} endpoint nodes`, undefined, buildId)
 
   progressEmitter.nextStep("business_rules", `Building business rule nodes (${analysis.businessRules.length} found)...`, buildId)
-  byType.business_rule = buildBusinessRuleNodes(graph, analysis.businessRules)
+  byType.business_rule = buildBusinessRuleNodes(graph, analysis.businessRules, primaryDomainId)
   progressEmitter.stepProgress("business_rules", `Created ${byType.business_rule} business rule nodes`, undefined, buildId)
 
   progressEmitter.nextStep("architecture", `Building architecture component nodes (${analysis.architectureComponents.length} found)...`, buildId)
@@ -686,7 +835,7 @@ export function buildGraphFromAnalysis(
   progressEmitter.stepProgress("decisions", `Created ${byType.decision} decision nodes`, undefined, buildId)
 
   progressEmitter.nextStep("requirements", `Building requirement nodes (${analysis.requirements.length} found)...`, buildId)
-  byType.requirement = buildRequirementNodes(graph, analysis.requirements)
+  byType.requirement = buildRequirementNodes(graph, analysis.requirements, primaryDomainId)
   progressEmitter.stepProgress("requirements", `Created ${byType.requirement} requirement nodes`, undefined, buildId)
 
   const taskInputs = analysis.tasks?.length

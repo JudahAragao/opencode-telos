@@ -1,6 +1,7 @@
 import type {
   KnowledgeGraph,
   AnyNode,
+  NodeType,
   RelationshipType,
 } from "../domain/types.js"
 import {
@@ -13,11 +14,30 @@ import {
   preferredInverseType,
   relationshipKey,
 } from "./schema.js"
+import {
+  checkNodeOrphan,
+  getMinimumFallback,
+} from "./node-schema.js"
 
 // ─── Types ─────────────────────────────────────────────────────────
 
+export interface OrphanByTypeInfo {
+  node_id: string
+  node_name: string
+  node_type: string
+  missing_rules: Array<{
+    direction: string
+    type: string
+    level: string
+    rationale: string
+  }>
+  can_auto_fix: boolean
+}
+
 export interface IntegrityReport {
   orphan_nodes: OrphanInfo[]
+  /** Nodes that have edges but are missing REQUIRED relationships per their type schema. */
+  orphan_by_type: OrphanByTypeInfo[]
   disconnected_groups: DisconnectedGroup[]
   redundant_relationships: RedundantRelationship[]
   fixes_applied: IntegrityFix[]
@@ -80,6 +100,8 @@ export interface IntegritySummary {
   total_nodes: number
   total_relationships: number
   orphans_found: number
+  /** Nodes that have edges but are semantically orphaned per their type schema. */
+  orphans_by_type_found: number
   disconnected_groups_found: number
   redundant_relationships_found: number
   fixes_applied: number
@@ -100,6 +122,7 @@ export function ensureGraphIntegrity(
 
   const report: IntegrityReport = {
     orphan_nodes: [],
+    orphan_by_type: [],
     disconnected_groups: [],
     redundant_relationships: [],
     fixes_applied: [],
@@ -107,6 +130,7 @@ export function ensureGraphIntegrity(
       total_nodes: graph.nodes.length,
       total_relationships: graph.relationships.length,
       orphans_found: 0,
+      orphans_by_type_found: 0,
       disconnected_groups_found: 0,
       redundant_relationships_found: 0,
       fixes_applied: 0,
@@ -149,6 +173,18 @@ export function ensureGraphIntegrity(
     if (autoFix) {
       for (const orphan of report.orphan_nodes) {
         const fix = connectOrphanNode(graph, orphan)
+        if (fix) report.fixes_applied.push(fix)
+      }
+    }
+
+    // Step 2b: Per-type orphan check — nodes that have some edges but are
+    // missing REQUIRED relationships per their type schema.
+    report.orphan_by_type = detectOrphanNodesByType(graphToCheck)
+    report.summary.orphans_by_type_found = report.orphan_by_type.length
+
+    if (autoFix) {
+      for (const violation of report.orphan_by_type) {
+        const fix = fixOrphanByType(graph, violation)
         if (fix) report.fixes_applied.push(fix)
       }
     }
@@ -344,6 +380,102 @@ function connectOrphanNode(
     }
   } catch {
     // Relationship might already exist
+    return null
+  }
+}
+
+// ─── Per-Type Orphan Detection ──────────────────────────────────────
+
+/**
+ * Detects nodes that have at least one edge but are missing REQUIRED
+ * relationships per their type schema (semantic orphans).
+ */
+function detectOrphanNodesByType(graph: KnowledgeGraph): OrphanByTypeInfo[] {
+  const violations: OrphanByTypeInfo[] = []
+
+  // Build per-node edge sets
+  const outgoingByNode = new Map<string, Set<RelationshipType>>()
+  const incomingByNode = new Map<string, Set<RelationshipType>>()
+
+  for (const rel of graph.relationships) {
+    if (!outgoingByNode.has(rel.from)) outgoingByNode.set(rel.from, new Set())
+    outgoingByNode.get(rel.from)!.add(rel.type)
+    if (!incomingByNode.has(rel.to)) incomingByNode.set(rel.to, new Set())
+    incomingByNode.get(rel.to)!.add(rel.type)
+  }
+
+  for (const node of graph.nodes) {
+    // Skip the project root — it has no parent requirement
+    if (node.type === "project") continue
+
+    const outgoing = outgoingByNode.get(node.id) ?? new Set<RelationshipType>()
+    const incoming = incomingByNode.get(node.id) ?? new Set<RelationshipType>()
+
+    const violation = checkNodeOrphan(
+      node.id,
+      node.name,
+      node.type as NodeType,
+      outgoing,
+      incoming,
+    )
+
+    if (violation) {
+      violations.push({
+        node_id: violation.nodeId,
+        node_name: violation.nodeName,
+        node_type: violation.nodeType,
+        missing_rules: violation.missingRules.map((r) => ({
+          direction: r.direction,
+          type: r.type,
+          level: r.level,
+          rationale: r.rationale,
+        })),
+        can_auto_fix: violation.canAutoFix,
+      })
+    }
+  }
+
+  return violations
+}
+
+/**
+ * Attempts to auto-fix a per-type orphan violation by applying the minimum
+ * fallback relationship defined in the node schema.
+ */
+function fixOrphanByType(
+  graph: KnowledgeGraph,
+  violation: OrphanByTypeInfo,
+): IntegrityFix | null {
+  const fallback = getMinimumFallback(violation.node_type as NodeType)
+  if (!fallback) return null
+
+  const projectId = graph.project_id
+  const projectNode = getNode(graph, projectId)
+  if (!projectNode) return null
+
+  const targetId = fallback.partnerType === "project_root" ? projectId : undefined
+  if (!targetId) return null
+
+  try {
+    if (fallback.direction === "incoming") {
+      addRelationship(graph, targetId, violation.node_id, fallback.relType, {
+        source: "integrity_auto_fix",
+        reason: "minimum_fallback_for_type",
+      })
+    } else {
+      addRelationship(graph, violation.node_id, targetId, fallback.relType, {
+        source: "integrity_auto_fix",
+        reason: "minimum_fallback_for_type",
+      })
+    }
+    return {
+      action: "connected_orphan",
+      details: `Auto-fixed semantic orphan "${violation.node_name}" (${violation.node_type}): added ${fallback.direction === "incoming" ? `${targetId} --[${fallback.relType}]--> ${violation.node_id}` : `${violation.node_id} --[${fallback.relType}]--> ${targetId}`}`,
+      relationship: fallback.direction === "incoming"
+        ? { from: targetId, to: violation.node_id, type: fallback.relType }
+        : { from: violation.node_id, to: targetId, type: fallback.relType },
+    }
+  } catch {
     return null
   }
 }
@@ -622,6 +754,20 @@ export function formatIntegrityReport(report: IntegrityReport): string {
     }
     if (report.orphan_nodes.length > 10) {
       lines.push(`- ... and ${report.orphan_nodes.length - 10} more`)
+    }
+    lines.push("")
+  }
+
+  if (report.orphan_by_type.length > 0 && report.summary.fixes_applied === 0) {
+    lines.push(`### 🟡 Semantic Orphans — Missing Required Relationships (${report.orphan_by_type.length})`)
+    for (const violation of report.orphan_by_type.slice(0, 10)) {
+      lines.push(`- **${violation.node_name}** (${violation.node_type}) [${violation.node_id}]`)
+      for (const rule of violation.missing_rules) {
+        lines.push(`  ⚠ Missing ${rule.direction} \`${rule.type}\` — ${rule.rationale}`)
+      }
+    }
+    if (report.orphan_by_type.length > 10) {
+      lines.push(`- ... and ${report.orphan_by_type.length - 10} more`)
     }
     lines.push("")
   }

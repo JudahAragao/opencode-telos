@@ -3,6 +3,85 @@ import { getNode } from "../sdd/graph/engine.js"
 import { bfsBoth } from "../sdd/graph/traverse.js"
 import { TOOL_TAXONOMY } from "./router/tool-taxonomy.js"
 import { STANDALONE_CATEGORIES } from "./router/categories.js"
+import { NODE_RELATIONSHIP_SCHEMA } from "../sdd/graph/node-schema.js"
+
+/**
+ * Generates the canonical node creation rules section from NODE_RELATIONSHIP_SCHEMA.
+ * Injected into SDD_SYSTEM_PROMPT so the LLM sees the rules before creating nodes.
+ *
+ * This is Approach C: prompt-level enforcement.
+ * The rules are derived from the same schema used by the runtime validation (A)
+ * and the atomic tool (B), so they are always in sync.
+ */
+function buildNodeSchemaSection(): string {
+  const lines: string[] = []
+
+  lines.push("## MANDATORY: Node Creation Rules (Canonical Relationship Schema)")
+  lines.push("")
+  lines.push(
+    "Every node type has REQUIRED relationships that MUST be satisfied at creation time. " +
+    "Use `sdd.create_node_with_links` (preferred) or `sdd.graph_mutation(add_node)` with `parent_id`. " +
+    "**NEVER create a node and leave it without the required relationship — the graph will reject it or auto-fix it with a fallback.**"
+  )
+  lines.push("")
+  lines.push("### Required relationships by node type")
+  lines.push("")
+  lines.push("| Node Type | Required Relationship | Direction | Partner Type(s) | Auto-fix? |")
+  lines.push("|-----------|----------------------|-----------|-----------------|-----------|")
+
+  for (const schema of NODE_RELATIONSHIP_SCHEMA) {
+    const required = schema.rules.filter((r) => r.level === "required")
+    if (required.length === 0) {
+      // project — no rules
+      lines.push(`| \`${schema.nodeType}\` | — (root node) | — | — | — |`)
+      continue
+    }
+    for (const rule of required) {
+      const partners = rule.partnerTypes?.join(" \\| ") ?? "any"
+      const autofix = rule.fallbackToProject ? "✅ project root" : "❌ must be explicit"
+      lines.push(
+        `| \`${schema.nodeType}\` | \`${rule.type}\` | ${rule.direction} | ${partners} | ${autofix} |`
+      )
+    }
+  }
+
+  lines.push("")
+  lines.push("### How to create nodes correctly")
+  lines.push("")
+  lines.push("**OPTION A (preferred) — Atomic creation with all links in one call:**")
+  lines.push("```")
+  lines.push('sdd.create_node_with_links(')
+  lines.push('  type="requirement",')
+  lines.push('  name="User authentication",')
+  lines.push('  links_json=\'[{"direction":"incoming","type":"contains","partner_id":"PROJ-001"},')
+  lines.push('               {"direction":"outgoing","type":"specifies","partner_id":"FEAT-001"}]\'')
+  lines.push(')')
+  lines.push("```")
+  lines.push("")
+  lines.push("**OPTION B — Sequential (only when chain is not yet known):**")
+  lines.push("```")
+  lines.push('// Step 1: Create parent first if needed')
+  lines.push('sdd.create_node_with_links(type="domain", name="Auth", links_json=\'[{"direction":"incoming","type":"contains","partner_id":"PROJ-001"}]\')')
+  lines.push('// Step 2: Create child — link to parent immediately')
+  lines.push('sdd.create_node_with_links(type="feature", name="Login", links_json=\'[{"direction":"incoming","type":"contains","partner_id":"DOMAIN-auth"}]\')')
+  lines.push("```")
+  lines.push("")
+  lines.push("**NEVER do this:**")
+  lines.push("```")
+  lines.push('// ❌ WRONG — creates orphan nodes')
+  lines.push('sdd.graph_mutation(action="add_node", type="requirement", name="R1")  // no parent_id')
+  lines.push('sdd.graph_mutation(action="add_node", type="feature", name="F1")      // no parent_id')
+  lines.push('// ... many steps later, maybe never creates the relationships')
+  lines.push("```")
+
+  return lines.join("\n")
+}
+
+/**
+ * Compiled node creation rules — generated once at startup from the canonical schema.
+ * Injected into SDD_SYSTEM_PROMPT.
+ */
+export const NODE_CREATION_RULES: string = buildNodeSchemaSection()
 
 /**
  * Tool reference GENERATED from the taxonomy — single source of truth.
@@ -400,6 +479,8 @@ When the Knowledge Graph has purpose=reverse_engineering in its metadata (check 
 - All nodes must have stable IDs
 - All relationships must reference existing nodes
 - Contradictions must be flagged and resolved
+
+${NODE_CREATION_RULES}
 
 ## Constitution Rules
 
