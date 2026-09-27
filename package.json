@@ -1,6 +1,6 @@
 {
   "name": "@oktis-works/telos-sdd-graph",
-  "version": "3.2.3",
+  "version": "3.2.4",
   "description": "OpenCode Telos - Spec-Driven Development plugin with Knowledge Graph enforcement",
   "homepage": "https://github.com/JudahAragao/opencode-telos#readme",
   "repository": {
@@ -45,7 +45,8 @@
     "tree-sitter-go": "^0.21.0",
     "tree-sitter-rust": "^0.21.0",
     "tree-sitter-java": "^0.21.0",
-    "tree-sitter-ruby": "^0.21.0"
+    "tree-sitter-ruby": "^0.21.0",
+    "typescript": "^5.3.0"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.32",
