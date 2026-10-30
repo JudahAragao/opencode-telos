@@ -10,7 +10,7 @@
  * dependencies.
  */
 
-import * as z4 from "zod/v4"
+import * as z4 from "zod"
 
 /** The argument-shape type accepted by `tool()`. */
 export type ToolArgs = z4.ZodRawShape

@@ -3782,7 +3782,7 @@ function createAllTools(): Record<string, ToolDefinition> {
 
     // ── Markdown Hybrid Architecture ─────────────────────
     "sdd.generate_node_doc": tool({
-      description: "Generate detailed markdown documentation for a graph node using LLM based on graph context and templates.",
+      description: "Generate detailed markdown documentation for a graph node using LLM based on graph context and templates. Creates/updates versioned markdown in .sdd/docs/v{N}/.",
       args: {
         node_id: tool.schema.string().describe("Node ID to generate documentation for"),
         template: tool.schema.enum(["feature", "requirement", "entity", "endpoint", "change", "auto"]).optional().describe("Template to use (auto-detects from node type if not specified)"),
@@ -3796,10 +3796,11 @@ function createAllTools(): Record<string, ToolDefinition> {
         if (!node) return `Node ${args.node_id} not found.`
 
         const mdRepo = new MarkdownRepository(ctx.directory)
+        const graphVersion = mdRepo.getGraphVersion(graph)
 
-        // Check if already exists and not forcing
-        if (mdRepo.exists(node.id) && !args.force_regenerate) {
-          return `Markdown file already exists for ${node.id}. Use force_regenerate=true to overwrite.`
+        // Check if already exists at current graph version and not forcing
+        if (mdRepo.exists(node.id, graphVersion) && !args.force_regenerate) {
+          return `Markdown file already exists for ${node.id} at graph v${graphVersion}. Use force_regenerate=true to overwrite.`
         }
 
         // Determine template
@@ -3814,50 +3815,98 @@ function createAllTools(): Record<string, ToolDefinition> {
           incoming: incoming.map(r => `${r.type} ← ${r.from} (${graph.nodes.find(n => n.id === r.from)?.name || "?"})`),
         }
 
+        // Get existing body for merge (LLM only modifies requested sections)
+        const existing = mdRepo.read(node.id, graphVersion)
+        const existingBody = existing?.body
+
         // Generate markdown using template
         const markdown = generateMarkdownFromTemplate(node, context, template)
 
-        // Write markdown file
-        mdRepo.write(node, markdown)
+        // Write markdown file (mandatory, versioned)
+        mdRepo.writeMandatory(node, graph, existingBody)
 
         // Update node.md_path if not set
         if (!node.md_path) {
-          node.md_path = `.sdd/docs/${node.id}.md`
+          node.md_path = mdRepo.getRelativeDocPath(node.id, graphVersion)
           repo.saveGraph(graph)
         }
 
-        return `Generated markdown documentation for ${node.id} at .sdd/docs/${node.id}.md`
+        return `Generated markdown documentation for ${node.id} at .sdd/docs/v${graphVersion}/${node.id}.md`
       },
     }),
 
     "sdd.read_node_doc": tool({
-      description: "Read the full markdown documentation for a node.",
+      description: "Read the full markdown documentation for a node at current or specific graph version.",
       args: {
         node_id: tool.schema.string().describe("Node ID to read documentation for"),
+        graph_version: tool.schema.number().optional().describe("Specific graph version to read (default: latest)"),
       },
       async execute(args, ctx) {
         const repo = getRepo(ctx.directory)
         if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
         const mdRepo = new MarkdownRepository(ctx.directory)
-        const doc = mdRepo.read(args.node_id)
-        if (!doc) return `No markdown documentation found for node ${args.node_id}.`
-        return doc.body
+        const graphVersion = args.graph_version || mdRepo.getGraphVersion(graph)
+        const doc = mdRepo.read(args.node_id, graphVersion)
+        if (!doc) return `No markdown documentation found for node ${args.node_id} at graph v${graphVersion}.`
+        return `--- Graph v${doc.graphVersion} ---\n${doc.body}`
+      },
+    }),
+
+    "sdd.read_node_doc_history": tool({
+      description: "Read markdown documentation history for a node across all graph versions.",
+      args: {
+        node_id: tool.schema.string().describe("Node ID to read history for"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+        const mdRepo = new MarkdownRepository(ctx.directory)
+        const { current, history } = mdRepo.getNodeContext(args.node_id, graph)
+        
+        if (!current && history.length === 0) {
+          return `No markdown documentation found for node ${args.node_id}.`
+        }
+
+        const lines = [`## Markdown History for ${args.node_id}`, ""]
+        
+        if (current) {
+          lines.push(`### Current (Graph v${current.graphVersion})`)
+          lines.push(current.body)
+          lines.push("")
+        }
+
+        if (history.length > 0) {
+          lines.push("### History")
+          for (const h of history.sort((a, b) => b.graphVersion - a.graphVersion)) {
+            lines.push(`#### Graph v${h.graphVersion}`)
+            lines.push(h.body)
+            lines.push("")
+          }
+        }
+
+        return lines.join("\n")
       },
     }),
 
     "sdd.sync_markdown": tool({
-      description: "Sync all markdown files with the current graph state. Creates missing files, updates front-matter for version changes.",
+      description: "Sync all markdown files with the current graph state. Creates versioned folder .sdd/docs/v{N}/ with mandatory markdown for every node.",
       args: {},
       async execute(_args, ctx) {
         const repo = getRepo(ctx.directory)
         if (!repo.isInitialized()) return "SDD not initialized."
         const graph = repo.loadGraph()
 
-        // Ensure all nodes have md_path
+        const mdRepo = new MarkdownRepository(ctx.directory)
+        const graphVersion = mdRepo.getGraphVersion(graph)
+        
+        // Ensure all nodes have md_path pointing to current version
         let updatedCount = 0
         for (const node of graph.nodes) {
-          if (!node.md_path) {
-            node.md_path = `.sdd/docs/${node.id}.md`
+          const expectedPath = mdRepo.getRelativeDocPath(node.id, graphVersion)
+          if (!node.md_path || node.md_path !== expectedPath) {
+            node.md_path = expectedPath
             updatedCount++
           }
         }
@@ -3865,19 +3914,19 @@ function createAllTools(): Record<string, ToolDefinition> {
           repo.saveGraph(graph)
         }
 
-        const mdRepo = new MarkdownRepository(ctx.directory)
         const result = mdRepo.syncFromGraph(graph)
 
-        return `Markdown sync complete:
+        return `Markdown sync complete (Graph v${graphVersion}):
 - Created: ${result.created}
 - Updated: ${result.updated}
 - Skipped: ${result.skipped}
-- Nodes with md_path updated: ${updatedCount}`
+- Nodes with md_path updated: ${updatedCount}
+- Versioned folder: .sdd/docs/v${graphVersion}/`
       },
     }),
 
     "sdd.validate_markdown_sync": tool({
-      description: "Validate markdown files are in sync with graph nodes. Reports mismatches, orphans, and missing files.",
+      description: "Validate markdown files are in sync with graph nodes at current graph version. Reports mismatches, orphans, and missing files.",
       args: {},
       async execute(_args, ctx) {
         const repo = getRepo(ctx.directory)
@@ -3889,7 +3938,7 @@ function createAllTools(): Record<string, ToolDefinition> {
     }),
 
     "sdd.fix_markdown_sync": tool({
-      description: "Auto-fix markdown sync issues: add missing md_path, create missing markdown files.",
+      description: "Auto-fix markdown sync issues: add missing md_path, create missing markdown files in current version folder.",
       args: {},
       async execute(_args, ctx) {
         const repo = getRepo(ctx.directory)

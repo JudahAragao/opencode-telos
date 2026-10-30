@@ -10,6 +10,7 @@ export function formatSyncReport(report: SyncReport): string {
   const lines = [
     "## Markdown Sync Validation Report",
     "",
+    `**Graph Version:** ${report.graphVersion}`,
     `**Total Nodes:** ${report.totalNodes}`,
     `**Nodes with md_path:** ${report.nodesWithMdPath}`,
     `**Nodes with Markdown file:** ${report.nodesWithMarkdownFile}`,
@@ -56,13 +57,14 @@ export function formatSyncReport(report: SyncReport): string {
 
 export function autoFixMarkdownSync(graph: KnowledgeGraph, projectDir: string): { fixed: number; errors: string[] } {
   const mdRepo = new MarkdownRepository(projectDir)
+  const graphVersion = mdRepo.getGraphVersion(graph)
   const errors: string[] = []
   let fixed = 0
 
   // Fix missing md_path on nodes
   for (const node of graph.nodes) {
     if (!node.md_path) {
-      node.md_path = `.sdd/docs/${node.id}.md`
+      node.md_path = mdRepo.getRelativeDocPath(node.id, graphVersion)
       fixed++
     }
   }

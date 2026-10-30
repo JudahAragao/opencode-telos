@@ -120,7 +120,7 @@ export class TreeSitterParser implements LanguageParser {
     }
 
     const parser = new Parser()
-    parser.setLanguage(grammar.language as Parser.Language)
+    parser.setLanguage(grammar.language as any)
     parser.setTimeoutMicros(750_000)
     const tree = parser.parse(content)
     const contexts: string[] = []

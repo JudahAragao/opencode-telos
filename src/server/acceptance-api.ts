@@ -12,7 +12,7 @@ export interface AcceptanceApiResult { status: number; body: unknown }
 const mutationSchema = z.object({
   actor: z.string().min(1).max(200).optional(),
   observation: z.string().max(8000).optional(),
-  evidence: z.array(z.record(z.unknown())).max(100).optional(),
+  evidence: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
   expected_version: z.number().int().nonnegative().optional(),
   expected_hash: z.string().max(200).optional(),
 })
@@ -20,7 +20,7 @@ const mutationSchema = z.object({
 const guidanceSchema = z.object({
   actor: z.string().min(1).max(200).optional(),
   instruction: z.string().min(1).max(12000).optional(),
-  proposal: z.record(z.unknown()).optional(),
+  proposal: z.record(z.string(), z.unknown()).optional(),
   expected_target_version: z.number().int().nonnegative().optional(),
   resolution: z.string().max(8000).optional(),
   priority: z.enum(["low", "medium", "high", "critical"]).optional(),

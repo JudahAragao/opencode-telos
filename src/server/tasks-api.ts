@@ -69,7 +69,7 @@ const updateTaskSchema = z.object({
   column: columnSchema.optional(),
   priority: prioritySchema.optional(),
   status: z.string().min(1).max(40).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   expected_version: z.number().int().nonnegative().optional(),
 })
 

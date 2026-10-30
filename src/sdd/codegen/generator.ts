@@ -289,11 +289,13 @@ export function generateProject(
 /**
  * Read markdown documentation for a node from the graph's markdown files.
  * Returns the markdown body content or empty string if not found.
+ * Uses current graph version.
  */
 export function getNodeMarkdown(graph: KnowledgeGraph, nodeId: string, projectDir: string): string {
   try {
     const mdRepo = new MarkdownRepository(projectDir)
-    const mdNode = mdRepo.read(nodeId)
+    const graphVersion = mdRepo.getGraphVersion(graph)
+    const mdNode = mdRepo.read(nodeId, graphVersion)
     return mdNode?.body || ""
   } catch {
     return ""
@@ -303,14 +305,16 @@ export function getNodeMarkdown(graph: KnowledgeGraph, nodeId: string, projectDi
 /**
  * Get markdown content for all nodes of a specific type.
  * Useful for batch processing in codegen.
+ * Uses current graph version.
  */
 export function getAllNodesMarkdown(graph: KnowledgeGraph, nodeType: string, projectDir: string): Map<string, string> {
   const mdRepo = new MarkdownRepository(projectDir)
+  const graphVersion = mdRepo.getGraphVersion(graph)
   const result = new Map<string, string>()
 
   const nodes = graph.nodes.filter((n) => n.type === nodeType)
   for (const node of nodes) {
-    const mdNode = mdRepo.read(node.id)
+    const mdNode = mdRepo.read(node.id, graphVersion)
     if (mdNode) {
       result.set(node.id, mdNode.body)
     }
