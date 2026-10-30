@@ -148,6 +148,7 @@ export interface Node {
   created_by?: string
   change_id?: string
   previous_version?: number
+  md_path?: string
 }
 
 export interface Relationship {

@@ -3,12 +3,14 @@ import { readFileSync, existsSync, mkdirSync, readdirSync } from "fs"
 import { join, dirname } from "path"
 import type { KnowledgeGraph, AnyNode, NodeType, NodeStatus, Relationship } from "../domain/types.js"
 import { GraphIndices } from "../graph/index.js"
-import type { GraphRepository } from "./repository.js"
+import type { GraphRepository, SyncReport } from "./repository.js"
 import { getCacheManager } from "../cache/manager.js"
 import { atomicWriteFile } from "../cache/atomic.js"
 import { fileSignature, graphFingerprint } from "../cache/fingerprint.js"
 import { recordLegitimateSave, validateGraphIntegrity } from "../graph/integrity-guard.js"
 import { GRAPH_SCHEMA_VERSION } from "../../version.js"
+import { MarkdownRepository } from "./markdown.js"
+import { sddDebug } from "../log.js"
 
 export function readYaml<T>(filePath: string): T {
   const content = readFileSync(filePath, "utf-8")
@@ -286,6 +288,15 @@ export class YamlGraphRepository implements GraphRepository {
 
     // G: Save graph snapshot to disk for cross-session restore
     cacheMgr.saveGraphSnapshot(graph, fileSignature([this.graphPath]))
+
+    // Sync markdown files with graph nodes
+    try {
+      const mdRepo = new MarkdownRepository(require("path").dirname(this.baseDir))
+      mdRepo.syncFromGraph(graph)
+    } catch (error) {
+      // Non-fatal: markdown sync failure shouldn't block graph save
+      sddDebug("repository", `Markdown sync failed: ${error}`)
+    }
   }
 
   getStorageType(): "yaml" {
@@ -430,5 +441,15 @@ export class YamlGraphRepository implements GraphRepository {
   getRelationshipsForNode(nodeId: string): Relationship[] {
     const indices = this.getIndices()
     return indices.getRelationships(nodeId)
+  }
+
+  syncMarkdown(graph: KnowledgeGraph): { created: number; updated: number; skipped: number } {
+    const mdRepo = new MarkdownRepository(require("path").dirname(this.baseDir))
+    return mdRepo.syncFromGraph(graph)
+  }
+
+  validateMarkdownSync(graph: KnowledgeGraph): SyncReport {
+    const mdRepo = new MarkdownRepository(require("path").dirname(this.baseDir))
+    return mdRepo.validateSync(graph)
   }
 }

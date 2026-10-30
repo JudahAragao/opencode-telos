@@ -10,9 +10,11 @@ import { ensureDir } from "./yaml.js"
 import { join } from "path"
 import { getCacheManager } from "../cache/manager.js"
 import { fileSignature, graphFingerprint } from "../cache/fingerprint.js"
-import type { GraphRepository } from "./repository.js"
+import type { GraphRepository, SyncReport } from "./repository.js"
 import { recordLegitimateSave, validateGraphIntegrity } from "../graph/integrity-guard.js"
 import { GRAPH_SCHEMA_VERSION } from "../../version.js"
+import { MarkdownRepository } from "./markdown.js"
+import { sddDebug } from "../log.js"
 
 /**
  * SQLite-backed graph repository.
@@ -366,6 +368,15 @@ export class SqliteGraphRepository {
 
     // G: Save graph snapshot to disk for cross-session restore
     cacheMgr.saveGraphSnapshot(graph, sourceSignature)
+
+    // Sync markdown files with graph nodes
+    try {
+      const mdRepo = new MarkdownRepository(require("path").dirname(this.baseDir))
+      mdRepo.syncFromGraph(graph)
+    } catch (error) {
+      // Non-fatal: markdown sync failure shouldn't block graph save
+      sddDebug("repository", `Markdown sync failed: ${error}`)
+    }
 
     // Anti-bypass: record legitimate save for integrity tracking
     const projectDir = require("path").dirname(this.baseDir)
@@ -752,5 +763,15 @@ export class SqliteGraphRepository {
     const db = this.getDb()
     const row = db.query("SELECT value FROM graph_metadata WHERE key = 'updated_at'").get() as any
     return row?.value || ""
+  }
+
+  syncMarkdown(graph: KnowledgeGraph): { created: number; updated: number; skipped: number } {
+    const mdRepo = new MarkdownRepository(require("path").dirname(this.baseDir))
+    return mdRepo.syncFromGraph(graph)
+  }
+
+  validateMarkdownSync(graph: KnowledgeGraph): SyncReport {
+    const mdRepo = new MarkdownRepository(require("path").dirname(this.baseDir))
+    return mdRepo.validateSync(graph)
   }
 }

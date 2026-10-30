@@ -136,26 +136,32 @@ export function addNodeSafe(
   // Validate BEFORE adding — throws if hard block
   const result = validateNodeCreation(graph, node, declaredRelationships)
 
+  // Set md_path if not provided
+  const nodeWithMdPath = {
+    ...node,
+    md_path: node.md_path || `.sdd/docs/${node.id}.md`,
+  }
+
   // Add the node
-  const existing = graph.nodes.find((n) => n.id === node.id)
-  if (existing) throw new Error(`Node ${node.id} already exists`)
-  graph.nodes.push(node)
+  const existing = graph.nodes.find((n) => n.id === nodeWithMdPath.id)
+  if (existing) throw new Error(`Node ${nodeWithMdPath.id} already exists`)
+  graph.nodes.push(nodeWithMdPath)
   graph.metadata.updated_at = new Date().toISOString()
 
   // Apply auto-fixes declared by validateNodeCreation (fallbackToProject)
-  const schema = getNodeTypeSchema(node.type)
+  const schema = getNodeTypeSchema(nodeWithMdPath.type)
   if (schema && result.autoFixed.length > 0) {
-    const fallback = getMinimumFallback(node.type)
+    const fallback = getMinimumFallback(nodeWithMdPath.type)
     if (fallback && fallback.partnerType === "project_root") {
       const projectId = graph.project_id
       if (getNode(graph, projectId)) {
         try {
           if (fallback.direction === "incoming") {
-            addRelationship(graph, projectId, node.id, fallback.relType, {
+            addRelationship(graph, projectId, nodeWithMdPath.id, fallback.relType, {
               source: "addNodeSafe_auto_fix",
             })
           } else {
-            addRelationship(graph, node.id, projectId, fallback.relType, {
+            addRelationship(graph, nodeWithMdPath.id, projectId, fallback.relType, {
               source: "addNodeSafe_auto_fix",
             })
           }
@@ -183,9 +189,14 @@ export function updateNode(
   const updateRecord = updates as unknown as Record<string, unknown>
   const changed = Object.keys(updates).some((key) => JSON.stringify(currentRecord[key]) !== JSON.stringify(updateRecord[key]))
   if (!changed) return node
+
+  // Ensure md_path is set
+  const mdPath = node.md_path || `.sdd/docs/${node.id}.md`
+
   const updated = {
     ...node,
     ...updates,
+    md_path: updates.md_path || mdPath,
     version: node.version + 1,
     updated_at: new Date().toISOString(),
   }

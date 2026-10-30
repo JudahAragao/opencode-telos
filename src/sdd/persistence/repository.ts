@@ -96,6 +96,22 @@ export interface GraphRepository {
 
   /** Get relationships for a node without loading full graph (optimized for large graphs) */
   getRelationshipsForNode?(nodeId: string): Relationship[]
+
+  /** Sync markdown files with graph nodes */
+  syncMarkdown?(graph: KnowledgeGraph): { created: number; updated: number; skipped: number }
+
+  /** Validate markdown sync with graph */
+  validateMarkdownSync?(graph: KnowledgeGraph): SyncReport
+}
+
+export interface SyncReport {
+  totalNodes: number
+  nodesWithMdPath: number
+  nodesWithMarkdownFile: number
+  nodesWithoutMarkdownFile: number
+  frontMatterMismatches: Array<{ nodeId: string; issue: string }>
+  orphanMarkdownFiles: string[]
+  missingMdPath: string[]
 }
 
 const MIGRATION_THRESHOLD = 1000

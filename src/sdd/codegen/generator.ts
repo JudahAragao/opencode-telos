@@ -11,9 +11,10 @@ import type {
 import { getNodesByType } from "../graph/engine.js"
 import { getExclusionSets, isNodeExcludedOrDeprecated } from "../drift/exclusion.js"
 import { readFileSync, mkdirSync, existsSync } from "fs"
-import { dirname } from "path"
+import { dirname, join } from "path"
 import { atomicWriteFile } from "../cache/atomic.js"
 import { projectPath } from "../security/paths.js"
+import { MarkdownRepository } from "../persistence/markdown.js"
 
 export interface GeneratedFile {
   path: string
@@ -101,12 +102,13 @@ export function hasCodegenSupport(stack: TechStack): boolean {
 export function generateProject(
   graph: KnowledgeGraph,
   stack?: TechStack,
+  projectDir?: string,
 ): GenerationPlan {
   const detectedStack = stack || detectTechStack(graph)
 
   // If the stack is partially/fully unknown, return a spec prompt for the AI to generate
   if (!hasCodegenSupport(detectedStack)) {
-    return generateSpecPrompt(graph, detectedStack)
+    return generateSpecPrompt(graph, detectedStack, projectDir)
   }
 
   const { removed, deprecated } = getExclusionSets(graph)
@@ -121,27 +123,32 @@ export function generateProject(
   const businessRules = getNodesByType<BusinessRuleNode>(graph, "business_rule")
     .filter((b) => !isNodeExcludedOrDeprecated(b.id, b.status, removed, deprecated))
 
+  // Load markdown content for richer context
+  const entityMarkdown = projectDir ? getAllNodesMarkdown(graph, "entity", projectDir) : new Map()
+  const featureMarkdown = projectDir ? getAllNodesMarkdown(graph, "feature", projectDir) : new Map()
+  const endpointMarkdown = projectDir ? getAllNodesMarkdown(graph, "endpoint", projectDir) : new Map()
+
   const files: GeneratedFile[] = []
   const directories: Set<string> = new Set()
 
   // Generate backend
   if (detectedStack.backend === "express" || detectedStack.backend === "fastify") {
-    generateExpressBackend(graph, entities, endpoints, tables, businessRules, files, directories, detectedStack)
+    generateExpressBackend(graph, entities, endpoints, tables, businessRules, files, directories, detectedStack, entityMarkdown, featureMarkdown, endpointMarkdown)
   }
 
   // Generate frontend
   if (detectedStack.frontend === "react") {
-    generateReactFrontend(graph, entities, features, endpoints, files, directories, detectedStack)
+    generateReactFrontend(graph, entities, features, endpoints, files, directories, detectedStack, entityMarkdown, featureMarkdown, endpointMarkdown)
   }
 
   // Generate database schema
-  generateDatabaseSchema(graph, entities, tables, files, directories, detectedStack)
+  generateDatabaseSchema(graph, entities, tables, files, directories, detectedStack, entityMarkdown)
 
   // Generate tests
-  generateTests(graph, entities, endpoints, files, directories, detectedStack)
+  generateTests(graph, entities, endpoints, files, directories, detectedStack, entityMarkdown, featureMarkdown, endpointMarkdown)
 
   // Generate shared types
-  generateSharedTypes(graph, entities, files, directories, detectedStack)
+  generateSharedTypes(graph, entities, files, directories, detectedStack, entityMarkdown)
 
   const dirList = [...directories].sort()
 
@@ -150,10 +157,15 @@ export function generateProject(
     directories: dirList,
     summary: buildGenerationSummary(graph, entities, features, files, detectedStack),
   }
-}function generateSpecPrompt(graph: KnowledgeGraph, stack: TechStack): GenerationPlan {
+}function generateSpecPrompt(graph: KnowledgeGraph, stack: TechStack, projectDir?: string): GenerationPlan {
   const entities = getNodesByType<EntityNode>(graph, "entity")
   const endpoints = getNodesByType<EndpointNode>(graph, "endpoint")
   const businessRules = getNodesByType<BusinessRuleNode>(graph, "business_rule")
+
+  // Load markdown content for richer context
+  const entityMarkdown = projectDir ? getAllNodesMarkdown(graph, "entity", projectDir) : new Map()
+  const endpointMarkdown = projectDir ? getAllNodesMarkdown(graph, "endpoint", projectDir) : new Map()
+  const businessRuleMarkdown = projectDir ? getAllNodesMarkdown(graph, "business_rule", projectDir) : new Map()
 
   // ── Context-aware: gather decisions, constraints, architecture ──
   const decisions = graph.nodes.filter(n => n.type === "decision")
@@ -170,15 +182,23 @@ export function generateProject(
 
   const entityList = entities.map((e) => {
     const fields = (e.metadata.fields || []).map((f) => `  - ${f.name}: ${f.type}${f.required ? " (required)" : ""}`).join("\n")
-    return `- **${e.name}**\n${fields}`
+    const mdContent = entityMarkdown.get(e.id)
+    const mdSection = mdContent ? `\n\n### Markdown Details\n${mdContent.substring(0, 2000)}` : ""
+    return `- **${e.name}**\n${fields}${mdSection}`
   }).join("\n")
 
   const endpointList = endpoints.map((ep) => {
     const meta = ep.metadata
-    return `- \`${meta.method || "GET"} ${meta.path || ep.name}\` — ${ep.description || ep.name}`
+    const mdContent = endpointMarkdown.get(ep.id)
+    const mdSection = mdContent ? `\n\n### Markdown Details\n${mdContent.substring(0, 2000)}` : ""
+    return `- \`${meta.method || "GET"} ${meta.path || ep.name}\` — ${ep.description || ep.name}${mdSection}`
   }).join("\n")
 
-  const rulesList = businessRules.map((r) => `- **${r.name}:** ${r.description || r.metadata.rule_text || ""}`).join("\n")
+  const rulesList = businessRules.map((r) => {
+    const mdContent = businessRuleMarkdown.get(r.id)
+    const mdSection = mdContent ? `\n\n### Markdown Details\n${mdContent.substring(0, 2000)}` : ""
+    return `- **${r.name}:** ${r.description || r.metadata.rule_text || ""}${mdSection}`
+  }).join("\n")
 
   // Context sections
   const decisionsList = decisions.map((d) => {
@@ -266,6 +286,39 @@ export function generateProject(
   }
 }
 
+/**
+ * Read markdown documentation for a node from the graph's markdown files.
+ * Returns the markdown body content or empty string if not found.
+ */
+export function getNodeMarkdown(graph: KnowledgeGraph, nodeId: string, projectDir: string): string {
+  try {
+    const mdRepo = new MarkdownRepository(projectDir)
+    const mdNode = mdRepo.read(nodeId)
+    return mdNode?.body || ""
+  } catch {
+    return ""
+  }
+}
+
+/**
+ * Get markdown content for all nodes of a specific type.
+ * Useful for batch processing in codegen.
+ */
+export function getAllNodesMarkdown(graph: KnowledgeGraph, nodeType: string, projectDir: string): Map<string, string> {
+  const mdRepo = new MarkdownRepository(projectDir)
+  const result = new Map<string, string>()
+
+  const nodes = graph.nodes.filter((n) => n.type === nodeType)
+  for (const node of nodes) {
+    const mdNode = mdRepo.read(node.id)
+    if (mdNode) {
+      result.set(node.id, mdNode.body)
+    }
+  }
+
+  return result
+}
+
 function generateExpressBackend(
   _graph: KnowledgeGraph,
   entities: EntityNode[],
@@ -275,6 +328,9 @@ function generateExpressBackend(
   files: GeneratedFile[],
   dirs: Set<string>,
   _stack: TechStack,
+  entityMarkdown: Map<string, string>,
+  _featureMarkdown: Map<string, string>,
+  _endpointMarkdown: Map<string, string>,
 ): void {
   dirs.add("src/server")
   dirs.add("src/server/routes")
@@ -344,10 +400,18 @@ export { router }
       return `  ${f.name}${optional}: ${tsType}`
     }).join("\n")
 
+    // Get markdown content for this entity
+    const entityMd = entityMarkdown.get(entity.id) || ""
+
     files.push({
       path: `src/server/models/${nameLower}.ts`,
       description: `${name} model/type definition`,
-      content: `export interface ${name} {
+      content: `/*
+ * ${name} Entity
+ * Generated from SDD Knowledge Graph
+ * ${entityMd ? "Markdown documentation available" : "No markdown documentation"}
+ */
+export interface ${name} {
   id: string
 ${modelFields}
   created_at: Date
@@ -356,6 +420,8 @@ ${modelFields}
 
 export type Create${name}Input = Omit<${name}, "id" | "created_at" | "updated_at">
 export type Update${name}Input = Partial<Create${name}Input>
+
+${entityMd ? `/*\n * Markdown Documentation:\n * ${entityMd.split("\n").join("\n * ")}\n */` : ""}
 `,
     })
 
@@ -517,6 +583,9 @@ function generateReactFrontend(
   files: GeneratedFile[],
   dirs: Set<string>,
   _stack: TechStack,
+  _entityMarkdown: Map<string, string>,
+  _featureMarkdown: Map<string, string>,
+  _endpointMarkdown: Map<string, string>,
 ): void {
   dirs.add("src/client")
   dirs.add("src/client/components")
@@ -835,6 +904,7 @@ function generateDatabaseSchema(
   files: GeneratedFile[],
   dirs: Set<string>,
   stack: TechStack,
+  entityMarkdown: Map<string, string>,
 ): void {
   dirs.add("src/server")
 
@@ -950,6 +1020,9 @@ function generateTests(
   files: GeneratedFile[],
   dirs: Set<string>,
   _stack: TechStack,
+  _entityMarkdown: Map<string, string>,
+  _featureMarkdown: Map<string, string>,
+  _endpointMarkdown: Map<string, string>,
 ): void {
   dirs.add("tests")
 
@@ -1026,6 +1099,7 @@ function generateSharedTypes(
   files: GeneratedFile[],
   dirs: Set<string>,
   _stack: TechStack,
+  entityMarkdown: Map<string, string>,
 ): void {
   dirs.add("src/shared")
 

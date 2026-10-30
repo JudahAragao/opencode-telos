@@ -47,7 +47,9 @@ import { createChange, classifyApprovalLevel, approveChange, getPendingChanges, 
 import { validateGraph, formatValidationResult } from "../sdd/validation/validator.js"
 import { detectDrift, formatDriftReport } from "../sdd/drift/detector.js"
 import { buildSddContextPack } from "./system-prompt.js"
-import { generateProject, writeGeneratedFiles, detectTechStack, type GeneratedFile } from "../sdd/codegen/generator.js"
+import { generateProject, writeGeneratedFiles, detectTechStack, type GeneratedFile, getNodeMarkdown, getAllNodesMarkdown } from "../sdd/codegen/generator.js"
+import { MarkdownRepository } from "../sdd/persistence/markdown.js"
+import { validateMarkdownSync, formatSyncReport, autoFixMarkdownSync } from "../sdd/validation/markdown-sync.js"
 import { enforceSddFirst, classifyChangeRequest, buildEnforcementPrompt, getSddEnforcementRules } from "../sdd/enforcement/interceptor.js"
 import { isSddEnabled, setToggleState, getToggleState } from "../sdd/toggle/state.js"
 import { join as joinPath } from "path"
@@ -397,6 +399,133 @@ export const invalidateCache = invalidateCacheForMutation
 function truncateList(items: string[], maxItems: number = 20): string[] {
   if (items.length <= maxItems) return items
   return [...items.slice(0, maxItems), `... and ${items.length - maxItems} more`]
+}
+
+function generateMarkdownFromTemplate(node: AnyNode, context: { node: AnyNode; outgoing: string[]; incoming: string[] }, template: string): string {
+  const now = new Date().toISOString()
+  const sections = getTemplateSections(node.type)
+
+  let body = `# ${node.type.charAt(0).toUpperCase() + node.type.slice(1)}: ${node.name}\n\n`
+
+  if (node.description) {
+    body += `## Overview\n${node.description}\n\n`
+  }
+
+  // Add relationships section
+  if (context.outgoing.length > 0 || context.incoming.length > 0) {
+    body += `## Relationships\n\n`
+    if (context.outgoing.length > 0) {
+      body += `### Outgoing\n`
+      for (const rel of context.outgoing) {
+        body += `- ${rel}\n`
+      }
+      body += `\n`
+    }
+    if (context.incoming.length > 0) {
+      body += `### Incoming\n`
+      for (const rel of context.incoming) {
+        body += `- ${rel}\n`
+      }
+      body += `\n`
+    }
+  }
+
+  // Add template-specific sections
+  for (const section of sections) {
+    body += `## ${section}\n\n<!-- TODO: Add ${section.toLowerCase()} details -->\n\n`
+  }
+
+  body += `## Implementation Files\n\n<!-- Auto-generated from codegen -->\n\n`
+  body += `## History\n\n| Version | Date | Author | Change |\n|---------|------|--------|--------|\n| ${node.version} | ${now.split("T")[0]} | System | Initial creation |\n`
+
+  return body
+}
+
+function getTemplateSections(nodeType: string): string[] {
+  const templates: Record<string, string[]> = {
+    feature: [
+      "Functional Requirements",
+      "Business Rules",
+      "Entities Involved",
+      "API Endpoints",
+      "Architecture Decisions (ADRs)",
+      "Acceptance Criteria",
+      "Tests",
+    ],
+    requirement: [
+      "Description",
+      "Acceptance Criteria",
+      "Verification Scenarios",
+      "API Contract",
+      "Security Criteria",
+      "Performance Criteria",
+    ],
+    entity: [
+      "Fields",
+      "Relationships",
+      "Business Rules",
+      "Indexes",
+    ],
+    endpoint: [
+      "HTTP Method & Path",
+      "Request Body",
+      "Response Body",
+      "Query Parameters",
+      "Headers",
+      "Error Responses",
+      "Authentication",
+      "Rate Limiting",
+    ],
+    change: [
+      "Summary",
+      "Motivation",
+      "Affected Components",
+      "Migration Plan",
+      "Rollback Plan",
+      "Testing Strategy",
+    ],
+    business_rule: [
+      "Rule Text",
+      "Scope",
+      "Exceptions",
+      "Related Entities",
+    ],
+    use_case: [
+      "Actors",
+      "Preconditions",
+      "Postconditions",
+      "Main Flow",
+      "Alternative Flows",
+      "Exceptions",
+    ],
+    flow: [
+      "Steps",
+      "Decision Points",
+      "Parallel Paths",
+      "Error Handling",
+    ],
+    architecture_component: [
+      "Layer",
+      "Technology",
+      "Responsibilities",
+      "Interfaces",
+      "Dependencies",
+    ],
+    domain: [
+      "Domain Description",
+      "Key Concepts",
+      "Ubiquitous Language",
+      "Bounded Context",
+    ],
+    project: [
+      "Project Description",
+      "Tech Stack",
+      "Architecture Overview",
+      "Key Decisions",
+    ],
+  }
+
+  return templates[nodeType] || ["Details"]
 }
 
 /**
@@ -3648,6 +3777,131 @@ function createAllTools(): Record<string, ToolDefinition> {
         }
 
         return `Unknown action \`${action}\`. Use list, create, update, remove, mark_integrated, open_change or approve_change.`
+      },
+    }),
+
+    // ── Markdown Hybrid Architecture ─────────────────────
+    "sdd.generate_node_doc": tool({
+      description: "Generate detailed markdown documentation for a graph node using LLM based on graph context and templates.",
+      args: {
+        node_id: tool.schema.string().describe("Node ID to generate documentation for"),
+        template: tool.schema.enum(["feature", "requirement", "entity", "endpoint", "change", "auto"]).optional().describe("Template to use (auto-detects from node type if not specified)"),
+        force_regenerate: tool.schema.boolean().optional().describe("Force regeneration even if markdown file exists"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+        const node = graph.nodes.find(n => n.id === args.node_id)
+        if (!node) return `Node ${args.node_id} not found.`
+
+        const mdRepo = new MarkdownRepository(ctx.directory)
+
+        // Check if already exists and not forcing
+        if (mdRepo.exists(node.id) && !args.force_regenerate) {
+          return `Markdown file already exists for ${node.id}. Use force_regenerate=true to overwrite.`
+        }
+
+        // Determine template
+        const template = args.template === "auto" || !args.template ? node.type : args.template
+
+        // Build context from graph relationships
+        const outgoing = graph.relationships.filter(r => r.from === node.id)
+        const incoming = graph.relationships.filter(r => r.to === node.id)
+        const context = {
+          node,
+          outgoing: outgoing.map(r => `${r.type} → ${r.to} (${graph.nodes.find(n => n.id === r.to)?.name || "?"})`),
+          incoming: incoming.map(r => `${r.type} ← ${r.from} (${graph.nodes.find(n => n.id === r.from)?.name || "?"})`),
+        }
+
+        // Generate markdown using template
+        const markdown = generateMarkdownFromTemplate(node, context, template)
+
+        // Write markdown file
+        mdRepo.write(node, markdown)
+
+        // Update node.md_path if not set
+        if (!node.md_path) {
+          node.md_path = `.sdd/docs/${node.id}.md`
+          repo.saveGraph(graph)
+        }
+
+        return `Generated markdown documentation for ${node.id} at .sdd/docs/${node.id}.md`
+      },
+    }),
+
+    "sdd.read_node_doc": tool({
+      description: "Read the full markdown documentation for a node.",
+      args: {
+        node_id: tool.schema.string().describe("Node ID to read documentation for"),
+      },
+      async execute(args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const mdRepo = new MarkdownRepository(ctx.directory)
+        const doc = mdRepo.read(args.node_id)
+        if (!doc) return `No markdown documentation found for node ${args.node_id}.`
+        return doc.body
+      },
+    }),
+
+    "sdd.sync_markdown": tool({
+      description: "Sync all markdown files with the current graph state. Creates missing files, updates front-matter for version changes.",
+      args: {},
+      async execute(_args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+
+        // Ensure all nodes have md_path
+        let updatedCount = 0
+        for (const node of graph.nodes) {
+          if (!node.md_path) {
+            node.md_path = `.sdd/docs/${node.id}.md`
+            updatedCount++
+          }
+        }
+        if (updatedCount > 0) {
+          repo.saveGraph(graph)
+        }
+
+        const mdRepo = new MarkdownRepository(ctx.directory)
+        const result = mdRepo.syncFromGraph(graph)
+
+        return `Markdown sync complete:
+- Created: ${result.created}
+- Updated: ${result.updated}
+- Skipped: ${result.skipped}
+- Nodes with md_path updated: ${updatedCount}`
+      },
+    }),
+
+    "sdd.validate_markdown_sync": tool({
+      description: "Validate markdown files are in sync with graph nodes. Reports mismatches, orphans, and missing files.",
+      args: {},
+      async execute(_args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+        const report = validateMarkdownSync(graph, ctx.directory)
+        return formatSyncReport(report)
+      },
+    }),
+
+    "sdd.fix_markdown_sync": tool({
+      description: "Auto-fix markdown sync issues: add missing md_path, create missing markdown files.",
+      args: {},
+      async execute(_args, ctx) {
+        const repo = getRepo(ctx.directory)
+        if (!repo.isInitialized()) return "SDD not initialized."
+        const graph = repo.loadGraph()
+        const result = autoFixMarkdownSync(graph, ctx.directory)
+        if (result.fixed > 0) {
+          repo.saveGraph(graph)
+        }
+        return `Markdown sync fix complete:
+- Fixed: ${result.fixed}
+- Errors: ${result.errors.length > 0 ? result.errors.join(", ") : "none"}`
       },
     }),
 

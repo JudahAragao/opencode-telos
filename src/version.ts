@@ -8,7 +8,7 @@
  */
 
 // BEGIN GENERATED: PLUGIN_VERSION (scripts/sync-version.cjs)
-export const PLUGIN_VERSION = "3.2.5"
+export const PLUGIN_VERSION = "3.2.6"
 // END GENERATED: PLUGIN_VERSION
 
 /**
@@ -16,4 +16,4 @@ export const PLUGIN_VERSION = "3.2.5"
  * `graph.version` and `metadata.sdd_version`). It is independent of the
  * release do plugin e evolui apenas quando o schema do grafo muda.
  */
-export const GRAPH_SCHEMA_VERSION = "1.3.0"
+export const GRAPH_SCHEMA_VERSION = "1.4.0"
